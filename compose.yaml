@@ -1,0 +1,131 @@
+name: examtwin
+
+x-examtwin-python: &examtwin-python
+  image: examtwin-python:local
+  env_file:
+    - .env
+  environment:
+    DATABASE_URL: postgresql://${POSTGRES_USER:-examtwin}:${POSTGRES_PASSWORD:-examtwin_dev}@127.0.0.1:55432/${POSTGRES_DB:-examtwin}
+    QDRANT_URL: http://127.0.0.1:6333
+    CORPUS_ROOT: /app/data/牛津AQA/数学
+    OBJECT_STORE_BACKEND: ${OBJECT_STORE_BACKEND:-local}
+    OBJECT_STORE_LOCAL_ROOT: /app/var
+    OBJECT_STORE_CACHE_DIR: /app/var/object-cache
+    OBJECT_STORE_ENDPOINT_URL: http://127.0.0.1:8333
+    OBJECT_STORE_BUCKET: ${OBJECT_STORE_BUCKET:-examtwin}
+    OBJECT_STORE_REGION: ${OBJECT_STORE_REGION:-us-east-1}
+    OBJECT_STORE_ACCESS_KEY: ${OBJECT_STORE_ACCESS_KEY:-examtwin}
+    OBJECT_STORE_SECRET_KEY: ${OBJECT_STORE_SECRET_KEY:-examtwin_dev_secret}
+    PYTHONUNBUFFERED: "1"
+    HTTP_PROXY: ${HTTP_PROXY:-}
+    HTTPS_PROXY: ${HTTPS_PROXY:-}
+    ALL_PROXY: ${ALL_PROXY:-}
+    NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1}
+  user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
+  network_mode: host
+  volumes:
+    - type: bind
+      source: ./data/牛津AQA/数学
+      target: /app/data/牛津AQA/数学
+      read_only: true
+      bind:
+        create_host_path: false
+    - type: bind
+      source: ${EXAMTWIN_STORAGE_ROOT:-./var}
+      target: /app/var
+  depends_on:
+    postgres:
+      condition: service_healthy
+    qdrant:
+      condition: service_healthy
+  init: true
+  restart: unless-stopped
+
+services:
+  seaweedfs:
+    profiles: ["s3"]
+    image: chrislusf/seaweedfs:4.27
+    command: ["mini", "-dir=/data"]
+    environment:
+      AWS_ACCESS_KEY_ID: ${OBJECT_STORE_ACCESS_KEY:-examtwin}
+      AWS_SECRET_ACCESS_KEY: ${OBJECT_STORE_SECRET_KEY:-examtwin_dev_secret}
+      S3_BUCKET: ${OBJECT_STORE_BUCKET:-examtwin}
+    ports:
+      - "127.0.0.1:8333:8333"
+      - "127.0.0.1:9333:9333"
+    volumes:
+      - examtwin_objects:/data
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-examtwin}
+      POSTGRES_USER: ${POSTGRES_USER:-examtwin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-examtwin_dev}
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - examtwin_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-examtwin} -d ${POSTGRES_DB:-examtwin}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  qdrant:
+    image: qdrant/qdrant:v1.15.4
+    ports:
+      - "127.0.0.1:6333:6333"
+      - "127.0.0.1:6334:6334"
+    volumes:
+      - examtwin_qdrant:/qdrant/storage
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  api:
+    <<: *examtwin-python
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+      network: host
+    command: ["uvicorn", "examtwin.main:app", "--host", "127.0.0.1", "--port", "8000"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import json, urllib.request; data=json.load(urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=3)); assert data.get('api_contract_version') == '2026-08-03.persistence-hardening-v11'; assert 'required_answer_artifacts_v1' in data.get('capabilities', []); assert 'syllabus_driven_curriculum_v1' in data.get('capabilities', []); assert 'managed_object_storage_v1' in data.get('capabilities', []); assert 'bounded_paper_upload_v1' in data.get('capabilities', []); assert 'source_identity_diagnostics_v1' in data.get('capabilities', []); assert 'local_only_access_v1' in data.get('capabilities', [])",
+        ]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+      start_period: 5s
+
+  paper-worker:
+    <<: *examtwin-python
+    command: ["examtwin", "paper-worker"]
+    deploy:
+      replicas: ${PAPER_WORKER_REPLICAS:-2}
+
+  storage-gc:
+    <<: *examtwin-python
+    command: ["examtwin", "storage-gc-worker"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  examtwin_postgres:
+  examtwin_qdrant:
+  examtwin_objects:

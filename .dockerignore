@@ -1,0 +1,10 @@
+.env
+.git
+.codegraph
+.agents
+.venv
+data
+frontend
+var
+__pycache__
+*.pyc
