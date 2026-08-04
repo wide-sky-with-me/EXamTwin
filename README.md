@@ -15,7 +15,7 @@ RAG 作答与 mark scheme 自动初评工作台。
 
 | 层 | 实现 |
 |---|---|
-| Python | `uv`、FastAPI、LlamaIndex |
+| Python | `uv`、FastAPI；内部 provider-neutral Agent Harness，LlamaIndex/LiteLLM 作为适配器 |
 | 文档解析 | `llama-index-readers-mineru`，precision 模式，PDF 超过 200 页时分段且可续跑 |
 | 解题/评分 | OpenAI-compatible API，默认 `gpt-5.6-sol`，解题为 medium reasoning |
 | 试卷视觉复核 | PyMuPDF 渲染页图，`gpt-5.6-terra` 对照 MinerU 逐页修复并保存检查点 |
@@ -82,7 +82,7 @@ OBJECT_STORE_BACKEND=s3 uv run examtwin storage-migrate --execute
 派生页图默认保留 30 天，答案 PNG 默认保留 30 天；Markdown 课程缓存无自动过期。
 
 `docker compose ps` 中 `api` 必须显示为 `healthy`。其健康检查不仅要求 HTTP 200，
-还会校验 v11 契约、持久化保护层、课纲候选流水线与答案作图门禁；因此旧 API 不会被误判成可用。原始 9660
+还会校验 v16 契约、持久化保护层、课纲候选流水线与答案作图门禁；因此旧 API 不会被误判成可用。原始 9660
 资料以只读方式挂载进 API/Worker，单一 `var/` 根目录用于可写缓存、任务和答案图片。代码变化后重新执行
 `docker compose up -d --build api paper-worker storage-gc`，由 API 服务唯一构建共享镜像，保证
 API、Worker 与 GC 同版本，同时避免 Compose 为同一镜像重复执行三次构建。
@@ -138,12 +138,17 @@ Repository 与显式 Session 事务；
 `postgresql+psycopg://`。Alembic 会在 API 启动时幂等升级，也可显式执行 `uv run examtwin db-upgrade`。
 业务服务和 API 不再持有旧 `Database` 包装器或拼接 SQL；Alembic 是唯一 schema 来源。
 
-知识点不再维护在 `seed/knowledge_<subject>.py` 一类逐科常量文件中。新增科目在
-`examtwin/subjects/` 注册一个小型 `SubjectPack`：考试局、科目代码、Unit 映射、课纲编号模式、
-试卷 Unit 识别、学科文字正规化策略和最小完整性阈值；通用提取器不包含数学或经济学术语；
-主题、学习目标、来源页、层级和初始特征全部由统一 `CurriculumExtractor` 从已转换课纲生成。
+知识点不再维护在 `seed/knowledge_<subject>.py` 一类逐科常量文件中。新科目放在
+`subject-packs/<pack-id>/`：`manifest.json` 声明考试局、科目代码、Unit 映射、课纲编号模式、
+完整性阈值和答题工具 allowlist，`SKILL.md` 仅保存已审核的学科作答语义。加载器在
+服务启动边界校验 schema 版本、文件越界、科目/Unit 唯一性、正则和工具子集，并记录
+Package/SKILL 摘要。Manifest 不能加载任意 Python；确实需要学科专用规则时，只能按键引用
+服务端已注册的 visual policy 或 curriculum normalizer。主题、学习目标、来源页、层级和
+初始特征仍由统一 `CurriculumExtractor` 从已转换课纲生成。
 
-已注册第二个真实科目包 `oxfordaqa-economics-9640`。可用已购买的官方 PDF 做零模型调用的结构漂移检查：
+已安装第二个真实科目包 `oxfordaqa-economics-9640`。它的课程解析契约可用，答题策略在
+完成学科审核前显式标记为 disabled，不会静默套用数学 Skill。可用已购买的官方 PDF 做零模型
+调用的结构漂移检查：
 
 ```bash
 uv run examtwin subject-pack-audit --pack oxfordaqa-economics-9640
@@ -199,6 +204,19 @@ PostgreSQL 任务后立即返回；Docker Worker 按 5 页分段调用 MinerU，
 - 可展开的来源文件、页码和证据片段；
 - 匹配到的细粒度 syllabus 学习目标及 `[0,1]` 难度；
 - grounded、置信度、警告和单题失败状态。
+
+Agent system prompt 由三层合成：包内 `prompt_templates/answering/SYSTEM.md` 平台不变量、
+Package `SKILL.md` 学科政策和本题运行时数据；合成摘要随 run ledger 保存。评分与课纲难度
+也复用同一结构化任务原语，各自的静态政策位于受版本控制的模板，动态题目/证据作为单独
+消息传入。账本不保存模型隐式思维，只保存可审计的
+Package/Prompt 摘要、预算、工具调用与结果摘要。同一题后续 attempt 只会复用服务端明确标记为
+replay-safe 的 CAS/确定性矢量工具结果；知识检索和配对试卷证据依赖可变索引，仍每次重新执行。
+
+运行时的 `agent_harness` 只定义消息、模型、协议、工具执行/治理和结构化输出 Port，不导入
+LlamaIndex 或 LiteLLM。现有 ReAct 格式与 LlamaIndex 工具通过 answering adapter 接入，
+LiteLLM 只存在于服务层 provider adapter。每题先根据 `QuestionSpec`、来源图片和严格配卷键
+确定性缩小工具面：知识检索及学科基础验证能力保留，视觉、配卷、绘图和通用生图仅在任务
+确实需要时暴露；强制检索、引用闭合和必需产物门禁仍由领域 Policy 执行，不交给模型自行决定。
 
 `POST /api/v1/papers/answer` 返回 `202 + job_id`；前端通过 WebSocket
 `/api/v1/papers/jobs/{job_id}/events` 接收权威任务快照，并逐步展示页数、题数、Agent 工具步骤

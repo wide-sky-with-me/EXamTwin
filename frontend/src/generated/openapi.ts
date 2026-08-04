@@ -1305,8 +1305,14 @@ export interface components {
         };
         /** SubjectPackResponse */
         SubjectPackResponse: {
+            /** Answering Disabled Reason */
+            answering_disabled_reason: string | null;
+            /** Answering Enabled */
+            answering_enabled: boolean;
             /** Board Name */
             board_name: string;
+            /** Digest */
+            digest: string;
             /** Id */
             id: string;
             /** Subject Code */
@@ -1315,6 +1321,8 @@ export interface components {
             title: string;
             /** Units */
             units: components["schemas"]["SubjectUnitResponse"][];
+            /** Version */
+            version: string;
         };
         /** SubjectUnitResponse */
         SubjectUnitResponse: {

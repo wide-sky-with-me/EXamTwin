@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     local_access_only: bool = True
     api_prefix: str = "/api/v1"
     subject_pack: str = "oxfordaqa-mathematics-9660"
+    subject_packages_root: Path = Path("subject-packs")
 
     mineru_token: SecretStr | None = None
     mineru_mode: str = "precision"
@@ -41,6 +42,7 @@ class Settings(BaseSettings):
     knowledge_difficulty_batch_size: int = Field(default=20, ge=1, le=50)
     grading_model: str = "gpt-5.6-sol"
     grading_reasoning_effort: ReasoningEffort = "medium"
+    grading_timeout: int = Field(default=120, ge=30, le=300)
     paper_split_model: str = "gpt-5.6-luna"
     paper_split_reasoning_effort: ReasoningEffort = "none"
     paper_split_timeout: int = Field(default=90, ge=30, le=300)
@@ -133,6 +135,10 @@ class Settings(BaseSettings):
 
     def resolved(self, path: Path) -> Path:
         return path if path.is_absolute() else PROJECT_ROOT / path
+
+    @property
+    def subject_packages_dir(self) -> Path:
+        return self.resolved(self.subject_packages_root)
 
     @property
     def corpus_dir(self) -> Path:

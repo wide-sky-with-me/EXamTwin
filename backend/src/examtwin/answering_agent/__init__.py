@@ -10,7 +10,7 @@ from examtwin.answering_agent.finalization import (
     AgentFinalPayload,
     LiteLLMFinalAnswerProvider,
 )
-from examtwin.answering_agent.react_runner import LlamaIndexReActRunner
+from examtwin.answering_agent.react_runner import ReActHarnessRunner
 from examtwin.answering_agent.runtime import AnsweringAgentRuntime
 
 __all__ = [
@@ -20,7 +20,7 @@ __all__ = [
     "AnswerTask",
     "AnsweringAgentRuntime",
     "CapabilityRegistry",
-    "LlamaIndexReActRunner",
+    "ReActHarnessRunner",
     "LiteLLMFinalAnswerProvider",
     "QuestionImage",
     "SubjectSkill",

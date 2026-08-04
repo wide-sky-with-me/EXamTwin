@@ -1,6 +1,9 @@
 import json
+from collections.abc import Sequence
+from typing import TypeVar
 
 import pytest
+from examtwin.agent_harness import HarnessMessage
 from examtwin.config import get_settings
 from examtwin.persistence.assessment_repository import AssessmentRepository
 from examtwin.persistence.corpus_repository import CorpusRepository
@@ -13,6 +16,9 @@ from examtwin.schemas import (
     ReviewRequest,
 )
 from examtwin.services.grading import GradingService, symbolic_checks
+from pydantic import BaseModel
+
+StructuredResultT = TypeVar("StructuredResultT", bound=BaseModel)
 
 
 class FakeResponse:
@@ -48,9 +54,18 @@ class FakeResponse:
     )
 
 
-class FakeLLM:
-    def complete(self, _: str) -> FakeResponse:
-        return FakeResponse()
+class FakeStructuredModel:
+    model_name = "fake-grading-model"
+
+    def complete(
+        self,
+        _messages: Sequence[HarnessMessage],
+        response_model: type[StructuredResultT],
+        *,
+        timeout: float,
+    ) -> StructuredResultT:
+        assert timeout > 0
+        return response_model.model_validate(json.loads(FakeResponse.text))
 
 
 def test_safe_symbolic_equivalence() -> None:
@@ -78,15 +93,15 @@ def test_symbolic_check_rejects_unsafe_input() -> None:
 
 
 @pytest.mark.integration
-def test_grading_always_enters_review_queue(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_grading_always_enters_review_queue() -> None:
     settings = get_settings()
     upgrade_database(settings.database_url)
     sessions = create_session_factory(settings.database_url)
-    monkeypatch.setattr("examtwin.services.grading.build_llm", lambda *_args, **_kwargs: FakeLLM())
     service = GradingService(
         CorpusRepository(sessions),
         AssessmentRepository(sessions),
         settings,
+        structured_model=FakeStructuredModel(),
     )
     result = service.grade(
         GradeRequest(

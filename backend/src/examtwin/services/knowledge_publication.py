@@ -14,7 +14,7 @@ from examtwin.services.difficulty import (
     calculate_difficulty,
     derive_objective_features,
 )
-from examtwin.subjects import OXFORDAQA_MATHEMATICS_9660, SubjectPack
+from examtwin.subjects import SubjectPack, get_subject_pack
 
 
 class _ModelDumpable(Protocol):
@@ -47,9 +47,10 @@ def _relation(
 
 def extract_syllabus_objectives(
     markdown: str,
-    subject_pack: SubjectPack = OXFORDAQA_MATHEMATICS_9660,
+    subject_pack: SubjectPack | None = None,
 ) -> list[dict[str, Any]]:
     """Compatibility projection from the reusable curriculum extractor."""
+    subject_pack = subject_pack or get_subject_pack("oxfordaqa-mathematics-9660")
     candidate = get_curriculum_extractor(subject_pack).extract(
         markdown,
         subject_pack,

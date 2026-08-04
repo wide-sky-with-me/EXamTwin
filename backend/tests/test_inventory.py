@@ -1,7 +1,9 @@
 from pathlib import Path
 
 from examtwin.services.inventory import classify_source, parse_exam_identity
-from examtwin.subjects import OXFORDAQA_MATHEMATICS_9660
+from examtwin.subjects import get_subject_pack
+
+OXFORDAQA_MATHEMATICS_9660 = get_subject_pack("oxfordaqa-mathematics-9660")
 
 
 def test_classifies_hyphenated_mark_scheme() -> None:

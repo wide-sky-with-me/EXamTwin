@@ -14,14 +14,16 @@ from examtwin.answering_agent import (
 from examtwin.answering_agent.contracts import (
     AgentRunContext,
     QuestionImage,
+    ToolReplayPayload,
 )
-from examtwin.answering_agent.skills import MATHEMATICS_9660
+from examtwin.answering_agent.policies import select_answering_tool_names
 from examtwin.answering_agent.tools import (
     KnowledgeSearchTool,
     LiteLLMQuestionVisionProvider,
     QuestionVisionTool,
 )
 from examtwin.config import Settings
+from examtwin.subject_packages import get_subject_package
 from llama_index.core.llms import (
     ImageBlock,
     MockLLM,
@@ -38,6 +40,8 @@ from backend.tests.answering_agent_support import (
     _citation,
     _nodes,
 )
+
+MATHEMATICS_9660 = get_subject_package("oxfordaqa-mathematics-9660").require_skill()
 
 
 @pytest.mark.parametrize(
@@ -69,6 +73,24 @@ def test_mathematics_skill_selects_only_the_required_answer_visual(
     expected: str | None,
 ) -> None:
     assert MATHEMATICS_9660.required_visual_tool(question) == expected
+
+
+def test_answering_policy_exposes_only_task_relevant_conditional_tools() -> None:
+    selected = select_answering_tool_names(
+        MATHEMATICS_9660,
+        AnswerTask(
+            subject_code="9660",
+            question="Sketch y=x^2 on the axes.",
+            pair_key="oxfordaqa:9660:2025:june:p1",
+            question_images=(QuestionImage(page_number=1, content=b"\xff\xd8\xff\xd9"),),
+        ),
+    )
+
+    assert "question_vision" in selected
+    assert "paired_exam_lookup" in selected
+    assert "math_plot" in selected
+    assert "math_diagram" not in selected
+    assert "image_generate" not in selected
 
 
 def test_factory_uses_paper_vision_model_without_changing_main_model(
@@ -115,7 +137,7 @@ def test_factory_uses_paper_vision_model_without_changing_main_model(
             AgentRunContext(task=AnswerTask(subject_code="9660", question="Sketch y=x^2.")),
         )
     )
-    assert "math_plot" in {tool.metadata.name for tool in resolved}
+    assert "math_plot" in {tool.spec.name for tool in resolved}
 
 
 def test_litellm_question_vision_uses_images_and_strict_schema(
@@ -335,6 +357,57 @@ def test_runtime_forces_question_vision_and_injects_observation_into_main_llm() 
     assert any(
         step.tool_name == "question_vision" and step.status == "completed" for step in result.steps
     )
+
+
+def test_runtime_reuses_persisted_question_vision_for_identical_pages() -> None:
+    class ReplayLedger:
+        calls: list[str] = []
+
+        def start_run(self, **_kwargs: Any) -> None:
+            self.calls.append("start_run")
+
+        def find_replay(self, **_kwargs: Any) -> ToolReplayPayload:
+            self.calls.append("find_replay")
+            return ToolReplayPayload(
+                observation="The original page shows a labelled quadratic graph."
+            )
+
+        def tool_started(self, **_kwargs: Any) -> None:
+            raise AssertionError("a replayed vision call must not start another provider call")
+
+        def tool_finished(self, **_kwargs: Any) -> None:
+            raise AssertionError("a replayed vision call must not write another result")
+
+        def finish_run(self, status: str) -> None:
+            self.calls.append(f"finish_run:{status}")
+
+    vision_llm = CapturingVisionLLM()
+    ledger = ReplayLedger()
+    runtime = AnsweringAgentRuntime(
+        llm=MockLLM(),
+        skills=(MATHEMATICS_9660,),
+        registry=CapabilityRegistry(
+            tools=(
+                QuestionVisionTool(vision_llm, timeout_seconds=2),  # type: ignore[arg-type]
+                KnowledgeSearchTool(_nodes, _citation),
+            )
+        ),
+        runner=NoEvidenceRunner(),
+        question_vision_replay_identity="test-vision-provider-v1",
+    )
+
+    result = runtime.solve(
+        AnswerTask(
+            subject_code="9660",
+            question="Read the original graph.",
+            question_images=(QuestionImage(page_number=1, content=b"\xff\xd8\xff\xd9"),),
+        ),
+        ledger=ledger,
+    )
+
+    assert vision_llm.calls == 0
+    assert ledger.calls == ["find_replay", "finish_run:completed"]
+    assert any("持久执行账本复用" in step.message for step in result.steps)
 
 
 def test_runtime_does_not_call_question_vision_without_images() -> None:

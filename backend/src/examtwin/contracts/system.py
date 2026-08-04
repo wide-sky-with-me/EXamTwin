@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-API_CONTRACT_VERSION = "2026-08-04.engineering-contract-v14"  # gitleaks:allow
+API_CONTRACT_VERSION = "2026-08-04.composable-harness-v16"  # gitleaks:allow
 
 API_CAPABILITIES = (
     "paper_jobs_v1",
@@ -44,4 +44,12 @@ API_CAPABILITIES = (
     "request_correlation_v1",
     "resilient_storage_gc_v1",
     "openapi_generated_types_v1",
+    "versioned_subject_packages_v1",
+    "layered_agent_prompt_v1",
+    "agent_run_ledger_v1",
+    "replay_safe_tool_results_v1",
+    "composable_agent_harness_v1",
+    "provider_neutral_agent_contracts_v1",
+    "task_scoped_tool_surface_v1",
+    "shared_structured_model_tasks_v1",
 )

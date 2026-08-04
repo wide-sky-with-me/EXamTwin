@@ -50,12 +50,17 @@ def health(settings: Settings = Depends(get_settings)) -> HealthResponse:
 
 @router.get("/subject", response_model=SubjectPackResponse)
 def subject_metadata(settings: Settings = Depends(get_settings)) -> SubjectPackResponse:
-    pack = subject_context(settings).pack
+    package = subject_context(settings).package
+    pack = package.pack
     return SubjectPackResponse(
         id=pack.id,
+        version=package.manifest.version,
+        digest=package.digest,
         subject_code=pack.subject_code,
         title=pack.title,
         board_name=pack.board.name,
+        answering_enabled=package.answering_enabled,
+        answering_disabled_reason=package.answering_disabled_reason,
         units=[
             SubjectUnitResponse(code=unit.code, title=unit.title, strand=unit.strand)
             for unit in pack.unit_rules

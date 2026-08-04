@@ -2500,8 +2500,27 @@
       },
       "SubjectPackResponse": {
         "properties": {
+          "answering_disabled_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answering Disabled Reason"
+          },
+          "answering_enabled": {
+            "title": "Answering Enabled",
+            "type": "boolean"
+          },
           "board_name": {
             "title": "Board Name",
+            "type": "string"
+          },
+          "digest": {
+            "title": "Digest",
             "type": "string"
           },
           "id": {
@@ -2522,13 +2541,21 @@
             },
             "title": "Units",
             "type": "array"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
           }
         },
         "required": [
           "id",
+          "version",
+          "digest",
           "subject_code",
           "title",
           "board_name",
+          "answering_enabled",
+          "answering_disabled_reason",
           "units"
         ],
         "title": "SubjectPackResponse",

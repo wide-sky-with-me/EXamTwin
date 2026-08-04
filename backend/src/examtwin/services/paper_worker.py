@@ -10,10 +10,11 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from examtwin.answering_agent.contracts import AgentStep, QuestionImage
+from examtwin.answering_agent.contracts import AgentRunLedger, AgentStep, QuestionImage
 from examtwin.config import Settings
 from examtwin.persistence.paper_job_repository import LostLeaseError
 from examtwin.schemas.papers import PaperQuestionAnswer
+from examtwin.services.agent_run_ledger import PaperAgentRunLedger
 from examtwin.services.corpus_ingestion import render_documents
 from examtwin.services.inventory import parse_exam_identity
 from examtwin.services.paper_answering import PaperAnswerService
@@ -348,6 +349,18 @@ class PaperWorker:
     ) -> PaperQuestionAnswer:
         for attempt in range(1, self.settings.paper_question_max_attempts + 1):
             run_attempt = self.jobs.start_question(job_id, token, row["position"])
+            repository = getattr(self.jobs, "repository", None)
+            ledger = (
+                None
+                if repository is None
+                else PaperAgentRunLedger(
+                    repository,
+                    job_id=job_id,
+                    lease_token=token,
+                    question_position=row["position"],
+                    run_attempt=run_attempt,
+                )
+            )
             try:
                 return self._answer_question(
                     row,
@@ -359,6 +372,7 @@ class PaperWorker:
                         run_attempt,
                         step,
                     ),
+                    ledger=ledger,
                 )
             except LostLeaseError:
                 raise
@@ -388,6 +402,7 @@ class PaperWorker:
         unit_code: str | None,
         *,
         event_sink: Callable[[AgentStep], None],
+        ledger: AgentRunLedger | None = None,
     ) -> PaperQuestionAnswer:
         source_pages, question_images = self._load_question_images(row)
         job_id = str(row.get("job_id", "")).strip()
@@ -407,6 +422,8 @@ class PaperWorker:
             "unit_code": unit_code,
             "event_sink": event_sink,
         }
+        if ledger is not None and isinstance(self.answer_service, PaperAnswerService):
+            call_options["ledger"] = ledger
         if pair_key:
             call_options["pair_key"] = pair_key
         return self.answer_service.answer_question(

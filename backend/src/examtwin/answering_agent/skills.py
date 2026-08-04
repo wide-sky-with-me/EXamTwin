@@ -1,7 +1,5 @@
 import re
 
-from examtwin.answering_agent.contracts import SubjectSkill
-
 _ANSWER_VISUAL_REQUEST = re.compile(
     r"""
     (?:^|[.!?;:]\s+|\n[ \t]*)
@@ -85,44 +83,6 @@ def mathematics_source_plot_overlay_mode(question: str) -> str | None:
     return None
 
 
-MATHEMATICS_9660 = SubjectSkill(
-    name="oxfordaqa-mathematics-9660",
-    subject_codes=("9660",),
-    instructions=(
-        "You are an OxfordAQA International AS/A-level Mathematics (9660) tutor. "
-        "Show enough mathematical working for the requested result and preserve "
-        "standard mathematical notation in Markdown. Respect exact values, units, "
-        "domains, endpoint conventions and the requested degree of accuracy. "
-        "Treat drawing as a separate answer artifact: use math_plot for function "
-        "graphs, coordinate plots, cobweb or staircase diagrams, and statistical "
-        "line plots; use math_diagram for geometry, vectors, constructions, loci, "
-        "number lines, and other figures without mathematical coordinate axes. "
-        "Use image_generate only for a genuinely pictorial educational illustration "
-        "that neither exact vector tool can represent; never use it for coordinate "
-        "graphs, statistical plots, exact geometry, constructions, tables, or text "
-        "that must be mathematically precise. "
-        "Before drawing, derive and check the decisive coordinates, intercepts, "
-        "turning points, asymptotes, labels, boundaries, and shaded-region vertices. "
-        "When the question says to draw on supplied axes, a figure, diagram, or grid, "
-        "math_plot calibrates a vector overlay to the trusted original-paper pixels; "
-        "do not recreate that background or use image generation. "
-        "Create the complete figure in one tool call and do not imitate a drawing "
-        "with Markdown, ASCII art, raw SVG, HTML, JavaScript, or base64."
-    ),
-    tool_names=(
-        "question_vision",
-        "knowledge_search",
-        "source_read",
-        "paired_exam_lookup",
-        "math_calculate",
-        "probability_calculate",
-        "math_plot",
-        "math_diagram",
-        "image_generate",
-    ),
-    required_tool_names=("knowledge_search",),
-    mandatory_tool_names=("knowledge_search",),
-    visual_tool_selector=select_mathematics_answer_visual_tool,
-)
-
-SUBJECT_SKILLS = (MATHEMATICS_9660,)
+VISUAL_TOOL_POLICIES = {
+    "mathematics-answer-visual-v1": select_mathematics_answer_visual_tool,
+}

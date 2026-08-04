@@ -7,6 +7,7 @@ from urllib.parse import quote
 
 from examtwin.answering_agent.contracts import (
     AgentEventSink,
+    AgentRunLedger,
     AnswerTask,
     QuestionImage,
     QuestionSpec,
@@ -386,6 +387,7 @@ class RagService:
         question_spec: QuestionSpec | None = None,
         visual_request_text: str | None = None,
         event_sink: AgentEventSink | None = None,
+        ledger: AgentRunLedger | None = None,
     ) -> AskResponse:
         self.subject.require(request.subject_code)
         runtime = build_answering_runtime(
@@ -395,6 +397,7 @@ class RagService:
             documents=self.documents,
             final_answer_provider=self.final_answer_provider,
             object_store=self.object_store,
+            subject_package=self.subject.package,
         )
         result = runtime.solve(
             AnswerTask(
@@ -411,6 +414,7 @@ class RagService:
                 question_images=question_images,
             ),
             event_sink=event_sink,
+            ledger=ledger,
         )
         citations = list(result.citations)
         codes = sorted(

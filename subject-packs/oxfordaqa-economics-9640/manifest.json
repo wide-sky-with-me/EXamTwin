@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "version": "2026-08-04.1",
+  "id": "oxfordaqa-economics-9640",
+  "subject_code": "9640",
+  "title": "OxfordAQA International AS/A-level Economics (9640)",
+  "board_id": "oxfordaqa",
+  "specification_ref": "data/牛津AQA/经济/00_旧库补充/官方资料/考试大纲/oxfordaqa-a-level-economics-specification.pdf",
+  "curriculum": {
+    "unit_rules": [
+      {
+        "code": "U1",
+        "title": "Unit 1: Markets, market failure and government",
+        "strand": "Microeconomics",
+        "source_page": 10,
+        "topic_prefixes": ["3.1"]
+      },
+      {
+        "code": "U2",
+        "title": "Unit 2: The national economy in a global environment",
+        "strand": "Macroeconomics",
+        "source_page": 19,
+        "topic_prefixes": ["3.2"]
+      },
+      {
+        "code": "U3",
+        "title": "Unit 3: Business behaviour and income distribution",
+        "strand": "Microeconomics",
+        "source_page": 25,
+        "topic_prefixes": ["3.3"]
+      },
+      {
+        "code": "U4",
+        "title": "Unit 4: Economic development and the global economy",
+        "strand": "Global economics",
+        "source_page": 34,
+        "topic_prefixes": ["3.4"]
+      }
+    ],
+    "topic_code_pattern": "3\\.[1-4]\\.\\d+\\.\\d+",
+    "unit_patterns": [
+      ["\\beconomics\\s*u1a?\\b|\\bunit\\s*1\\b", "U1"],
+      ["\\beconomics\\s*u2a?\\b|\\bunit\\s*2\\b", "U2"],
+      ["\\beconomics\\s*u3a?\\b|\\bunit\\s*3\\b", "U3"],
+      ["\\beconomics\\s*u4a?\\b|\\bunit\\s*4\\b", "U4"]
+    ],
+    "paper_unit_map": {
+      "1": "U1",
+      "2": "U2",
+      "3": "U3",
+      "4": "U4"
+    },
+    "minimum_topics": 75,
+    "minimum_objectives": 120,
+    "extractor_key": "structured-markdown-v1",
+    "normalizer_key": "default-v1"
+  },
+  "answering": {
+    "enabled": false,
+    "disabled_reason": "The 9640 curriculum pack is installed, but its answering policy has not yet been reviewed.",
+    "tool_names": [],
+    "required_tool_names": [],
+    "mandatory_tool_names": []
+  }
+}

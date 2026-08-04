@@ -10,7 +10,9 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, sessionmaker
 
 from examtwin.persistence.models import (
+    PaperAgentRunModel,
     PaperAgentStepModel,
+    PaperAgentToolCallModel,
     PaperJobChunkModel,
     PaperJobModel,
     PaperJobQuestionModel,
@@ -465,6 +467,140 @@ class PaperJobRepository:
                     ]
                 )
             )
+
+    def start_agent_run(self, values: Mapping[str, Any], token: str) -> None:
+        job_id = str(values["job_id"])
+        with self.sessions.begin() as session:
+            self._require_lease(session, job_id, token)
+            statement = insert(PaperAgentRunModel).values(**dict(values))
+            session.execute(
+                statement.on_conflict_do_update(
+                    index_elements=[
+                        PaperAgentRunModel.job_id,
+                        PaperAgentRunModel.question_position,
+                        PaperAgentRunModel.run_attempt,
+                    ],
+                    set_={
+                        "package_id": statement.excluded.package_id,
+                        "package_version": statement.excluded.package_version,
+                        "package_digest": statement.excluded.package_digest,
+                        "skill_digest": statement.excluded.skill_digest,
+                        "prompt_digest": statement.excluded.prompt_digest,
+                        "model_name": statement.excluded.model_name,
+                        "max_iterations": statement.excluded.max_iterations,
+                        "max_tool_calls": statement.excluded.max_tool_calls,
+                        "status": "running",
+                        "completed_at": None,
+                    },
+                )
+            )
+
+    def finish_agent_run(
+        self,
+        job_id: str,
+        token: str,
+        position: int,
+        run_attempt: int,
+        status: str,
+    ) -> None:
+        with self.sessions.begin() as session:
+            self._require_lease(session, job_id, token)
+            result = session.execute(
+                update(PaperAgentRunModel)
+                .where(
+                    PaperAgentRunModel.job_id == job_id,
+                    PaperAgentRunModel.question_position == position,
+                    PaperAgentRunModel.run_attempt == run_attempt,
+                )
+                .values(status=status, completed_at=utcnow())
+            )
+            if affected_rows(result) != 1:
+                raise RuntimeError("agent run ledger was not started")
+
+    def start_agent_tool_call(self, values: Mapping[str, Any], token: str) -> None:
+        job_id = str(values["job_id"])
+        with self.sessions.begin() as session:
+            self._require_lease(session, job_id, token)
+            statement = insert(PaperAgentToolCallModel).values(**dict(values))
+            session.execute(
+                statement.on_conflict_do_update(
+                    index_elements=[
+                        PaperAgentToolCallModel.job_id,
+                        PaperAgentToolCallModel.question_position,
+                        PaperAgentToolCallModel.run_attempt,
+                        PaperAgentToolCallModel.call_key,
+                    ],
+                    set_={
+                        "status": "running",
+                        "result_digest": None,
+                        "replay_json": None,
+                        "error_type": None,
+                        "completed_at": None,
+                    },
+                )
+            )
+
+    def finish_agent_tool_call(
+        self,
+        job_id: str,
+        token: str,
+        position: int,
+        run_attempt: int,
+        call_key: str,
+        *,
+        status: str,
+        result_digest: str | None,
+        replay_json: str | None,
+        error_type: str | None,
+    ) -> None:
+        with self.sessions.begin() as session:
+            self._require_lease(session, job_id, token)
+            result = session.execute(
+                update(PaperAgentToolCallModel)
+                .where(
+                    PaperAgentToolCallModel.job_id == job_id,
+                    PaperAgentToolCallModel.question_position == position,
+                    PaperAgentToolCallModel.run_attempt == run_attempt,
+                    PaperAgentToolCallModel.call_key == call_key,
+                )
+                .values(
+                    status=status,
+                    result_digest=result_digest,
+                    replay_json=replay_json,
+                    error_type=error_type,
+                    completed_at=utcnow(),
+                )
+            )
+            if affected_rows(result) != 1:
+                raise RuntimeError("agent tool ledger entry was not started")
+
+    def agent_tool_replay(
+        self,
+        job_id: str,
+        token: str,
+        position: int,
+        run_attempt: int,
+        call_key: str,
+        execution_fingerprint: str,
+    ) -> str | None:
+        statement = (
+            select(PaperAgentToolCallModel.replay_json)
+            .where(
+                PaperAgentToolCallModel.job_id == job_id,
+                PaperAgentToolCallModel.question_position == position,
+                PaperAgentToolCallModel.run_attempt < run_attempt,
+                PaperAgentToolCallModel.call_key == call_key,
+                PaperAgentToolCallModel.execution_fingerprint == execution_fingerprint,
+                PaperAgentToolCallModel.replay_safe.is_(True),
+                PaperAgentToolCallModel.status == "completed",
+                PaperAgentToolCallModel.replay_json.is_not(None),
+            )
+            .order_by(PaperAgentToolCallModel.run_attempt.desc())
+            .limit(1)
+        )
+        with self.sessions.begin() as session:
+            self._require_lease(session, job_id, token)
+            return session.scalar(statement)
 
     def complete_question(
         self,

@@ -11,6 +11,7 @@ from examtwin.answering_agent import (
 from examtwin.answering_agent.contracts import (
     AgentRunContext,
     QuestionImage,
+    QuestionSpec,
 )
 from examtwin.answering_agent.tools import (
     KnowledgeSearchTool,
@@ -19,6 +20,7 @@ from examtwin.answering_agent.tools import (
     MathPlotTool,
     ProbabilityCalculateTool,
 )
+from examtwin.schemas import SubpartRequirement
 from PIL import Image, ImageDraw
 
 from backend.tests.answering_agent_support import (
@@ -32,7 +34,18 @@ from backend.tests.answering_agent_support import (
 def test_runtime_executes_tools_and_uses_observations_in_final_answer() -> None:
     events = []
     result = _runtime(ToolUsingRunner()).solve(
-        AnswerTask(subject_code="9660", question="Solve x^2 - 5x + 6 = 0."),
+        AnswerTask(
+            subject_code="9660",
+            question="Solve x^2 - 5x + 6 = 0 and draw a root diagram.",
+            question_spec=QuestionSpec(
+                subparts=(
+                    SubpartRequirement(
+                        answer_kind="math_diagram",
+                        required_tool="math_diagram",
+                    ),
+                )
+            ),
+        ),
         event_sink=events.append,
     )
 

@@ -6,10 +6,12 @@ import uuid
 from collections.abc import Mapping, Sequence
 from typing import Any, Protocol
 
+from examtwin.agent_harness import StructuredModelPort, StructuredTask, StructuredTaskRunner
 from examtwin.config import Settings
 from examtwin.persistence.knowledge_build_repository import KnowledgeBuildRepository
 from examtwin.persistence.knowledge_repository import KnowledgeRepository
 from examtwin.persistence.session import utcnow
+from examtwin.prompt_templates import load_prompt_template
 from examtwin.services.cache_paths import resolve_markdown_cache_path
 from examtwin.services.curriculum import (
     CurriculumCandidate,
@@ -18,7 +20,7 @@ from examtwin.services.curriculum import (
     validate_curriculum_candidate,
 )
 from examtwin.services.knowledge_publication import publish_curriculum_graph
-from examtwin.services.model_json import validate_structured_response
+from examtwin.services.structured_model import LiteLLMStructuredModel
 from examtwin.services.subject_context import SubjectContext
 from examtwin.subjects import SubjectPack
 from pydantic import BaseModel, ConfigDict, Field
@@ -65,73 +67,59 @@ class SyllabusDifficultyProvider(Protocol):
 class LiteLLMSyllabusDifficultyProvider:
     """Use provider-constrained JSON to estimate syllabus features in bounded batches."""
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        structured_model: StructuredModelPort | None = None,
+    ) -> None:
         credential = settings.llm_provider_api_key
-        if credential is None or not credential.get_secret_value():
+        if structured_model is None and (credential is None or not credential.get_secret_value()):
             raise RuntimeError("LLM credential is required for AI syllabus difficulty")
         self.model = settings.knowledge_difficulty_model
         self.api_base = settings.llm_provider_base_url
-        self.api_key = credential.get_secret_value()
+        self.api_key = "" if credential is None else credential.get_secret_value()
         self.reasoning_effort = settings.knowledge_difficulty_reasoning_effort
         self.timeout = settings.knowledge_difficulty_timeout
         self.batch_size = settings.knowledge_difficulty_batch_size
+        self.runner = StructuredTaskRunner(
+            structured_model
+            or LiteLLMStructuredModel(
+                model=self.model,
+                api_base=self.api_base,
+                api_key=self.api_key,
+                reasoning_effort=self.reasoning_effort,
+                max_retries=1,
+            )
+        )
 
     def assess_batch(
         self,
         subject_pack: SubjectPack,
         objectives: Sequence[Mapping[str, Any]],
     ) -> dict[str, SyllabusDifficultyAssessment]:
-        # Keep LiteLLM (which may refresh its public model-cost map on import)
-        # out of schema-only and deterministic knowledge builds.
-        from litellm import completion
-
         if not objectives or len(objectives) > self.batch_size:
             raise ValueError(f"AI difficulty batch must contain 1..{self.batch_size} objectives")
         expected = {str(item["code"]) for item in objectives}
-        request_options: dict[str, Any] = {
-            "model": self.model if self.model.startswith("openai/") else f"openai/{self.model}",
-            "api_base": self.api_base,
-            "api_key": self.api_key,
-            "messages": [
+        task = StructuredTask(
+            system_prompt=load_prompt_template("difficulty/SYSTEM.md"),
+            user_content=json.dumps(
                 {
-                    "role": "system",
-                    "content": (
-                        "Estimate cold-start learning-objective features from the official "
-                        "syllabus only. These are D-level AI estimates, never official "
-                        "ratings. "
-                        "Judge intrinsic content complexity, cognitive demand, prerequisite "
-                        "depth, and likely assessable solution steps. Use confidence at most "
-                        "0.45 and give a short evidence-based rationale. Return every supplied "
-                        "code exactly once and no other code."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": json.dumps(
+                    "subject": subject_pack.title,
+                    "objectives": [
                         {
-                            "subject": subject_pack.title,
-                            "objectives": [
-                                {
-                                    "code": item["code"],
-                                    "parent": item["parent"],
-                                    "title": item["title"],
-                                    "description": item.get("description", ""),
-                                }
-                                for item in objectives
-                            ],
-                        },
-                        ensure_ascii=False,
-                    ),
+                            "code": item["code"],
+                            "parent": item["parent"],
+                            "title": item["title"],
+                            "description": item.get("description", ""),
+                        }
+                        for item in objectives
+                    ],
                 },
-            ],
-            "response_format": SyllabusDifficultyBatch,
-            "timeout": self.timeout,
-            "max_retries": 1,
-        }
-        if self.reasoning_effort != "none":
-            request_options["reasoning_effort"] = self.reasoning_effort
-        response = completion(**request_options)
-        payload = validate_structured_response(response, SyllabusDifficultyBatch)
+                ensure_ascii=False,
+            ),
+        )
+        payload = self.runner.run(task, SyllabusDifficultyBatch, timeout=self.timeout)
         actual = {item.code for item in payload.assessments}
         if actual != expected or len(payload.assessments) != len(expected):
             missing = sorted(expected - actual)

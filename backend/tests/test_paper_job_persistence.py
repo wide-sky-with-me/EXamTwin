@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from examtwin.answering_agent.contracts import ToolReplayPayload
 from examtwin.config import Settings
 from examtwin.persistence.paper_job_repository import LostLeaseError
 from examtwin.schemas import (
@@ -15,6 +16,7 @@ from examtwin.schemas import (
     PaperDiagramSource,
     PaperQuestionAnswer,
 )
+from examtwin.services.agent_run_ledger import PaperAgentRunLedger
 from examtwin.services.paper_vision import (
     VisionReviewResult,
     format_physical_page_markdown,
@@ -29,6 +31,77 @@ from backend.tests.paper_job_support import (
     _pdf_bytes,
     _test_database,
 )
+
+
+@pytest.mark.integration
+def test_agent_tool_ledger_replays_a_completed_safe_call_across_attempts(
+    tmp_path: Path,
+) -> None:
+    database = _test_database()
+    settings = Settings(object_store_local_root=tmp_path)
+    jobs = _job_service(database, settings)
+    runtime = _job_runtime(database, settings)
+    created = jobs.create_job("paper.md", b"# Question 1\nCalculate 2+2.", unit_code="P1")
+    claimed = runtime.claim_next()
+    assert claimed is not None
+    _, token = claimed
+    runtime.store_questions(
+        created.job_id,
+        token,
+        [{"number": "1", "question_markdown": "Calculate 2+2."}],
+    )
+
+    first_attempt = runtime.start_question(created.job_id, token, 0)
+    first = PaperAgentRunLedger(
+        runtime.repository,
+        job_id=created.job_id,
+        lease_token=token,
+        question_position=0,
+        run_attempt=first_attempt,
+    )
+    run_metadata = {
+        "package_id": "oxfordaqa-mathematics-9660",
+        "package_version": "test-v1",
+        "package_digest": "package-digest",
+        "skill_digest": "skill-digest",
+        "prompt_digest": "prompt-digest",
+        "model_name": "test-model",
+        "max_iterations": 4,
+        "max_tool_calls": 2,
+    }
+    first.start_run(**run_metadata)
+    first.tool_started(
+        call_key="call-key",
+        tool_name="math_calculate",
+        input_digest="input-digest",
+        execution_fingerprint="execution-fingerprint",
+        replay_safe=True,
+    )
+    first.tool_finished(
+        call_key="call-key",
+        status="completed",
+        result_digest="result-digest",
+        replay=ToolReplayPayload(observation="evaluate(2+2) = 4"),
+        error_type=None,
+    )
+    first.finish_run("failed")
+    runtime.requeue_question(created.job_id, token, 0, RuntimeError("retry"))
+
+    second_attempt = runtime.start_question(created.job_id, token, 0)
+    second = PaperAgentRunLedger(
+        runtime.repository,
+        job_id=created.job_id,
+        lease_token=token,
+        question_position=0,
+        run_attempt=second_attempt,
+    )
+
+    replay = second.find_replay(
+        call_key="call-key",
+        execution_fingerprint="execution-fingerprint",
+    )
+    assert replay is not None
+    assert replay.observation == "evaluate(2+2) = 4"
 
 
 @pytest.mark.integration

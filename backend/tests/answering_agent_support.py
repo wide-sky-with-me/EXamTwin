@@ -4,6 +4,7 @@ import asyncio
 import json
 from typing import Any
 
+from examtwin.agent_harness import HarnessMessage, HarnessTool
 from examtwin.answering_agent import (
     AgentFinalPayload,
     AnsweringAgentRuntime,
@@ -12,13 +13,13 @@ from examtwin.answering_agent import (
 from examtwin.answering_agent.contracts import (
     AgentRunContext,
 )
-from examtwin.answering_agent.skills import MATHEMATICS_9660
 from examtwin.answering_agent.tools import (
     KnowledgeSearchTool,
     MathCalculateTool,
     MathDiagramTool,
 )
 from examtwin.schemas import Citation
+from examtwin.subject_packages import get_subject_package
 from llama_index.core.llms import (
     ChatMessage,
     ChatResponse,
@@ -29,8 +30,9 @@ from llama_index.core.llms import (
     MockLLM,
 )
 from llama_index.core.schema import NodeWithScore, TextNode
-from llama_index.core.tools import BaseTool
 from pydantic import Field
+
+MATHEMATICS_9660 = get_subject_package("oxfordaqa-mathematics-9660").require_skill()
 
 
 def _nodes(_query: str, **_kwargs: Any) -> list[NodeWithScore]:
@@ -67,29 +69,32 @@ class ToolUsingRunner:
     async def run(
         self,
         *,
-        tools: list[BaseTool],
+        tools: list[HarnessTool],
         context: AgentRunContext,
         **_kwargs: Any,
     ) -> str:
-        by_name = {tool.metadata.name: tool for tool in tools}
+        by_name = {tool.spec.name: tool for tool in tools}
         context.emit("tool", "running", "检索知识库中", tool_name="knowledge_search")
-        evidence = await by_name["knowledge_search"].acall(
-            query="quadratic discriminant",
-            top_k=3,
+        evidence = await by_name["knowledge_search"].invoke(
+            {"query": "quadratic discriminant", "top_k": 3}
         )
         context.emit("tool", "completed", "检索知识库完成", tool_name="knowledge_search")
-        calculation = await by_name["math_calculate"].acall(
-            operation="solve",
-            expression="x^2 - 5*x + 6 = 0",
-            variable="x",
+        calculation = await by_name["math_calculate"].invoke(
+            {
+                "operation": "solve",
+                "expression": "x^2 - 5*x + 6 = 0",
+                "variable": "x",
+            }
         )
-        await by_name["math_diagram"].acall(
-            title="Two roots on an axis",
-            elements=[
-                {"kind": "line", "x1": 20, "y1": 60, "x2": 180, "y2": 60},
-                {"kind": "point", "x": 80, "y": 60},
-                {"kind": "point", "x": 120, "y": 60},
-            ],
+        await by_name["math_diagram"].invoke(
+            {
+                "title": "Two roots on an axis",
+                "elements": [
+                    {"kind": "line", "x1": 20, "y1": 60, "x2": 180, "y2": 60},
+                    {"kind": "point", "x": 80, "y": 60},
+                    {"kind": "point", "x": 120, "y": 60},
+                ],
+            }
         )
         assert "[S1]" in evidence.content
         assert "[2, 3]" in calculation.content
@@ -201,13 +206,13 @@ class CapturingFinalAnswerProvider:
         self.error = error
         self.delay = delay
         self.calls = 0
-        self.messages: list[ChatMessage] = []
+        self.messages: list[HarnessMessage] = []
         self.draft: str | None = None
         self.finalize_timeout: float | None = None
 
     async def finalize(
         self,
-        messages: list[ChatMessage],
+        messages: list[HarnessMessage],
         *,
         draft: str | None = None,
         allowed_citation_ids: tuple[str, ...] | None = None,

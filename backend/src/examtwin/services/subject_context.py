@@ -4,16 +4,21 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from examtwin.config import Settings
-from examtwin.subjects import SubjectPack, get_subject_pack
+from examtwin.subject_packages import SubjectPackage, get_subject_package
+from examtwin.subjects import SubjectPack
 
 
 @dataclass(frozen=True)
 class SubjectContext:
     """Complete, non-optional subject boundary for one service deployment."""
 
-    pack: SubjectPack
+    package: SubjectPackage
     corpus_dir: Path
     vector_alias: str
+
+    @property
+    def pack(self) -> SubjectPack:
+        return self.package.pack
 
     @property
     def subject_code(self) -> str:
@@ -28,7 +33,7 @@ class SubjectContext:
 
 def subject_context(settings: Settings) -> SubjectContext:
     return SubjectContext(
-        pack=get_subject_pack(settings.subject_pack),
+        package=get_subject_package(settings.subject_pack, settings.subject_packages_dir),
         corpus_dir=settings.corpus_dir,
         vector_alias=settings.qdrant_collection_alias,
     )

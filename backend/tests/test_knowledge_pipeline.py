@@ -1,16 +1,23 @@
 from __future__ import annotations
 
+import json
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 import pytest
+from examtwin.agent_harness import HarnessMessage
 from examtwin.config import Settings
 from examtwin.services import knowledge_pipeline
 from examtwin.services.knowledge_pipeline import (
     KnowledgeBuildPipeline,
+    LiteLLMSyllabusDifficultyProvider,
     SyllabusDifficultyAssessment,
 )
 from examtwin.services.subject_context import subject_context
+from pydantic import BaseModel
+
+StructuredResultT = TypeVar("StructuredResultT", bound=BaseModel)
 
 
 class FakeRepository:
@@ -72,6 +79,40 @@ class FakeDifficultyProvider:
             )
             for objective in objectives
         }
+
+
+class FakeStructuredDifficultyModel:
+    model_name = "fake-difficulty-model"
+
+    def __init__(self) -> None:
+        self.messages: Sequence[HarnessMessage] = ()
+
+    def complete(
+        self,
+        messages: Sequence[HarnessMessage],
+        response_model: type[StructuredResultT],
+        *,
+        timeout: float,
+    ) -> StructuredResultT:
+        assert timeout > 0
+        self.messages = messages
+        request = json.loads(messages[1].content)
+        return response_model.model_validate(
+            {
+                "assessments": [
+                    {
+                        "code": item["code"],
+                        "syllabus_complexity": 0.6,
+                        "cognitive_demand": 0.65,
+                        "prerequisite_depth": 3,
+                        "solution_steps": 5,
+                        "confidence": 0.4,
+                        "rationale": "Several linked syllabus operations are required.",
+                    }
+                    for item in request["objectives"]
+                ]
+            }
+        )
 
 
 def _syllabus_cache(tmp_path: Path) -> tuple[Path, str]:
@@ -154,3 +195,26 @@ def test_ai_cold_start_confidence_cannot_claim_high_authority() -> None:
             confidence=0.9,
             rationale="Not allowed to look official.",
         )
+
+
+def test_syllabus_difficulty_uses_the_shared_structured_harness() -> None:
+    settings = Settings()
+    model = FakeStructuredDifficultyModel()
+    provider = LiteLLMSyllabusDifficultyProvider(settings, structured_model=model)
+    subject_pack = subject_context(settings).pack
+
+    result = provider.assess_batch(
+        subject_pack,
+        [
+            {
+                "code": "P1.1.O01",
+                "parent": "P1.1",
+                "title": "Use index laws.",
+                "description": "Apply several index transformations.",
+            }
+        ],
+    )
+
+    assert list(result) == ["P1.1.O01"]
+    assert isinstance(result["P1.1.O01"], SyllabusDifficultyAssessment)
+    assert "D-level AI estimates" in model.messages[0].content

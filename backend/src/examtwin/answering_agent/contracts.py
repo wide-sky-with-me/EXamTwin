@@ -5,7 +5,6 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from llama_index.core.tools import BaseTool
 from pydantic import BaseModel, Field
 
 from examtwin.schemas.evidence import (
@@ -78,6 +77,9 @@ class SubjectSkill:
     required_tool_names: tuple[str, ...] = ()
     mandatory_tool_names: tuple[str, ...] = ()
     visual_tool_selector: Callable[[str], str | None] | None = None
+    version: str = "1"
+    digest: str = ""
+    package_digest: str = ""
 
     def required_visual_tool(self, question: str) -> str | None:
         if self.visual_tool_selector is None:
@@ -134,14 +136,69 @@ class AgentStep:
 AgentEventSink = Callable[[AgentStep], None]
 
 
+class ToolReplayPayload(BaseModel):
+    """Public tool observation and typed context effects safe to replay."""
+
+    observation: str = Field(max_length=24_000)
+    citations: tuple[Citation, ...] = ()
+    diagrams: tuple[AnswerDiagram, ...] = ()
+    images: tuple[AnswerImage, ...] = ()
+
+
+class AgentRunLedger(Protocol):
+    def start_run(
+        self,
+        *,
+        package_id: str,
+        package_version: str,
+        package_digest: str,
+        skill_digest: str,
+        prompt_digest: str,
+        model_name: str,
+        max_iterations: int,
+        max_tool_calls: int,
+    ) -> None: ...
+
+    def find_replay(
+        self,
+        *,
+        call_key: str,
+        execution_fingerprint: str,
+    ) -> ToolReplayPayload | None: ...
+
+    def tool_started(
+        self,
+        *,
+        call_key: str,
+        tool_name: str,
+        input_digest: str,
+        execution_fingerprint: str,
+        replay_safe: bool,
+    ) -> None: ...
+
+    def tool_finished(
+        self,
+        *,
+        call_key: str,
+        status: str,
+        result_digest: str | None,
+        replay: ToolReplayPayload | None,
+        error_type: str | None,
+    ) -> None: ...
+
+    def finish_run(self, status: str) -> None: ...
+
+
 @dataclass
 class AgentRunContext:
     task: AnswerTask
     event_sink: AgentEventSink | None = None
+    ledger: AgentRunLedger | None = None
     citations: list[Citation] = field(default_factory=list)
     diagrams: list[AnswerDiagram] = field(default_factory=list)
     images: list[AnswerImage] = field(default_factory=list)
     steps: list[AgentStep] = field(default_factory=list)
+    prompt_digest: str | None = None
     _sequence: int = 0
     _artifact_rollbacks: list[Callable[[], None]] = field(default_factory=list, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
@@ -236,13 +293,3 @@ class AnswerAgentResult:
     warnings: tuple[str, ...]
     steps: tuple[AgentStep, ...]
     images: tuple[AnswerImage, ...] = ()
-
-
-class AgentTool(Protocol):
-    name: str
-
-    def bind(self, context: AgentRunContext) -> BaseTool: ...
-
-
-class CapabilityProvider(Protocol):
-    async def load_tools(self, allowed_names: set[str]) -> list[BaseTool]: ...

@@ -8,6 +8,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     Text,
     UniqueConstraint,
@@ -345,6 +346,64 @@ class PaperAgentStepModel(Base):
     tool_name: Mapped[str | None] = mapped_column(Text)
     message: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class PaperAgentRunModel(Base):
+    __tablename__ = "paper_agent_runs"
+    __table_args__ = (UniqueConstraint("job_id", "question_position", "run_attempt"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    job_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("paper_jobs.id", ondelete="CASCADE"),
+    )
+    question_position: Mapped[int] = mapped_column(Integer)
+    run_attempt: Mapped[int] = mapped_column(Integer)
+    package_id: Mapped[str] = mapped_column(Text)
+    package_version: Mapped[str] = mapped_column(Text)
+    package_digest: Mapped[str] = mapped_column(Text)
+    skill_digest: Mapped[str] = mapped_column(Text)
+    prompt_digest: Mapped[str] = mapped_column(Text)
+    model_name: Mapped[str] = mapped_column(Text)
+    max_iterations: Mapped[int] = mapped_column(Integer)
+    max_tool_calls: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(Text)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PaperAgentToolCallModel(Base):
+    __tablename__ = "paper_agent_tool_calls"
+    __table_args__ = (
+        UniqueConstraint("job_id", "question_position", "run_attempt", "call_key"),
+        Index(
+            "idx_paper_agent_tool_replay",
+            "job_id",
+            "question_position",
+            "call_key",
+            "execution_fingerprint",
+            "status",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    job_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("paper_jobs.id", ondelete="CASCADE"),
+    )
+    question_position: Mapped[int] = mapped_column(Integer)
+    run_attempt: Mapped[int] = mapped_column(Integer)
+    call_key: Mapped[str] = mapped_column(Text)
+    tool_name: Mapped[str] = mapped_column(Text)
+    input_digest: Mapped[str] = mapped_column(Text)
+    execution_fingerprint: Mapped[str] = mapped_column(Text)
+    replay_safe: Mapped[bool] = mapped_column(Boolean)
+    status: Mapped[str] = mapped_column(Text)
+    result_digest: Mapped[str | None] = mapped_column(Text)
+    replay_json: Mapped[str | None] = mapped_column(Text)
+    error_type: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class KnowledgeRelationModel(Base):

@@ -1,18 +1,18 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Callable
 from typing import Protocol
 
 from llama_index.core.llms import LLM
 from llama_index.core.schema import NodeWithScore
 
-from examtwin.answering_agent.capabilities import CapabilityRegistry
-from examtwin.answering_agent.contracts import AgentTool
+from examtwin.answering_agent.capabilities import AgentTool, CapabilityRegistry
 from examtwin.answering_agent.finalization import FinalAnswerProvider
 from examtwin.answering_agent.mcp import MCPServerConfig, MCPToolProvider
-from examtwin.answering_agent.react_runner import LlamaIndexReActRunner, WorkflowRunner
+from examtwin.answering_agent.react_runner import ReActHarnessRunner, WorkflowRunner
 from examtwin.answering_agent.runtime import AnsweringAgentRuntime
-from examtwin.answering_agent.skills import SUBJECT_SKILLS
 from examtwin.answering_agent.tools import (
     AnswerImageStore,
     ImageGenerationTool,
@@ -26,6 +26,7 @@ from examtwin.answering_agent.tools import (
     SourceReadTool,
 )
 from examtwin.answering_agent.tools.paired_exam import PairedExamReader
+from examtwin.answering_agent.tools.question_vision import QUESTION_VISION_CONTRACT_VERSION
 from examtwin.config import Settings
 from examtwin.schemas.evidence import Citation
 from examtwin.services.providers import (
@@ -36,6 +37,7 @@ from examtwin.services.providers import (
 )
 from examtwin.services.source_context import SourceDocumentReader
 from examtwin.storage import ManagedObjectStore
+from examtwin.subject_packages import SubjectPackage, get_subject_package
 
 
 def _mcp_providers(settings: Settings) -> tuple[MCPToolProvider, ...]:
@@ -77,7 +79,12 @@ def build_answering_runtime(
     runner: WorkflowRunner | None = None,
     final_answer_provider: FinalAnswerProvider | None = None,
     object_store: ManagedObjectStore | None = None,
+    subject_package: SubjectPackage | None = None,
 ) -> AnsweringAgentRuntime:
+    package = subject_package or get_subject_package(
+        settings.subject_pack,
+        settings.subject_packages_dir,
+    )
     tools: list[AgentTool] = [
         QuestionVisionTool(
             vision_llm,
@@ -129,9 +136,22 @@ def build_answering_runtime(
     )
     resolved_runner = runner
     if resolved_runner is None:
-        resolved_runner = LlamaIndexReActRunner(
+        resolved_runner = ReActHarnessRunner(
             final_answer_provider=final_answer_provider or build_final_answer_provider(settings)
         )
+    question_vision_replay_identity = None
+    if vision_llm is None:
+        vision_identity = json.dumps(
+            {
+                "contract": QUESTION_VISION_CONTRACT_VERSION,
+                "provider_base_url": settings.llm_provider_base_url,
+                "model": settings.paper_vision_model,
+                "reasoning_effort": settings.paper_vision_reasoning_effort,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        question_vision_replay_identity = hashlib.sha256(vision_identity.encode()).hexdigest()
     return AnsweringAgentRuntime(
         llm=llm
         or build_llm(
@@ -139,12 +159,13 @@ def build_answering_runtime(
             timeout=settings.answer_agent_timeout,
             max_retries=1,
         ),
-        skills=SUBJECT_SKILLS,
+        skills=(package.require_skill(),),
         registry=registry,
         runner=resolved_runner,
         max_iterations=settings.answer_agent_max_iterations,
         max_tool_calls=settings.answer_agent_max_tool_calls,
         timeout=settings.answer_agent_timeout,
+        question_vision_replay_identity=question_vision_replay_identity,
     )
 
 

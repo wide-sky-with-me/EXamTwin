@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
-from examtwin.answering_agent.contracts import AgentEventSink, QuestionImage
+from examtwin.answering_agent.contracts import AgentEventSink, AgentRunLedger, QuestionImage
 from examtwin.config import Settings
 from examtwin.persistence.knowledge_repository import KnowledgeRepository
 from examtwin.schemas.evidence import Citation
@@ -297,6 +297,7 @@ Paper Markdown:
         unit_code: str | None,
         pair_key: str | None = None,
         event_sink: AgentEventSink | None = None,
+        ledger: AgentRunLedger | None = None,
     ) -> PaperQuestionAnswer:
         number = str(item.get("number", "?")).strip() or "?"
         question = str(item.get("question_markdown", "")).strip()
@@ -323,6 +324,15 @@ Paper Markdown:
         source_types = ["syllabus", "textbook", "question_paper"]
         if pair_key is not None:
             source_types.append("mark_scheme")
+        rag_options: dict[str, Any] = {
+            "question_images": question_images,
+            "question_number": number,
+            "question_spec": question_spec,
+            "visual_request_text": question,
+            "event_sink": event_sink,
+        }
+        if ledger is not None:
+            rag_options["ledger"] = ledger
         response = self.rag.ask(
             AskRequest(
                 question=(
@@ -337,11 +347,7 @@ Paper Markdown:
                 source_types=source_types,
                 top_k=6,
             ),
-            question_images=question_images,
-            question_number=number,
-            question_spec=question_spec,
-            visual_request_text=question,
-            event_sink=event_sink,
+            **rag_options,
         )
         return PaperQuestionAnswer(
             number=number,
@@ -393,6 +399,7 @@ Paper Markdown:
         unit_code: str | None = None,
         pair_key: str | None = None,
         event_sink: AgentEventSink | None = None,
+        ledger: AgentRunLedger | None = None,
     ) -> PaperQuestionAnswer:
         return self._answer_one(
             item,
@@ -400,6 +407,7 @@ Paper Markdown:
             unit_code,
             pair_key,
             event_sink,
+            ledger,
         )
 
     def answer(

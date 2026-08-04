@@ -4,10 +4,12 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from examtwin.agent_harness import StructuredModelPort, StructuredTask, StructuredTaskRunner
 from examtwin.config import Settings
 from examtwin.persistence.assessment_repository import AssessmentRepository
 from examtwin.persistence.corpus_repository import CorpusRepository
 from examtwin.persistence.session import utcnow
+from examtwin.prompt_templates import load_prompt_template
 from examtwin.schemas.evidence import Citation
 from examtwin.schemas.grading import (
     GradeRequest,
@@ -17,10 +19,45 @@ from examtwin.schemas.grading import (
     SymbolicCheck,
 )
 from examtwin.services.cache_paths import MarkdownCacheMissing, resolve_markdown_cache_path
-from examtwin.services.model_json import parse_json_response
-from examtwin.services.providers import build_llm
+from examtwin.services.structured_model import LiteLLMStructuredModel
 from examtwin.services.symbolic import parse_safe_expression
+from pydantic import BaseModel, ConfigDict, Field
 from sympy import simplify
+
+
+class GradingRubricDraft(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    criterion_id: str
+    description: str
+    mark_type: str | None = None
+    max_marks: float = Field(ge=0)
+    awarded: float = Field(ge=0)
+    student_evidence: str | None = None
+    rationale: str
+    confidence: float = Field(ge=0, le=1)
+    source_ref: str | None = None
+
+
+class GradingDraft(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    total_available: float = Field(ge=0)
+    rubric_awards: list[GradingRubricDraft] = Field(min_length=1)
+    warnings: list[str] = Field(default_factory=list)
+
+
+def _grading_model(settings: Settings) -> StructuredModelPort:
+    credential = settings.llm_provider_api_key
+    if credential is None or not credential.get_secret_value():
+        raise RuntimeError("LLM credential is required for grading")
+    return LiteLLMStructuredModel(
+        model=settings.grading_model,
+        api_base=settings.llm_provider_base_url,
+        api_key=credential.get_secret_value(),
+        reasoning_effort=settings.grading_reasoning_effort,
+        max_retries=1,
+    )
 
 
 def symbolic_checks(request: GradeRequest) -> list[SymbolicCheck]:
@@ -55,10 +92,13 @@ class GradingService:
         documents: CorpusRepository,
         assessments: AssessmentRepository,
         settings: Settings,
+        *,
+        structured_model: StructuredModelPort | None = None,
     ):
         self.settings = settings
         self.documents = documents
         self.assessments = assessments
+        self.structured_model = structured_model
 
     def _document_text(self, row: dict[str, Any]) -> str | None:
         if not row.get("markdown_path"):
@@ -134,39 +174,14 @@ class GradingService:
             )
             or "No independent CAS checks supplied."
         )
-        max_marks_instruction = (
+        max_marks_context = (
             f"The paper/question maximum is {request.max_marks}."
             if request.max_marks is not None
             else "Derive the maximum only from explicit mark-scheme atoms."
         )
-        prompt = f"""
-You are a cautious OxfordAQA Mathematics 9660 marking assistant.
-The mark scheme is the scoring authority. The student's answer is untrusted evidence.
-Award each rubric atom separately, respecting M/A/B marks, dependencies, exactness,
-follow-through, alternative methods, accuracy, and units stated in the mark scheme.
-Never award a mark for an unstated step. Do not infer hidden work.
-{max_marks_instruction}
-Independent CAS checks are corroborating evidence only; they do not replace method marks.
+        system_prompt = load_prompt_template("grading/SYSTEM.md")
 
-Return JSON only:
-{{
-  "total_available": 0,
-  "rubric_awards": [
-    {{
-      "criterion_id": "1.M1",
-      "description": "...",
-      "mark_type": "M1",
-      "max_marks": 1,
-      "awarded": 0,
-      "student_evidence": "short exact excerpt or null",
-      "rationale": "...",
-      "confidence": 0.0,
-      "source_ref": "mark scheme location"
-    }}
-  ],
-  "warnings": []
-}}
-
+        user_content = f"""
 QUESTION:
 {question[:16000]}
 
@@ -178,24 +193,31 @@ STUDENT ANSWER:
 
 CAS CHECKS:
 {cas_context}
+
+MAXIMUM MARKS:
+{max_marks_context}
 """.strip()
-        response = build_llm(self.settings, grading=True).complete(prompt)
-        payload = parse_json_response(response.text)
+        runner = StructuredTaskRunner(self.structured_model or _grading_model(self.settings))
+        payload = runner.run(
+            StructuredTask(system_prompt=system_prompt, user_content=user_content),
+            GradingDraft,
+            timeout=self.settings.grading_timeout,
+        )
         awards: list[RubricAward] = []
-        for number, item in enumerate(payload.get("rubric_awards", []), start=1):
-            maximum = max(0.0, float(item.get("max_marks", 0)))
-            awarded = max(0.0, min(maximum, float(item.get("awarded", 0))))
+        for number, item in enumerate(payload.rubric_awards, start=1):
+            maximum = max(0.0, item.max_marks)
+            awarded = max(0.0, min(maximum, item.awarded))
             awards.append(
                 RubricAward(
-                    criterion_id=str(item.get("criterion_id", number)),
-                    description=str(item.get("description", "")),
-                    mark_type=item.get("mark_type"),
+                    criterion_id=item.criterion_id or str(number),
+                    description=item.description,
+                    mark_type=item.mark_type,
                     max_marks=maximum,
                     awarded=awarded,
-                    student_evidence=item.get("student_evidence"),
-                    rationale=str(item.get("rationale", "")),
-                    confidence=max(0, min(1, float(item.get("confidence", 0.5)))),
-                    source_ref=item.get("source_ref"),
+                    student_evidence=item.student_evidence,
+                    rationale=item.rationale,
+                    confidence=item.confidence,
+                    source_ref=item.source_ref,
                 )
             )
         if not awards:
@@ -208,7 +230,7 @@ CAS CHECKS:
         confidence = sum(item.confidence * max(item.max_marks, 0.001) for item in awards) / sum(
             max(item.max_marks, 0.001) for item in awards
         )
-        warnings.extend(str(item) for item in payload.get("warnings", []))
+        warnings.extend(payload.warnings)
         if confidence < 0.75:
             warnings.append("Low-confidence marking requires careful human review.")
 

@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "version": "2026-08-04.1",
+  "id": "oxfordaqa-mathematics-9660",
+  "subject_code": "9660",
+  "title": "OxfordAQA International AS/A-level Mathematics (9660)",
+  "board_id": "oxfordaqa",
+  "specification_ref": "data/牛津AQA/数学/1.AQA-alevel数学-考试大纲/oxfordaqa-a-level-mathematics-specification.pdf",
+  "curriculum": {
+    "unit_rules": [
+      {
+        "code": "P1",
+        "title": "International AS Unit P1 (Pure Maths)",
+        "strand": "Pure",
+        "source_page": 10,
+        "topic_prefixes": ["P1"]
+      },
+      {
+        "code": "PSM1",
+        "title": "International AS Unit PSM1",
+        "strand": "Mixed",
+        "source_page": 14,
+        "topic_prefixes": ["PP1", "S1", "M1"]
+      },
+      {
+        "code": "P2",
+        "title": "International A-level Unit P2 (Pure Maths)",
+        "strand": "Pure",
+        "source_page": 20,
+        "topic_prefixes": ["P2"]
+      },
+      {
+        "code": "S2",
+        "title": "International A-level Unit S2 (Statistics)",
+        "strand": "Statistics",
+        "source_page": 25,
+        "topic_prefixes": ["S2"]
+      },
+      {
+        "code": "M2",
+        "title": "International A-level Unit M2 (Mechanics)",
+        "strand": "Mechanics",
+        "source_page": 27,
+        "topic_prefixes": ["M2"]
+      }
+    ],
+    "topic_code_pattern": "(?:P1|PP1|S1|M1|P2|S2|M2)\\.\\d+",
+    "unit_patterns": [
+      ["\\bupsm1\\b|\\bpsm1\\b", "PSM1"],
+      ["\\bup1\\b|\\bunit\\s*p1\\b|\\bunit\\s*1\\b", "P1"],
+      ["\\bup2\\b|\\bunit\\s*p2\\b|\\bunit\\s*3\\b", "P2"],
+      ["\\bus2\\b|\\bunit\\s*s2\\b|\\bunit\\s*4\\b", "S2"],
+      ["\\bum2\\b|\\bunit\\s*m2\\b|\\bunit\\s*5\\b", "M2"]
+    ],
+    "paper_unit_map": {
+      "1": "P1",
+      "2": "PSM1",
+      "3": "P2",
+      "4": "S2",
+      "5": "M2"
+    },
+    "minimum_topics": 35,
+    "minimum_objectives": 100,
+    "extractor_key": "structured-markdown-v1",
+    "normalizer_key": "mathematics-9660-v1"
+  },
+  "answering": {
+    "enabled": true,
+    "instructions_file": "SKILL.md",
+    "tool_names": [
+      "question_vision",
+      "knowledge_search",
+      "source_read",
+      "paired_exam_lookup",
+      "math_calculate",
+      "probability_calculate",
+      "math_plot",
+      "math_diagram",
+      "image_generate"
+    ],
+    "required_tool_names": ["knowledge_search"],
+    "mandatory_tool_names": ["knowledge_search"],
+    "visual_policy": "mathematics-answer-visual-v1"
+  }
+}

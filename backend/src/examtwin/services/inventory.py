@@ -8,7 +8,7 @@ from typing import Any
 
 from examtwin.persistence.corpus_repository import CorpusRepository
 from examtwin.persistence.dashboard_repository import DashboardRepository
-from examtwin.subjects import OXFORDAQA_MATHEMATICS_9660, SubjectPack
+from examtwin.subjects import SubjectPack, get_subject_pack
 from pypdf import PdfReader
 
 SUPPORTED_SUFFIXES = {".pdf", ".ppt", ".pptx", ".doc", ".docx", ".md"}
@@ -64,8 +64,9 @@ def classify_source(path: Path) -> str:
 def authority_tier(
     path: Path,
     source_type: str,
-    subject_pack: SubjectPack = OXFORDAQA_MATHEMATICS_9660,
+    subject_pack: SubjectPack | None = None,
 ) -> str:
+    subject_pack = subject_pack or get_subject_pack("oxfordaqa-mathematics-9660")
     if source_type in subject_pack.board.official_source_types:
         return "official"
     if source_type == "textbook" and "赠送" not in str(path):
@@ -146,8 +147,9 @@ def page_count(path: Path) -> int | None:
 def scan_corpus(
     documents: CorpusRepository,
     root: Path,
-    subject_pack: SubjectPack = OXFORDAQA_MATHEMATICS_9660,
+    subject_pack: SubjectPack | None = None,
 ) -> dict[str, Any]:
+    subject_pack = subject_pack or get_subject_pack("oxfordaqa-mathematics-9660")
     if not root.exists():
         raise FileNotFoundError(f"Corpus directory does not exist: {root}")
     counts: Counter[str] = Counter()

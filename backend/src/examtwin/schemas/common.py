@@ -32,9 +32,13 @@ class SubjectUnitResponse(SerializedResponse):
 
 class SubjectPackResponse(SerializedResponse):
     id: str
+    version: str
+    digest: str
     subject_code: str
     title: str
     board_name: str
+    answering_enabled: bool
+    answering_disabled_reason: str | None = None
     units: list[SubjectUnitResponse]
 
 

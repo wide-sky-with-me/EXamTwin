@@ -8,19 +8,20 @@ from examtwin.answering_agent import (
     AnsweringAgentRuntime,
     AnswerTask,
     CapabilityRegistry,
-    LlamaIndexReActRunner,
+    ReActHarnessRunner,
 )
 from examtwin.answering_agent.contracts import (
     AgentRunContext,
     SubjectSkill,
+    ToolReplayPayload,
 )
-from examtwin.answering_agent.skills import MATHEMATICS_9660
 from examtwin.answering_agent.tools import (
     KnowledgeSearchTool,
     MathCalculateTool,
     MathDiagramTool,
     MathPlotTool,
 )
+from examtwin.subject_packages import get_subject_package
 from llama_index.core.llms import (
     CustomLLM,
     MockLLM,
@@ -35,6 +36,8 @@ from backend.tests.answering_agent_support import (
     _nodes,
     _runtime,
 )
+
+MATHEMATICS_9660 = get_subject_package("oxfordaqa-mathematics-9660").require_skill()
 
 
 def test_runtime_refuses_to_mark_an_answer_grounded_without_search_evidence() -> None:
@@ -68,6 +71,63 @@ def test_real_llamaindex_react_loop_calls_tool_then_uses_observation() -> None:
     assert "[S1]" in result.answer_markdown
     assert llm.calls == 2
     assert any(step.tool_name == "knowledge_search" for step in result.steps)
+
+
+def test_react_loop_reuses_only_a_persisted_replay_safe_tool_result() -> None:
+    class ReplayLedger:
+        def __init__(self) -> None:
+            self.started_tools: list[str] = []
+            self.replay_queries = 0
+            self.status: str | None = None
+
+        def start_run(self, **_kwargs: object) -> None:
+            return None
+
+        def find_replay(self, **_kwargs: object) -> ToolReplayPayload:
+            self.replay_queries += 1
+            return ToolReplayPayload(observation="evaluate(2+2) = 4")
+
+        def tool_started(self, *, tool_name: str, **_kwargs: object) -> None:
+            self.started_tools.append(tool_name)
+
+        def tool_finished(self, **_kwargs: object) -> None:
+            return None
+
+        def finish_run(self, status: str) -> None:
+            self.status = status
+
+    llm = ScriptedReActLLM(
+        responses=(
+            (
+                "Thought: Retrieve evidence.\n"
+                "Action: knowledge_search\n"
+                'Action Input: {"query": "arithmetic", "top_k": 3}'
+            ),
+            (
+                "Thought: Check the arithmetic.\n"
+                "Action: math_calculate\n"
+                'Action Input: {"operation": "evaluate", "expression": "2+2"}'
+            ),
+            (
+                "Answer: "
+                '{"answer_markdown":"The checked value is 4. [S1]",'
+                '"citation_ids":["S1"],"confidence":0.9,'
+                '"grounded":true,"warnings":[]}'
+            ),
+        )
+    )
+    ledger = ReplayLedger()
+
+    result = _scripted_runtime(llm).solve(
+        AnswerTask(subject_code="9660", question="Calculate 2+2."),
+        ledger=ledger,
+    )
+
+    assert result.grounded is True
+    assert ledger.replay_queries == 1
+    assert ledger.started_tools == ["knowledge_search"]
+    assert ledger.status == "completed"
+    assert any("持久执行账本复用" in step.message for step in result.steps)
 
 
 def test_react_loop_rejects_early_final_until_mandatory_search_completes() -> None:
@@ -196,7 +256,7 @@ def _scripted_runtime(
             )
         ),
         runner=(
-            LlamaIndexReActRunner(final_answer_provider=final_answer_provider)
+            ReActHarnessRunner(final_answer_provider=final_answer_provider)
             if final_answer_provider is not None
             else None
         ),
@@ -369,11 +429,10 @@ def test_react_loop_requests_a_final_answer_when_tool_budget_is_exhausted() -> N
 
 
 def test_react_loop_suppresses_an_identical_failed_tool_call() -> None:
-    invalid_diagram = (
-        "Thought: I will draw it.\n"
-        "Action: math_diagram\n"
-        'Action Input: {"title": "Unsafe", "elements": '
-        '[{"kind": "path", "d": "M0 0 onclick=alert(1)"}]}'
+    invalid_calculation = (
+        "Thought: I will calculate it.\n"
+        "Action: math_calculate\n"
+        'Action Input: {"operation":"evaluate","expression":"__import__(os)"}'
     )
     llm = ScriptedReActLLM(
         responses=(
@@ -382,13 +441,13 @@ def test_react_loop_suppresses_an_identical_failed_tool_call() -> None:
                 "Action: knowledge_search\n"
                 'Action Input: {"query": "quadratic discriminant", "top_k": 3}'
             ),
-            invalid_diagram,
-            invalid_diagram,
+            invalid_calculation,
+            invalid_calculation,
             (
                 "Answer: "
                 '{"answer_markdown":"The discriminant is $b^2-4ac$. [S1]",'
                 '"confidence":0.8,"grounded":true,'
-                '"warnings":["Diagram omitted after tool failure."]}'
+                '"warnings":["Calculation omitted after tool failure."]}'
             ),
         )
     )
@@ -401,7 +460,9 @@ def test_react_loop_suppresses_an_identical_failed_tool_call() -> None:
     assert result.diagrams == ()
     assert llm.calls == 4
     assert (
-        sum(step.tool_name == "math_diagram" and step.status == "running" for step in result.steps)
+        sum(
+            step.tool_name == "math_calculate" and step.status == "running" for step in result.steps
+        )
         == 1
     )
     assert any("重复失败" in step.message for step in result.steps)

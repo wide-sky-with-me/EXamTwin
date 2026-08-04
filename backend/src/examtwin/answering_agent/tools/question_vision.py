@@ -24,6 +24,7 @@ from examtwin.services.model_json import (
 )
 
 MAX_QUESTION_VISION_OBSERVATION_CHARS = 12_000
+QUESTION_VISION_CONTRACT_VERSION = "question-vision-observation-v1"
 _PLACEHOLDER_OBSERVATIONS = {
     "bounded factual visual inspection",
     "actual visible facts",

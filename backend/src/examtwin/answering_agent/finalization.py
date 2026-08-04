@@ -8,7 +8,6 @@ from collections.abc import Sequence
 from typing import Annotated, Any, Protocol
 
 from litellm import acompletion
-from llama_index.core.llms import ChatMessage
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -17,6 +16,7 @@ from pydantic import (
     field_validator,
 )
 
+from examtwin.agent_harness.model import HarnessMessage
 from examtwin.services.model_json import (
     repair_markdown_latex,
     validate_structured_response,
@@ -107,7 +107,7 @@ def validate_citation_contract(
 class FinalAnswerProvider(Protocol):
     async def finalize(
         self,
-        messages: Sequence[ChatMessage],
+        messages: Sequence[HarnessMessage],
         *,
         draft: str | None = None,
         allowed_citation_ids: Sequence[str] | None = None,
@@ -119,9 +119,8 @@ class FinalAnswerProviderUnavailable(RuntimeError):
     """Raised while the provider circuit is open; callers should use their fallback."""
 
 
-def _message_dict(message: ChatMessage) -> dict[str, str]:
-    role_value = getattr(message.role, "value", message.role)
-    role = str(role_value)
+def _message_dict(message: HarnessMessage) -> dict[str, str]:
+    role = message.role
     if role not in {"system", "user", "assistant", "tool"}:
         raise ValueError(f"Unsupported finalizer message role: {role}")
     content = message.content
@@ -176,7 +175,7 @@ class LiteLLMFinalAnswerProvider:
 
     async def finalize(
         self,
-        messages: Sequence[ChatMessage],
+        messages: Sequence[HarnessMessage],
         *,
         draft: str | None = None,
         allowed_citation_ids: Sequence[str] | None = None,
