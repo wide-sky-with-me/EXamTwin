@@ -11,7 +11,7 @@ from examtwin.answering_agent.contracts import (
     QuestionImage,
     QuestionSpec,
 )
-from examtwin.answering_agent.factory import build_answering_runtime
+from examtwin.answering_agent.factory import AnswerEvidenceReader, build_answering_runtime
 from examtwin.answering_agent.finalization import FinalAnswerProvider
 from examtwin.config import Settings
 from examtwin.persistence.knowledge_repository import KnowledgeRepository
@@ -24,7 +24,6 @@ from examtwin.services.providers import (
     build_embedding,
     build_final_answer_provider,
 )
-from examtwin.services.source_context import SourceDocumentReader
 from examtwin.services.subject_context import SubjectContext
 from examtwin.storage import ManagedObjectStore
 from llama_index.core.schema import NodeWithScore, TextNode
@@ -294,7 +293,7 @@ class RagService:
         settings: Settings,
         subject: SubjectContext,
         knowledge_repository: KnowledgeRepository | None = None,
-        documents: SourceDocumentReader | None = None,
+        documents: AnswerEvidenceReader | None = None,
         *,
         final_answer_provider: FinalAnswerProvider | None = None,
         object_store: ManagedObjectStore | None = None,

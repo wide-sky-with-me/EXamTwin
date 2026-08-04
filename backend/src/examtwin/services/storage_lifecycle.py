@@ -1,15 +1,28 @@
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable
 from datetime import timedelta
 from pathlib import Path
+from typing import TypedDict
 
 from examtwin.config import Settings
+from examtwin.observability import safe_exception_extra
 from examtwin.persistence.session import utcnow
 from examtwin.storage import ManagedObjectStore, ObjectMetadata
 
 MANAGED_PREFIXES = ("corpus/md", "paper-jobs", "answer-artifacts")
+logger = logging.getLogger(__name__)
+
+
+class ObjectMigrationResult(TypedDict):
+    execute: bool
+    discovered: int
+    migrated: int
+    skipped: int
+    failed: int
+    errors: list[str]
 
 
 def _migration_metadata(settings: Settings, key: str, source: Path) -> ObjectMetadata:
@@ -41,7 +54,7 @@ def migrate_local_objects(
     store: ManagedObjectStore,
     *,
     execute: bool,
-) -> dict[str, object]:
+) -> ObjectMigrationResult:
     root = settings.object_store_root.resolve()
     candidates = [
         path
@@ -49,7 +62,7 @@ def migrate_local_objects(
         for path in (root / prefix).rglob("*")
         if path.is_file() and not path.name.startswith(".")
     ]
-    result: dict[str, object] = {
+    result: ObjectMigrationResult = {
         "execute": execute,
         "discovered": len(candidates),
         "migrated": 0,
@@ -67,7 +80,7 @@ def migrate_local_objects(
             metadata = _migration_metadata(settings, key, source)
             if store.exists(key):
                 store.register_existing(key, metadata=metadata)
-                result["skipped"] = int(result["skipped"]) + 1
+                result["skipped"] += 1
             else:
                 with source.open("rb") as stream:
                     store.put_stream(
@@ -76,9 +89,9 @@ def migrate_local_objects(
                         max_bytes=max(1, source.stat().st_size),
                         metadata=metadata,
                     )
-                result["migrated"] = int(result["migrated"]) + 1
+                result["migrated"] += 1
         except Exception as error:
-            result["failed"] = int(result["failed"]) + 1
+            result["failed"] += 1
             errors.append(f"{key}: {type(error).__name__}: {error}"[:500])
     result["errors"] = errors
     return result
@@ -90,9 +103,39 @@ def run_storage_gc_forever(
     batch_size: int,
     interval_seconds: int,
     report: Callable[[dict[str, int]], None] | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+    max_backoff_seconds: int = 300,
 ) -> None:
+    consecutive_failures = 0
     while True:
-        result = store.collect_expired(limit=batch_size)
+        try:
+            result = store.collect_expired(limit=batch_size)
+        except Exception as error:
+            consecutive_failures += 1
+            retry_in = min(
+                max_backoff_seconds,
+                max(1, min(interval_seconds, 2 ** min(consecutive_failures, 8))),
+            )
+            logger.error(
+                "storage_gc_cycle_failed",
+                extra={
+                    "event": "storage_gc_cycle_failed",
+                    "retry_in_seconds": retry_in,
+                    **safe_exception_extra(error),
+                },
+            )
+            sleep(retry_in)
+            continue
+        consecutive_failures = 0
         if report is not None:
-            report(result)
-        time.sleep(interval_seconds)
+            try:
+                report(result)
+            except Exception as error:
+                logger.error(
+                    "storage_gc_report_failed",
+                    extra={
+                        "event": "storage_gc_report_failed",
+                        **safe_exception_extra(error),
+                    },
+                )
+        sleep(interval_seconds)

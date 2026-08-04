@@ -44,9 +44,7 @@ class EnvironmentContractAudit:
             if keys:
                 messages.append(f"{label}: {', '.join(sorted(keys))}")
         if self.duplicate_example_keys:
-            messages.append(
-                f".env.example duplicate: {', '.join(self.duplicate_example_keys)}"
-            )
+            messages.append(f".env.example duplicate: {', '.join(self.duplicate_example_keys)}")
         if self.duplicate_local_keys:
             messages.append(f".env duplicate: {', '.join(self.duplicate_local_keys)}")
         return messages
@@ -70,9 +68,7 @@ def audit_environment_contract(project_root: Path = PROJECT_ROOT) -> Environment
     expected = frozenset(name.upper() for name in Settings.model_fields) | COMPOSE_ONLY_ENV_KEYS
     example, duplicate_example = _environment_keys(project_root / ".env.example")
     local_path = project_root / ".env"
-    local, duplicate_local = (
-        _environment_keys(local_path) if local_path.is_file() else (None, ())
-    )
+    local, duplicate_local = _environment_keys(local_path) if local_path.is_file() else (None, ())
     return EnvironmentContractAudit(
         expected_keys=expected,
         example_keys=example,

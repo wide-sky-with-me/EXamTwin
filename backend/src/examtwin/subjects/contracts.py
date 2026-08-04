@@ -16,7 +16,8 @@ class CurriculumTextNormalizer(Protocol):
 class DefaultCurriculumTextNormalizer:
     key = "default-v1"
 
-    def objective_title(self, _topic_title: str, raw_title: str) -> str:
+    def objective_title(self, topic_title: str, raw_title: str) -> str:
+        del topic_title
         title = raw_title.strip().strip(";")
         if title.lower().startswith("and "):
             title = title[4:].strip()

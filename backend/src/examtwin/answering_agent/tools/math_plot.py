@@ -9,6 +9,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sympy import Symbol, lambdify
 
 from examtwin.answering_agent.contracts import AgentRunContext
+from examtwin.answering_agent.skills import mathematics_source_plot_overlay_mode
+from examtwin.answering_agent.tools.source_plot_overlay import compile_paper_plot_overlay
 from examtwin.schemas.evidence import (
     AnswerDiagram,
     DiagramElement,
@@ -589,10 +591,26 @@ class MathPlotTool:
 
             spec = MathPlotInput.model_validate(kwargs)
             diagram = compile_math_plot(spec)
+            overlay_mode = mathematics_source_plot_overlay_mode(context.task.question)
+            if overlay_mode is not None:
+                diagram = compile_paper_plot_overlay(
+                    spec,
+                    diagram,
+                    context.task.question_images,
+                    context.task.question,
+                    overlay_mode,
+                    base_element_count=len(_base_elements(spec)),
+                )
             context.add_diagram(diagram)
+            canvas_description = (
+                "a calibrated original-paper background"
+                if diagram.source
+                else "a standalone canvas"
+            )
             return (
-                f"Plot '{diagram.title}' accepted with "
-                f"{len(spec.curves)} curves and {len(diagram.elements)} rendered elements."
+                f"Plot '{diagram.title}' accepted with {len(spec.curves)} curves, "
+                f"{len(diagram.elements)} rendered elements, and "
+                f"{canvas_description}."
             )
 
         return FunctionTool.from_defaults(
@@ -605,6 +623,9 @@ class MathPlotTool:
                 "uses bounded SymPy + NumPy evaluation and emits a validated vector artifact. "
                 "Prefer this over math_diagram for anything on coordinate axes. Use one call "
                 "containing all curves, construction segments, points, and labels. Call only "
-                "when the exam question explicitly requires a drawn/visual answer."
+                "when the exam question explicitly requires a drawn/visual answer. When the "
+                "question requires drawing on supplied axes, a figure, or a grid, the tool "
+                "automatically detects the trusted paper figure and overlays deterministic "
+                "vectors; never recreate that background or replace it with image generation."
             ),
         )

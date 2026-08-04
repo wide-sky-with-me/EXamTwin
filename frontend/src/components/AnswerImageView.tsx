@@ -1,31 +1,23 @@
 import { Expand, Shrink } from "lucide-react";
-import { useEffect, useId, useState } from "react";
+import { useId, useState } from "react";
 import { backendResourceUrl } from "../lib/api";
+import { useModalFocus } from "../lib/use-modal-focus";
 import type { AnswerImage } from "../types";
 
 export function AnswerImageView({ image }: { image: AnswerImage }) {
   const id = useId().replaceAll(":", "");
   const titleId = `answer-image-title-${id}`;
   const [expanded, setExpanded] = useState(false);
-
-  useEffect(() => {
-    if (!expanded) return;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setExpanded(false);
-    };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [expanded]);
+  const containerRef = useModalFocus(expanded, setExpanded);
 
   return (
     <figure
+      aria-modal={expanded || undefined}
       aria-labelledby={titleId}
       className={`answer-diagram answer-image${expanded ? " is-expanded" : ""}`}
+      ref={containerRef}
+      role={expanded ? "dialog" : undefined}
+      tabIndex={expanded ? -1 : undefined}
     >
       <div className="answer-diagram-header">
         <div>
@@ -40,6 +32,7 @@ export function AnswerImageView({ image }: { image: AnswerImage }) {
           <button
             aria-label={expanded ? "退出全屏查看图片" : "全屏查看图片"}
             aria-pressed={expanded}
+            data-modal-close={expanded ? "" : undefined}
             onClick={() => setExpanded((value) => !value)}
             title={expanded ? "退出全屏" : "全屏查看"}
             type="button"

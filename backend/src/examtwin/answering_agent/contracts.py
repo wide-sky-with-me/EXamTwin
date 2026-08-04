@@ -3,45 +3,17 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
-from typing import Literal, Protocol
+from typing import Protocol
 
 from llama_index.core.tools import BaseTool
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
-from examtwin.schemas.evidence import AnswerDiagram, AnswerImage, Citation
-
-AnswerKind = Literal[
-    "text",
-    "numeric",
-    "expression",
-    "proof",
-    "table",
-    "math_plot",
-    "math_diagram",
-    "image",
-]
-AnswerArtifactTool = Literal["math_plot", "math_diagram", "image_generate"]
-
-
-class SubpartRequirement(BaseModel):
-    """A machine-checkable answer obligation extracted while splitting the paper."""
-
-    label: str = Field(default="whole", max_length=32)
-    marks: int | None = Field(default=None, ge=0, le=100)
-    answer_kind: AnswerKind = "text"
-    accuracy: str | None = Field(default=None, max_length=160)
-    units: tuple[str, ...] = Field(default=(), max_length=8)
-    required_tool: AnswerArtifactTool | None = None
-
-    @field_validator("label")
-    @classmethod
-    def normalize_label(cls, value: str) -> str:
-        return value.strip() or "whole"
-
-    @field_validator("units")
-    @classmethod
-    def normalize_units(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        return tuple(dict.fromkeys(unit.strip() for unit in value if unit.strip()))
+from examtwin.schemas.evidence import (
+    AnswerDiagram,
+    AnswerImage,
+    Citation,
+    SubpartRequirement,
+)
 
 
 class QuestionSpec(BaseModel):

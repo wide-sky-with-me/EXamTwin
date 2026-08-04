@@ -13,6 +13,7 @@ from examtwin.persistence.models import (
     KnowledgePointModel,
     SourceDocumentModel,
 )
+from examtwin.persistence.results import affected_rows
 
 RUN_MUTABLE_FIELDS = frozenset(
     {
@@ -53,7 +54,7 @@ class KnowledgeBuildRepository:
                 .where(KnowledgeBuildRunModel.id == run_id)
                 .values(**dict(updates))
             )
-            if result.rowcount != 1:
+            if affected_rows(result) != 1:
                 raise LookupError(f"Knowledge build run does not exist: {run_id}")
 
     def create_candidate(self, values: Mapping[str, Any]) -> None:
@@ -70,7 +71,7 @@ class KnowledgeBuildRepository:
                 .where(CurriculumCandidateModel.id == candidate_id)
                 .values(**dict(updates))
             )
-            if result.rowcount != 1:
+            if affected_rows(result) != 1:
                 raise LookupError(f"Curriculum candidate does not exist: {candidate_id}")
 
     def published_graph_codes(self, subject_code: str) -> dict[str, set[str]]:

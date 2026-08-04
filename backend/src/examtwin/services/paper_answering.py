@@ -126,6 +126,7 @@ class PaperAnswerService:
         catalog: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
         catalog_text = "\n".join(f"- {point['code']}: {point['title']}" for point in catalog)
+
         def split_batch(batch: str) -> list[dict[str, Any]]:
             prompt = f"""
 You extract top-level questions from a {self.subject.pack.title} examination paper.

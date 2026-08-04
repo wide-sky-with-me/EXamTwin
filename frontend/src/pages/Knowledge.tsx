@@ -36,6 +36,13 @@ export function Knowledge({
           relation.source_code === selected.code || relation.target_code === selected.code,
       )
     : [];
+  const visibleCodes = new Set(visible.map((point) => point.code));
+  const visiblePrerequisites = relations.filter(
+    (relation) =>
+      relation.relation_type === "prerequisite_of"
+      && visibleCodes.has(relation.source_code)
+      && visibleCodes.has(relation.target_code),
+  );
   const selectedDifficulty = selected ? difficultyOf(selected) : null;
 
   return (
@@ -64,14 +71,14 @@ export function Knowledge({
       <div className="knowledge-metrics">
         <span><b>{topics.length}</b> 章节</span>
         <span><b>{objectives.length}</b> 学习目标</span>
-        <span><b>{relations.filter((item) => item.relation_type === "prerequisite_of").length}</b> 先修关系</span>
+        <span><b>{visiblePrerequisites.length}</b> 先修关系</span>
       </div>
       <div className="knowledge-layout">
         <article className="panel knowledge-tree">
           {topics.map((topic) => {
             const children = objectives.filter((item) => item.parent_id === topic.id);
             return (
-              <details key={topic.id}>
+              <details className={selected?.code === topic.code ? "active" : ""} key={topic.id}>
                 <summary onClick={() => setSelectedCode(topic.code)}>
                   <span><code>{topic.code}</code><strong><InlineMarkdown>{topic.title}</InlineMarkdown></strong></span>
                   <em>{children.length} 项</em>
@@ -126,9 +133,9 @@ export function Knowledge({
                 <p>{selectedDifficulty?.rationale}</p>
               </div>
               <dl className="knowledge-meta">
-                <div><dt>层级</dt><dd>{selected.features.node_type ?? "topic"}</dd></div>
+                <div><dt>层级</dt><dd>{String(selected.features.node_type ?? "topic")}</dd></div>
                 <div><dt>分支</dt><dd>{selected.strand}</dd></div>
-                <div><dt>大纲页</dt><dd>{selected.features.syllabus_page ?? "—"}</dd></div>
+                <div><dt>大纲页</dt><dd>{String(selected.features.syllabus_page ?? "—")}</dd></div>
                 <div><dt>难度方法</dt><dd>{selectedDifficulty?.method}</dd></div>
               </dl>
               <h3>直接关系</h3>

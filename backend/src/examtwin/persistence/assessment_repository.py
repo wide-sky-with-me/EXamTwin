@@ -58,8 +58,12 @@ class AssessmentRepository:
             )
             if assessment is None:
                 raise LookupError("Assessment not found")
-            final_mark = override_mark if decision == "override" else assessment.total_awarded
-            if final_mark is not None and final_mark > assessment.total_available:
+            if decision == "override" and override_mark is None:
+                raise ValueError("override_mark is required for an override review")
+            final_mark = (
+                override_mark if override_mark is not None else float(assessment.total_awarded)
+            )
+            if final_mark > assessment.total_available:
                 raise ValueError("override_mark cannot exceed total_available")
             status = "overridden" if decision == "override" else "confirmed"
             now = utcnow()

@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Protocol
 
 from examtwin.persistence.knowledge_repository import KnowledgeRepository
 from examtwin.persistence.session import utcnow
@@ -15,6 +15,10 @@ from examtwin.services.difficulty import (
     derive_objective_features,
 )
 from examtwin.subjects import OXFORDAQA_MATHEMATICS_9660, SubjectPack
+
+
+class _ModelDumpable(Protocol):
+    def model_dump(self) -> dict[str, Any]: ...
 
 
 def _point_id(
@@ -62,7 +66,11 @@ def publish_curriculum_graph(
     *,
     candidate: CurriculumCandidate,
     syllabus_document: Mapping[str, Any],
-    difficulty_assessments: Mapping[str, Any] | None = None,
+    difficulty_assessments: Mapping[
+        str,
+        Mapping[str, Any] | _ModelDumpable,
+    ]
+    | None = None,
     build_run_id: str | None = None,
     input_hash: str | None = None,
     difficulty_model_name: str | None = None,
@@ -178,9 +186,12 @@ def publish_curriculum_graph(
     for objective in objectives:
         parent = point_by_code[objective["parent"]]
         assessment = (difficulty_assessments or {}).get(objective["code"])
-        assessment_data = (
-            assessment.model_dump() if hasattr(assessment, "model_dump") else assessment
-        )
+        if assessment is None:
+            assessment_data: Mapping[str, Any] | None = None
+        elif isinstance(assessment, Mapping):
+            assessment_data = assessment
+        else:
+            assessment_data = assessment.model_dump()
         if assessment_data:
             objective_features = DifficultyFeatures(
                 syllabus_complexity=assessment_data["syllabus_complexity"],

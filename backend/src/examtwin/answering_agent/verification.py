@@ -6,6 +6,7 @@ from examtwin.answering_agent.contracts import (
     AnswerTask,
     required_answer_artifacts_are_present,
 )
+from examtwin.answering_agent.skills import mathematics_source_plot_overlay_mode
 from examtwin.schemas.evidence import AnswerDiagram, AnswerImage
 
 
@@ -30,6 +31,13 @@ def verify_answer_contract(
         }
         missing = sorted(set(required_tools) - produced)
         raise RuntimeError("answer is missing required visual artifacts: " + ", ".join(missing))
+
+    if mathematics_source_plot_overlay_mode(task.question) is not None and not any(
+        diagram.tool_name == "math_plot" and diagram.source is not None for diagram in diagrams
+    ):
+        raise RuntimeError(
+            "answer drawing must be calibrated to the supplied original-paper figure"
+        )
 
     labels = task.question_spec.labelled_subparts
     if len(labels) < 2:

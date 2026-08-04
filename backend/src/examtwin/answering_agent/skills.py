@@ -39,6 +39,17 @@ _COORDINATE_VISUAL = re.compile(
     re.IGNORECASE,
 )
 _REQUEST_CONTEXT_END = re.compile(r"(?:[.!?](?=\s|$)|\n[ \t]*\n)")
+_SOURCE_FIGURE_DRAWING = re.compile(
+    r"\b(?:sketch|draw|shade|plot|mark|label)\b[^.!?\n]{0,240}"
+    r"\b(?:on|in)\s+(?:the\s+)?(?:axes|figure|diagram|grid)\b"
+    r"|\b(?:on|in)\s+(?:the\s+)?(?:axes|figure|diagram|grid)\b"
+    r"[^.!?\n]{0,240}\b(?:sketch|draw|shade|plot|mark|label)\b",
+    re.IGNORECASE,
+)
+_TRAPEZIA_DRAWING = re.compile(
+    r"\b(?:draw|show|mark)\b[^.!?\n]{0,220}\btrapez(?:ium|ia|oid)s?\b",
+    re.IGNORECASE,
+)
 
 
 def _request_context(question: str, request: re.Match[str]) -> str:
@@ -62,6 +73,18 @@ def select_mathematics_answer_visual_tool(question: str) -> str | None:
     return "math_diagram"
 
 
+def mathematics_source_plot_overlay_mode(question: str) -> str | None:
+    """Return the deterministic paper-overlay mode required by the wording."""
+
+    if not _SOURCE_FIGURE_DRAWING.search(question):
+        return None
+    if _TRAPEZIA_DRAWING.search(question):
+        return "existing_curve_grid"
+    if _COORDINATE_VISUAL.search(question):
+        return "blank_axes"
+    return None
+
+
 MATHEMATICS_9660 = SubjectSkill(
     name="oxfordaqa-mathematics-9660",
     subject_codes=("9660",),
@@ -80,6 +103,9 @@ MATHEMATICS_9660 = SubjectSkill(
         "that must be mathematically precise. "
         "Before drawing, derive and check the decisive coordinates, intercepts, "
         "turning points, asymptotes, labels, boundaries, and shaded-region vertices. "
+        "When the question says to draw on supplied axes, a figure, diagram, or grid, "
+        "math_plot calibrates a vector overlay to the trusted original-paper pixels; "
+        "do not recreate that background or use image generation. "
         "Create the complete figure in one tool call and do not imitate a drawing "
         "with Markdown, ASCII art, raw SVG, HTML, JavaScript, or base64."
     ),

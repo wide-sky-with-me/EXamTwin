@@ -36,7 +36,7 @@ async def _wait_for_task_event_or_disconnect(
     websocket: WebSocket,
     updates: AsyncIterator[TaskEvent],
 ) -> bool:
-    event_task = asyncio.create_task(anext(updates))
+    event_task = asyncio.ensure_future(anext(updates))
     disconnect_task = asyncio.create_task(websocket.receive())
     done, pending = await asyncio.wait(
         {event_task, disconnect_task}, return_when=asyncio.FIRST_COMPLETED

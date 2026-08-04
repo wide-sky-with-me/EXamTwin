@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 
-from llama_index.core.tools import BaseTool, FunctionTool
+from llama_index.core.tools import AsyncBaseTool, BaseTool, FunctionTool
 
 
 @dataclass(frozen=True)
@@ -48,6 +48,9 @@ class MCPToolProvider:
         return [self._bounded(tool) for tool in tools if tool.metadata.name in selected]
 
     def _bounded(self, tool: BaseTool) -> BaseTool:
+        if not isinstance(tool, AsyncBaseTool):
+            raise TypeError("MCP capability must support asynchronous tool calls")
+
         async def call_mcp_tool(**kwargs: object) -> str:
             result = await asyncio.wait_for(
                 tool.acall(**kwargs),

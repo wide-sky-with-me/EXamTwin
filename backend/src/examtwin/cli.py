@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import timedelta
 from pathlib import Path
+from urllib.request import urlopen
 from uuid import uuid4
 
 import typer
@@ -19,6 +20,8 @@ from examtwin.composition import (
 )
 from examtwin.config import get_settings
 from examtwin.config_contract import audit_environment_contract
+from examtwin.contracts.system import API_CAPABILITIES, API_CONTRACT_VERSION
+from examtwin.observability import configure_logging
 from examtwin.persistence.migrations import upgrade_database
 from examtwin.persistence.session import utcnow
 from examtwin.services.ingestion import build_vector_index
@@ -30,6 +33,11 @@ from examtwin.storage import ObjectMetadata
 from examtwin.subjects import get_subject_pack
 
 app = typer.Typer(no_args_is_help=True, help="ExamTwin 9660 data and API commands.")
+
+
+@app.callback()
+def configure_cli_logging() -> None:
+    configure_logging()
 
 
 @app.command("config-check")
@@ -56,6 +64,30 @@ def db_upgrade(revision: str = typer.Option("head")) -> None:
     settings = get_settings()
     upgrade_database(settings.database_url, revision)
     typer.echo(f"PostgreSQL schema upgraded to {revision}.")
+
+
+@app.command("healthcheck")
+def healthcheck(
+    url: str = typer.Option("http://127.0.0.1:8000/api/v1/health"),
+) -> None:
+    """Fail unless the live API and this image expose the same healthy contract."""
+
+    try:
+        with urlopen(url, timeout=3) as response:  # noqa: S310 - fixed local default
+            payload = json.load(response)
+        capabilities = set(payload.get("capabilities", []))
+        valid = (
+            payload.get("status") == "ok"
+            and payload.get("api_contract_version") == API_CONTRACT_VERSION
+            and capabilities == set(API_CAPABILITIES)
+        )
+    except Exception as error:
+        typer.echo(f"API healthcheck failed: {type(error).__name__}", err=True)
+        raise typer.Exit(code=1) from None
+    if not valid:
+        typer.echo("API healthcheck failed: contract or infrastructure is degraded", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(f"API healthy ({API_CONTRACT_VERSION})")
 
 
 @app.command("storage-migrate")

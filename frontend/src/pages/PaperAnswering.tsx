@@ -13,23 +13,23 @@ import { createPortal } from "react-dom";
 
 import { AnswerDiagramView } from "../components/AnswerDiagramView";
 import { AnswerImageView } from "../components/AnswerImageView";
-import { SourceEvidence } from "../components/Evidence";
+import {
+  CitationMarkdown,
+  CitationReferenceList,
+} from "../components/CitationReferences";
 import { Confidence, ErrorBanner } from "../components/Feedback";
 import {
   KnowledgeEvidenceCard,
   SourcePreviewDialog,
 } from "../components/KnowledgeEvidence";
-import { Markdown, QuestionMarkdown } from "../components/Markdown";
-import { api, apiUrl } from "../lib/api";
+import { QuestionMarkdown } from "../components/Markdown";
+import { apiClient, apiUrl, unwrapApi, uploadPaper } from "../lib/api";
+import { canRetryQuestion, paperProgress } from "../lib/paper-job";
 import {
   subscribeTaskSnapshots,
   type TaskStreamState,
 } from "../lib/task-events";
-import type {
-  PaperJobCreated,
-  PaperJobResult,
-  SubjectPack,
-} from "../types";
+import type { PaperJobResult, SubjectPack } from "../types";
 
 export function PaperAnswering({ enabled }: { enabled: boolean }) {
   const [file, setFile] = useState<File | null>(null);
@@ -41,6 +41,7 @@ export function PaperAnswering({ enabled }: { enabled: boolean }) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [uploading, setUploading] = useState(false);
   const [retrying, setRetrying] = useState(false);
+  const [retryingQuestion, setRetryingQuestion] = useState<number | null>(null);
   const [streamVersion, setStreamVersion] = useState(0);
   const [streamState, setStreamState] = useState<TaskStreamState>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -52,7 +53,7 @@ export function PaperAnswering({ enabled }: { enabled: boolean }) {
   useEffect(() => {
     if (!enabled) return;
     let active = true;
-    void api<SubjectPack>("/subject")
+    void unwrapApi(apiClient.GET("/api/v1/subject"))
       .then((value) => {
         if (active) setSubject(value);
       })
@@ -73,6 +74,9 @@ export function PaperAnswering({ enabled }: { enabled: boolean }) {
       onSnapshot: (next) => {
         setJob(next);
         setError(null);
+        if (next.status === "completed") {
+          window.localStorage.removeItem("examtwin.paperJobId");
+        }
       },
       isTerminal: (next) =>
         ["completed", "partial_failed", "failed"].includes(next.status),
@@ -143,13 +147,7 @@ export function PaperAnswering({ enabled }: { enabled: boolean }) {
     setUploading(true);
     setError(null);
     try {
-      const form = new FormData();
-      form.append("file", file);
-      if (unit) form.append("unit_code", unit);
-      const created = await api<PaperJobCreated>("/papers/answer", {
-        method: "POST",
-        body: form,
-      });
+      const created = await uploadPaper(file, unit);
       window.localStorage.setItem("examtwin.paperJobId", created.job_id);
       setJob(null);
       setJobId(created.job_id);
@@ -167,7 +165,12 @@ export function PaperAnswering({ enabled }: { enabled: boolean }) {
     setRetrying(true);
     setError(null);
     try {
-      await api<PaperJobCreated>(`/papers/jobs/${job.job_id}/retry`, { method: "POST" });
+      await unwrapApi(
+        apiClient.POST("/api/v1/papers/jobs/{job_id}/retry", {
+          params: { path: { job_id: job.job_id } },
+        }),
+      );
+      window.localStorage.setItem("examtwin.paperJobId", job.job_id);
       setStreamVersion((version) => version + 1);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "重试失败");
@@ -176,30 +179,32 @@ export function PaperAnswering({ enabled }: { enabled: boolean }) {
     }
   }
 
+  async function retryQuestion(position: number) {
+    if (!job) return;
+    setRetryingQuestion(position);
+    setError(null);
+    try {
+      await unwrapApi(
+        apiClient.POST("/api/v1/papers/jobs/{job_id}/questions/{position}/retry", {
+          params: { path: { job_id: job.job_id, position } },
+        }),
+      );
+      window.localStorage.setItem("examtwin.paperJobId", job.job_id);
+      setStreamVersion((version) => version + 1);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "本题重试失败");
+    } finally {
+      setRetryingQuestion(null);
+    }
+  }
+
   const selected = job?.questions[selectedIndex] ?? null;
   const selectedAgentSteps = selected
     ? selected.agent_steps.filter((step) => step.run_attempt === selected.attempts)
     : [];
   const selectedSourcePages = selected?.source_pages ?? [];
-  const pageProgress = job?.total_pages
-    ? Math.round((job.parsed_pages / job.total_pages) * 100)
-    : 0;
-  const questionProgress = job?.total_questions
-    ? Math.round(
-        ((job.completed_questions + job.failed_questions) / job.total_questions) * 100,
-      )
-    : 0;
-  const overallProgress = !job
-    ? 0
-    : job.status === "completed" || job.status === "partial_failed"
-      ? 100
-      : job.stage === "parsing"
-        ? Math.max(4, Math.round(pageProgress * 0.5))
-        : job.stage === "splitting"
-          ? 55
-          : job.stage === "answering"
-            ? 60 + Math.round(questionProgress * 0.4)
-            : 4;
+  const overallProgress = job ? paperProgress(job) : 0;
+  const selectedCanRetry = selected ? terminal && canRetryQuestion(selected) : false;
   const failedChunks = job?.chunks.filter((chunk) => chunk.status === "failed") ?? [];
   const stageLabels: Record<string, string> = {
     queued: "等待 Worker",
@@ -267,7 +272,14 @@ export function PaperAnswering({ enabled }: { enabled: boolean }) {
                     : job.status}
             </strong>
           </div>
-          <div className="progress-track">
+          <div
+            aria-label={`整卷处理进度 ${overallProgress}%`}
+            aria-valuemax={100}
+            aria-valuemin={0}
+            aria-valuenow={overallProgress}
+            className="progress-track"
+            role="progressbar"
+          >
             <i style={{ width: `${overallProgress}%` }} />
           </div>
           {!terminal && (
@@ -279,6 +291,15 @@ export function PaperAnswering({ enabled }: { enabled: boolean }) {
                   ? "实时连接正在恢复，任务仍在后台运行"
                   : "正在连接实时进度"}
             </small>
+          )}
+          {!terminal && streamState === "idle" && (
+            <button
+              className="secondary"
+              onClick={() => setStreamVersion((version) => version + 1)}
+              type="button"
+            >
+              <RefreshCw size={15} />重新连接进度
+            </button>
           )}
           {(job.status === "failed" || job.status === "partial_failed") && (
             <button className="secondary" onClick={() => void retry()} disabled={retrying}>
@@ -343,7 +364,22 @@ export function PaperAnswering({ enabled }: { enabled: boolean }) {
                     <span className={selected.grounded ? "grounded" : "ungrounded"}>
                       Q{selected.number} · {selected.status === "completed" ? (selected.grounded ? "Grounded" : "Insufficient") : selected.status}
                     </span>
-                    <Confidence value={selected.confidence} />
+                    <div>
+                      <Confidence value={selected.confidence} />
+                      {selectedCanRetry && (
+                        <button
+                          className="secondary question-retry"
+                          disabled={retryingQuestion === selected.position}
+                          onClick={() => void retryQuestion(selected.position)}
+                          type="button"
+                        >
+                          {retryingQuestion === selected.position
+                            ? <LoaderCircle className="spin" size={15} />
+                            : <RefreshCw size={15} />}
+                          重试本题
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <section className="question-block" aria-labelledby="current-question-title">
                     <div className="question-block-header">
@@ -446,7 +482,14 @@ export function PaperAnswering({ enabled }: { enabled: boolean }) {
                   ) : selected.error ? <ErrorBanner message={selected.error} /> : (
                     <div className="answer-block">
                       <span>AI 分步解答</span>
-                      <div className="markdown"><Markdown>{selected.answer_markdown}</Markdown></div>
+                      <div className="markdown">
+                        <CitationMarkdown
+                          citations={selected.citations}
+                          query={selected.question_markdown.slice(0, 300)}
+                        >
+                          {selected.answer_markdown}
+                        </CitationMarkdown>
+                      </div>
                     </div>
                   )}
                   {(selected.diagrams ?? []).length > 0 && (
@@ -454,6 +497,7 @@ export function PaperAnswering({ enabled }: { enabled: boolean }) {
                       {(selected.diagrams ?? []).map((diagram, index) => (
                         <AnswerDiagramView
                           diagram={diagram}
+                          jobId={job.job_id}
                           key={`${diagram.title}-${index}`}
                         />
                       ))}
@@ -479,14 +523,10 @@ export function PaperAnswering({ enabled }: { enabled: boolean }) {
                   <h3>本题答案引用</h3>
                   <div className="citations">
                     {selected.citations.length === 0 && <p>没有检索到可展示的引用。</p>}
-                    {selected.citations.map((item, index) => (
-                      <SourceEvidence
-                        citation={item}
-                        index={index}
-                        query={selected.question_markdown.slice(0, 300)}
-                        key={`${item.source}-${item.page ?? "section"}-${index}`}
-                      />
-                    ))}
+                    <CitationReferenceList
+                      citations={selected.citations}
+                      query={selected.question_markdown.slice(0, 300)}
+                    />
                   </div>
                 </>
               )}

@@ -28,9 +28,7 @@ def _legacy_cache(tmp_path: Path) -> tuple[FakeDocumentReader, Settings]:
         "# Legacy source\n\nThe complete cached explanation.",
         encoding="utf-8",
     )
-    documents = FakeDocumentReader(
-        "/home/previous-user/workspace/EXamTwin/var/corpus/md/doc-1.md"
-    )
+    documents = FakeDocumentReader("/home/previous-user/workspace/EXamTwin/var/corpus/md/doc-1.md")
     return documents, Settings(object_store_local_root=tmp_path)
 
 

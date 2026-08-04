@@ -30,12 +30,16 @@ export function difficultyOf(
     "features" in point
       ? String(point.features?.difficulty_method ?? "cold-start")
       : "cold-start";
+  const difficultyLabel = ["easy", "medium", "hard"].includes(point.difficulty_label)
+    ? point.difficulty_label as KnowledgeDifficulty["label"]
+    : "medium";
   return point.difficulty ?? {
     score: point.difficulty_score,
-    label: point.difficulty_label,
+    label: difficultyLabel,
     confidence: point.difficulty_confidence,
     evidence_level: point.evidence_level,
     method: legacyMethod,
     rationale: "当前为课程结构冷启动估计，尚无官方量化或真实学生表现校准。",
+    features: {},
   };
 }

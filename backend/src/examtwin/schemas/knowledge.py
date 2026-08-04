@@ -4,6 +4,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from examtwin.schemas.base import SerializedResponse
 from examtwin.schemas.evidence import AnswerDiagram, AnswerImage, Citation
 
 
@@ -17,7 +18,7 @@ class DifficultyFeatures(BaseModel):
     evidence_confidence: float = Field(default=0.35, ge=0, le=1)
 
 
-class DifficultyResult(BaseModel):
+class DifficultyResult(SerializedResponse):
     score: float
     label: Literal["easy", "medium", "hard"]
     confidence: float
@@ -25,13 +26,13 @@ class DifficultyResult(BaseModel):
     contributions: dict[str, float]
 
 
-class KnowledgePathItem(BaseModel):
+class KnowledgePathItem(SerializedResponse):
     code: str
     title: str
     node_type: str
 
 
-class KnowledgeRelationSummary(BaseModel):
+class KnowledgeRelationSummary(SerializedResponse):
     relation_type: str
     direction: Literal["outgoing", "incoming"]
     code: str
@@ -41,7 +42,18 @@ class KnowledgeRelationSummary(BaseModel):
     source_ref: str
 
 
-class KnowledgeDifficultySummary(BaseModel):
+class KnowledgeRelationResponse(SerializedResponse):
+    id: int
+    source_code: str
+    source_title: str
+    target_code: str
+    target_title: str
+    relation_type: str
+    confidence: float
+    source_ref: str
+
+
+class KnowledgeDifficultySummary(SerializedResponse):
     score: float
     label: Literal["easy", "medium", "hard"]
     confidence: float
@@ -51,7 +63,7 @@ class KnowledgeDifficultySummary(BaseModel):
     features: dict[str, float | int | None] = Field(default_factory=dict)
 
 
-class KnowledgePointResponse(BaseModel):
+class KnowledgePointResponse(SerializedResponse):
     id: str
     code: str
     title: str
@@ -82,7 +94,7 @@ class AskRequest(BaseModel):
     top_k: int | None = Field(default=None, ge=1, le=50)
 
 
-class AskResponse(BaseModel):
+class AskResponse(SerializedResponse):
     answer_markdown: str
     citations: list[Citation]
     diagrams: list[AnswerDiagram] = Field(default_factory=list)
@@ -92,7 +104,7 @@ class AskResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
-class SourceContextResponse(BaseModel):
+class SourceContextResponse(SerializedResponse):
     document_id: str
     source: str
     page: int | None = None

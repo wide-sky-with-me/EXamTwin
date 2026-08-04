@@ -6,12 +6,20 @@ import json
 import math
 import re
 from collections import Counter
-from typing import Protocol
+from typing import Protocol, TypedDict
 
-from examtwin.subjects import SubjectPack
+from examtwin.subjects import SubjectPack, UnitRule
 from pydantic import BaseModel, ConfigDict, Field
 
 EXTRACTOR_VERSION = "structured-markdown-curriculum-v1"
+
+
+class _RawTopicRecord(TypedDict):
+    code: str
+    title: str
+    page: int
+    unit: UnitRule | None
+    order: int
 
 
 class CurriculumUnit(BaseModel):
@@ -149,8 +157,8 @@ class StructuredMarkdownCurriculumExtractor:
     ) -> CurriculumCandidate:
         current_page: int | None = None
         current_topic: str | None = None
-        raw_topics: list[dict[str, object]] = []
-        topics_by_code: dict[str, dict[str, object]] = {}
+        raw_topics: list[_RawTopicRecord] = []
+        topics_by_code: dict[str, _RawTopicRecord] = {}
         objective_counts: Counter[str] = Counter()
         objectives: list[CurriculumObjective] = []
         warnings: list[str] = []
@@ -226,7 +234,7 @@ class StructuredMarkdownCurriculumExtractor:
                     warnings.append(f"duplicate topic heading ignored: {code}")
                     current_topic = code
                     continue
-                record: dict[str, object] = {
+                record: _RawTopicRecord = {
                     "code": code,
                     "title": title,
                     "page": current_page or 0,
@@ -309,8 +317,8 @@ class StructuredMarkdownCurriculumExtractor:
                 unit_code = "UNMAPPED"
                 strand = "Unmapped"
             else:
-                unit_code = unit.code  # type: ignore[union-attr]
-                strand = unit.strand  # type: ignore[union-attr]
+                unit_code = unit.code
+                strand = unit.strand
             complexity, depth, cognitive, steps = _topic_features(
                 objectives_by_topic.get(code, []),
             )

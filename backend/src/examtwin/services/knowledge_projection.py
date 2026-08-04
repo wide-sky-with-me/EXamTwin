@@ -324,7 +324,8 @@ def _enrich_points(
                     "node_type": _node_type(cursor),
                 }
             )
-            cursor = point_by_id.get(cursor.get("parent_id"))
+            parent_id = cursor.get("parent_id")
+            cursor = point_by_id.get(parent_id) if isinstance(parent_id, str) else None
         path.reverse()
         point["path"] = path
         point["breadcrumb"] = " › ".join(item["title"] for item in path)

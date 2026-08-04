@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
-import { api } from "../lib/api";
+import { apiClient, unwrapApi } from "../lib/api";
 import { sourceLabels } from "../lib/evidence";
 import type { Stats } from "../types";
 
@@ -17,10 +17,12 @@ export function Overview({
   stats,
   refresh,
   loading,
+  postgresqlUp,
 }: {
   stats: Stats | null;
   refresh: () => Promise<void>;
   loading: boolean;
+  postgresqlUp: boolean | null;
 }) {
   const [inventorying, setInventorying] = useState(false);
   const [notice, setNotice] = useState("");
@@ -29,14 +31,9 @@ export function Overview({
     setInventorying(true);
     setNotice("");
     try {
-      const result = await api<{
-        scanned: number;
-        exam_identity_incomplete: number;
-        identity_failures: Record<string, number>;
-      }>("/corpus/inventory", {
-        method: "POST",
-        body: JSON.stringify({ refresh: true }),
-      });
+      const result = await unwrapApi(
+        apiClient.POST("/api/v1/corpus/inventory", { body: { refresh: true } }),
+      );
       const failureSummary = Object.entries(result.identity_failures)
         .map(([reason, count]) => `${reason} ${count} 份`)
         .join("；");
@@ -92,7 +89,9 @@ export function Overview({
         <article className="panel">
           <div className="panel-title">
             <div><span className="kicker">CORPUS</span><h2>资料构成</h2></div>
-            <span className="status"><span /> PostgreSQL live</span>
+            <span className={`status ${postgresqlUp ? "" : "offline"}`}>
+              <span /> {postgresqlUp ? "PostgreSQL live" : "PostgreSQL unavailable"}
+            </span>
           </div>
           <div className="source-list">
             {Object.entries(stats?.documents_by_type ?? {})
@@ -102,7 +101,7 @@ export function Overview({
                 return (
                   <div className="source-row" key={type}>
                     <span>{sourceLabels[type] ?? type}</span>
-                    <div className="bar"><i style={{ width: `${Math.max(3, (count / total) * 100)}%` }} /></div>
+                    <div className="bar"><i style={{ width: `${(count / total) * 100}%` }} /></div>
                     <b>{count}</b>
                   </div>
                 );

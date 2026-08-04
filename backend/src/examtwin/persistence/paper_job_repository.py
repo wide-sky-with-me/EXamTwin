@@ -15,6 +15,7 @@ from examtwin.persistence.models import (
     PaperJobModel,
     PaperJobQuestionModel,
 )
+from examtwin.persistence.results import affected_rows
 from examtwin.persistence.session import utcnow
 
 
@@ -93,10 +94,7 @@ class PaperJobRepository:
             select(PaperJobModel)
             .where(
                 PaperJobModel.status.in_(("queued", "parsing", "splitting", "answering")),
-                (
-                    PaperJobModel.lease_token.is_(None)
-                    | (PaperJobModel.lease_expires_at < now)
-                ),
+                (PaperJobModel.lease_token.is_(None) | (PaperJobModel.lease_expires_at < now)),
             )
             .order_by(PaperJobModel.created_at)
             .with_for_update(skip_locked=True)
@@ -125,7 +123,7 @@ class PaperJobRepository:
                     updated_at=now,
                 )
             )
-        return result.rowcount == 1
+        return affected_rows(result) == 1
 
     def recover_inflight(self, job_id: str, token: str) -> None:
         with self.sessions.begin() as session:
@@ -189,7 +187,7 @@ class PaperJobRepository:
                     updated_at=utcnow(),
                 )
             )
-            if result.rowcount != 1:
+            if affected_rows(result) != 1:
                 raise LostLeaseError(f"paper job {job_id} lease is no longer valid")
 
     def retry_job(self, job_id: str) -> None:
@@ -285,7 +283,7 @@ class PaperJobRepository:
                     completed_at=None,
                 )
             )
-            if result.rowcount != 1:
+            if affected_rows(result) != 1:
                 exists = session.scalar(
                     select(PaperJobQuestionModel.id).where(
                         PaperJobQuestionModel.job_id == job_id,
@@ -559,7 +557,7 @@ class PaperJobRepository:
             .where(PaperJobModel.id == job_id, PaperJobModel.lease_token == token)
             .values(**values)
         )
-        if result.rowcount != 1:
+        if affected_rows(result) != 1:
             raise LostLeaseError(f"paper job {job_id} lease is no longer valid")
 
     @staticmethod

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from examtwin.schemas.base import SerializedResponse
 from examtwin.schemas.evidence import Citation
 
 
@@ -29,7 +31,7 @@ class GradeRequest(BaseModel):
         return self
 
 
-class RubricAward(BaseModel):
+class RubricAward(SerializedResponse):
     criterion_id: str
     description: str
     mark_type: str | None = None
@@ -41,14 +43,14 @@ class RubricAward(BaseModel):
     source_ref: str | None = None
 
 
-class SymbolicCheck(BaseModel):
+class SymbolicCheck(SerializedResponse):
     student: str
     expected: str
     equivalent: bool | None
     detail: str
 
 
-class GradeResponse(BaseModel):
+class GradeResponse(SerializedResponse):
     assessment_id: str
     question_ref: str | None
     total_awarded: float
@@ -73,3 +75,21 @@ class ReviewRequest(BaseModel):
         if self.decision == "override" and self.override_mark is None:
             raise ValueError("override_mark is required when decision=override")
         return self
+
+
+class ReviewQueueItem(SerializedResponse):
+    id: str
+    question_ref: str | None
+    total_awarded: float
+    total_available: float
+    confidence: float
+    status: Literal["pending_review"]
+    result: GradeResponse
+    created_at: datetime
+
+
+class ReviewDecisionResponse(SerializedResponse):
+    assessment_id: str
+    status: Literal["confirmed", "overridden"]
+    final_mark: float
+    reviewed_by: str

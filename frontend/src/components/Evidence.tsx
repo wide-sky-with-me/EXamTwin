@@ -1,7 +1,7 @@
 import { LoaderCircle } from "lucide-react";
 import { useState } from "react";
 
-import { api } from "../lib/api";
+import { getSourceContext } from "../lib/api";
 import { sourceLabels } from "../lib/evidence";
 import type {
   Citation,
@@ -38,14 +38,11 @@ export function SourceEvidence({
     setLoading(true);
     setError(null);
     try {
-      const parameters = new URLSearchParams();
-      if (citation.page) parameters.set("page", String(citation.page));
-      if (query) parameters.set("query", query);
-      const contextPath =
-        citation.content_url ??
-        `/sources/${encodeURIComponent(citation.document_id)}/context?${parameters}`;
-      const result = await api<SourceContextResult>(
-        contextPath,
+      const result = await getSourceContext(
+        citation.document_id,
+        citation.page ?? null,
+        query,
+        citation.content_url,
       );
       setContext(result);
     } catch (cause) {

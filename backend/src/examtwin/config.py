@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import ipaddress
 import json
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import urlparse
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -107,6 +109,27 @@ class Settings(BaseSettings):
 
     similarity_top_k: int = Field(default=18, ge=1, le=100)
     rerank_top_n: int = Field(default=7, ge=1, le=50)
+
+    @model_validator(mode="after")
+    def validate_object_store_credentials(self) -> Settings:
+        if self.object_store_backend != "s3":
+            return self
+        endpoint_host = urlparse(self.object_store_endpoint_url).hostname or ""
+        try:
+            local_endpoint = ipaddress.ip_address(endpoint_host).is_loopback
+        except ValueError:
+            local_endpoint = endpoint_host == "localhost"
+        development_local = self.app_env == "development" and local_endpoint
+        access_key = self.object_store_access_key.get_secret_value()
+        secret_key = self.object_store_secret_key.get_secret_value()
+        weak_defaults = access_key == "examtwin" or secret_key == "examtwin_dev_secret"
+        if not development_local and weak_defaults:
+            raise ValueError(
+                "Remote or non-development S3 storage must override the development credentials"
+            )
+        if not access_key or not secret_key:
+            raise ValueError("S3 object storage credentials must not be empty")
+        return self
 
     def resolved(self, path: Path) -> Path:
         return path if path.is_absolute() else PROJECT_ROOT / path

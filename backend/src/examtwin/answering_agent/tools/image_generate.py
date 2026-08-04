@@ -22,6 +22,8 @@ from examtwin.storage import LocalObjectStore, ManagedObjectStore, ObjectMetadat
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 ASSET_ID = re.compile(r"^[0-9a-f]{32}$")
+ImageSize = Literal["1024x1024", "1536x1024", "1024x1536"]
+ImageQuality = Literal["low", "medium", "high"]
 
 
 @dataclass(frozen=True)
@@ -37,12 +39,8 @@ class ImageGenerationInput(BaseModel):
     prompt: str = Field(min_length=8, max_length=4_000)
     title: str = Field(min_length=1, max_length=160)
     caption: str = Field(default="", max_length=500)
-    size: Literal[
-        "1024x1024",
-        "1536x1024",
-        "1024x1536",
-    ] = "1024x1024"
-    quality: Literal["low", "medium", "high"] = "medium"
+    size: ImageSize = "1024x1024"
+    quality: ImageQuality = "medium"
 
 
 def _normalize_png(content: bytes) -> GeneratedImage:
@@ -53,7 +51,7 @@ def _normalize_png(content: bytes) -> GeneratedImage:
     try:
         pixmap = pymupdf.Pixmap(content)
         normalized = pixmap.tobytes("png")
-    except (pymupdf.mupdf.FzErrorBase, RuntimeError, ValueError) as error:
+    except Exception as error:
         raise ValueError("image generation provider returned a corrupt PNG") from error
     width, height = pixmap.width, pixmap.height
     if not (16 <= width <= 3840 and 16 <= height <= 3840):
@@ -65,8 +63,8 @@ class ImageGenerationProvider(Protocol):
     async def generate(
         self,
         prompt: str,
-        size: str,
-        quality: str,
+        size: ImageSize,
+        quality: ImageQuality,
     ) -> GeneratedImage: ...
 
 
@@ -105,8 +103,8 @@ class OpenAICompatibleImageProvider:
     async def generate(
         self,
         prompt: str,
-        size: str,
-        quality: str,
+        size: ImageSize,
+        quality: ImageQuality,
     ) -> GeneratedImage:
         payload = {
             "model": self.model,
@@ -258,8 +256,8 @@ class ImageGenerationTool:
             prompt: str,
             title: str,
             caption: str = "",
-            size: str = "1024x1024",
-            quality: str = "medium",
+            size: ImageSize = "1024x1024",
+            quality: ImageQuality = "medium",
         ) -> str:
             """Generate one raster answer illustration and return its saved artifact metadata."""
 

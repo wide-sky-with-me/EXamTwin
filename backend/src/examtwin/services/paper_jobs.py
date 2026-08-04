@@ -9,7 +9,10 @@ from uuid import uuid4
 from examtwin.answering_agent.contracts import (
     required_answer_artifacts_are_present,
 )
-from examtwin.answering_agent.skills import select_mathematics_answer_visual_tool
+from examtwin.answering_agent.skills import (
+    mathematics_source_plot_overlay_mode,
+    select_mathematics_answer_visual_tool,
+)
 from examtwin.config import Settings
 from examtwin.persistence.paper_job_repository import PaperJobRepository
 from examtwin.persistence.session import utcnow
@@ -31,6 +34,7 @@ from examtwin.services.paper_parsing import (
 )
 from examtwin.services.paper_sources import PaperSourceStore
 from examtwin.services.subject_context import SubjectContext
+from pydantic import ValidationError
 
 ACTIVE_JOB_STATUSES = ("queued", "parsing", "splitting", "answering")
 TERMINAL_JOB_STATUSES = ("completed", "partial_failed", "failed")
@@ -160,7 +164,8 @@ class PaperJobService:
             )
         questions: list[PaperJobQuestion] = []
         for row in rows:
-            answer = {}
+            answer: PaperQuestionAnswer | None = None
+            answer_error: str | None = None
             source_pages: list[int] = []
             requirements: dict[str, Any] = {}
             try:
@@ -181,9 +186,9 @@ class PaperJobService:
                 requirements = {}
             if row["status"] == "completed" and row["answer_json"]:
                 try:
-                    answer = json.loads(row["answer_json"])
-                except json.JSONDecodeError:
-                    answer = {"error": "保存的题目结果无法解析"}
+                    answer = PaperQuestionAnswer.model_validate_json(row["answer_json"])
+                except (TypeError, ValueError, ValidationError):
+                    answer_error = "保存的题目结果无法解析"
             questions.append(
                 PaperJobQuestion(
                     position=row["position"],
@@ -195,16 +200,18 @@ class PaperJobService:
                     source_warnings=_question_source_warnings(row["question_markdown"]),
                     answer_requirements=requirements.get("subparts", []),
                     total_marks=requirements.get("total_marks"),
-                    answer_markdown=repair_markdown_latex(str(answer.get("answer_markdown", ""))),
-                    diagrams=answer.get("diagrams", []),
-                    images=answer.get("images", []),
-                    citations=answer.get("citations", []),
-                    knowledge_points=answer.get("knowledge_points", []),
-                    confidence=answer.get("confidence", 0),
-                    grounded=answer.get("grounded", False),
-                    warnings=answer.get("warnings", []),
+                    answer_markdown=repair_markdown_latex(
+                        answer.answer_markdown if answer is not None else ""
+                    ),
+                    diagrams=answer.diagrams if answer is not None else [],
+                    images=answer.images if answer is not None else [],
+                    citations=answer.citations if answer is not None else [],
+                    knowledge_points=answer.knowledge_points if answer is not None else [],
+                    confidence=answer.confidence if answer is not None else 0,
+                    grounded=answer.grounded if answer is not None else False,
+                    warnings=answer.warnings if answer is not None else [],
                     agent_steps=steps_by_position.get(row["position"], []),
-                    error=row["error"] or answer.get("error"),
+                    error=row["error"] or (answer.error if answer is not None else answer_error),
                 )
             )
         return PaperJobResponse(
@@ -277,10 +284,21 @@ class PaperJobService:
                 answer = PaperQuestionAnswer.model_validate_json(question["answer_json"] or "{}")
             except ValueError:
                 answer = None
-            if answer is not None and required_answer_artifacts_are_present(
-                answer.diagrams,
-                answer.images,
-                required_tools,
+            requires_source_overlay = (
+                mathematics_source_plot_overlay_mode(question["question_markdown"]) is not None
+            )
+            source_overlay_present = answer is not None and any(
+                diagram.tool_name == "math_plot" and diagram.source is not None
+                for diagram in answer.diagrams
+            )
+            if (
+                answer is not None
+                and required_answer_artifacts_are_present(
+                    answer.diagrams,
+                    answer.images,
+                    required_tools,
+                )
+                and (not requires_source_overlay or source_overlay_present)
             ):
                 raise ValueError("已完成题目的答案图产物完整，无需重试")
             if not required_tools:

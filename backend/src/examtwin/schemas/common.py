@@ -2,8 +2,16 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from examtwin.schemas.base import SerializedResponse
 
-class HealthResponse(BaseModel):
+
+class InfrastructureHealthResponse(SerializedResponse):
+    postgresql: bool
+    qdrant: bool
+    object_storage: bool
+
+
+class HealthResponse(SerializedResponse):
     status: str
     subject_code: str = "9660"
     api_contract_version: str
@@ -13,15 +21,16 @@ class HealthResponse(BaseModel):
     rerank_model: str
     credentials: dict[str, bool]
     object_storage_backend: str
+    infrastructure: InfrastructureHealthResponse
 
 
-class SubjectUnitResponse(BaseModel):
+class SubjectUnitResponse(SerializedResponse):
     code: str
     title: str
     strand: str
 
 
-class SubjectPackResponse(BaseModel):
+class SubjectPackResponse(SerializedResponse):
     id: str
     subject_code: str
     title: str
@@ -31,6 +40,14 @@ class SubjectPackResponse(BaseModel):
 
 class InventoryRequest(BaseModel):
     refresh: bool = True
+
+
+class InventoryResponse(SerializedResponse):
+    scanned: int
+    by_type: dict[str, int]
+    exam_identity_incomplete: int
+    identity_failures: dict[str, int]
+    strict_pairing_ready: bool
 
 
 class ConvertRequest(BaseModel):
@@ -47,7 +64,7 @@ class IndexRequest(BaseModel):
     limit: int | None = Field(default=None, ge=1, le=10000)
 
 
-class JobResult(BaseModel):
+class JobResult(SerializedResponse):
     processed: int
     succeeded: int
     failed: int
@@ -55,7 +72,7 @@ class JobResult(BaseModel):
     errors: list[str] = Field(default_factory=list)
 
 
-class StatsResponse(BaseModel):
+class StatsResponse(SerializedResponse):
     documents_total: int
     documents_by_type: dict[str, int]
     documents_by_status: dict[str, int]

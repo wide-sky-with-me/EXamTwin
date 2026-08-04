@@ -15,6 +15,8 @@ from examtwin.schemas.evidence import (
     DiagramElement,
     DiagramLegendItem,
     DiagramTone,
+    PaperDiagramSource,
+    SubpartRequirement,
 )
 from examtwin.schemas.grading import (
     ExpectedExpression,
@@ -71,6 +73,7 @@ __all__ = [
     "KnowledgePointResponse",
     "KnowledgeRelationSummary",
     "PaperAnswerResponse",
+    "PaperDiagramSource",
     "PaperJobChunk",
     "PaperJobCreated",
     "PaperJobQuestion",
@@ -81,5 +84,6 @@ __all__ = [
     "RubricAward",
     "SourceContextResponse",
     "StatsResponse",
+    "SubpartRequirement",
     "SymbolicCheck",
 ]

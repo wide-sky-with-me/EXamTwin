@@ -4,7 +4,13 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from examtwin.api.dependencies import get_grading_service
 from examtwin.api.errors import upstream_http_error
-from examtwin.schemas.grading import GradeRequest, GradeResponse, ReviewRequest
+from examtwin.schemas.grading import (
+    GradeRequest,
+    GradeResponse,
+    ReviewDecisionResponse,
+    ReviewQueueItem,
+    ReviewRequest,
+)
 from examtwin.services.grading import GradingService
 
 router = APIRouter()
@@ -27,19 +33,19 @@ def assess(
         ) from error
 
 
-@router.get("/grading/reviews")
-def reviews(service: GradingService = Depends(get_grading_service)) -> list[dict]:
-    return service.pending_reviews()
+@router.get("/grading/reviews", response_model=list[ReviewQueueItem])
+def reviews(service: GradingService = Depends(get_grading_service)) -> list[ReviewQueueItem]:
+    return [ReviewQueueItem.model_validate(item) for item in service.pending_reviews()]
 
 
-@router.post("/grading/reviews/{assessment_id}")
+@router.post("/grading/reviews/{assessment_id}", response_model=ReviewDecisionResponse)
 def review(
     assessment_id: str,
     request: ReviewRequest,
     service: GradingService = Depends(get_grading_service),
-) -> dict:
+) -> ReviewDecisionResponse:
     try:
-        return service.review(assessment_id, request)
+        return ReviewDecisionResponse.model_validate(service.review(assessment_id, request))
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     except ValueError as error:

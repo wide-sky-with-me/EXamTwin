@@ -100,13 +100,7 @@ services:
       network: host
     command: ["uvicorn", "examtwin.main:app", "--host", "127.0.0.1", "--port", "8000"]
     healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import json, urllib.request; data=json.load(urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=3)); assert data.get('api_contract_version') == '2026-08-03.persistence-hardening-v11'; assert 'required_answer_artifacts_v1' in data.get('capabilities', []); assert 'syllabus_driven_curriculum_v1' in data.get('capabilities', []); assert 'managed_object_storage_v1' in data.get('capabilities', []); assert 'bounded_paper_upload_v1' in data.get('capabilities', []); assert 'source_identity_diagnostics_v1' in data.get('capabilities', []); assert 'local_only_access_v1' in data.get('capabilities', [])",
-        ]
+      test: ["CMD", "examtwin-healthcheck"]
       interval: 5s
       timeout: 4s
       retries: 20

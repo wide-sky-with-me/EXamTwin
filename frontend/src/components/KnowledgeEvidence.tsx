@@ -1,9 +1,9 @@
-import { FileText, X } from "lucide-react";
+import { ChevronDown, FileText, X } from "lucide-react";
 import { forwardRef, useState } from "react";
 
 import { apiUrl } from "../lib/api";
 import type { PaperKnowledgeReference } from "../types";
-import { SourceEvidence } from "./Evidence";
+import { CitationReferenceList } from "./CitationReferences";
 import { difficultyOf, relationLabels } from "../lib/evidence";
 import { InlineMarkdown, Markdown } from "./Markdown";
 
@@ -16,63 +16,64 @@ export function KnowledgeEvidenceCard({
 }) {
   const difficulty = difficultyOf(point);
   return (
-    <article className="knowledge-evidence-card">
-      <header>
+    <details className="knowledge-evidence-card">
+      <summary>
         <div>
-          <code>{point.code}</code>
-          <span>知识点 {index + 1}</span>
+          <code>[K{index + 1}]</code>
+          <span>{point.code}</span>
         </div>
-        <strong><InlineMarkdown>{point.title}</InlineMarkdown></strong>
-        {(point.breadcrumb || point.path?.length) && (
-          <p className="knowledge-card-breadcrumb">
-            <InlineMarkdown>
-              {point.breadcrumb ?? point.path?.map((item) => item.title).join(" › ") ?? ""}
-            </InlineMarkdown>
-          </p>
+        <div className="knowledge-reference-title">
+          <strong><InlineMarkdown>{point.title}</InlineMarkdown></strong>
+          {(point.breadcrumb || point.path?.length) && (
+            <p className="knowledge-card-breadcrumb">
+              <InlineMarkdown>
+                {point.breadcrumb ?? point.path?.map((item) => item.title).join(" › ") ?? ""}
+              </InlineMarkdown>
+            </p>
+          )}
+        </div>
+        <div className="knowledge-reference-difficulty">
+          <strong>{difficulty.score.toFixed(2)}</strong>
+          <span>{difficulty.label} · {difficulty.evidence_level} 级</span>
+        </div>
+        <ChevronDown aria-hidden="true" size={17} />
+      </summary>
+      <div className="knowledge-reference-body">
+        {point.definition && (
+          <div className="knowledge-definition-block">
+            <span>这是什么</span>
+            <p><InlineMarkdown>{point.definition}</InlineMarkdown></p>
+          </div>
         )}
-      </header>
-      {point.definition && (
-        <div className="knowledge-definition-block">
-          <span>这是什么</span>
-          <p><InlineMarkdown>{point.definition}</InlineMarkdown></p>
+        <div className="knowledge-difficulty-block">
+          <div>
+            <span>难度 {difficulty.score.toFixed(2)} · {difficulty.label}</span>
+            <em>{difficulty.evidence_level} 级 · 置信度 {Math.round(difficulty.confidence * 100)}%</em>
+          </div>
+          <div className="difficulty"><span><i style={{ width: `${difficulty.score * 100}%` }} /></span></div>
+          <p>{difficulty.rationale}</p>
         </div>
-      )}
-      <div className="knowledge-difficulty-block">
-        <div>
-          <span>难度 {difficulty.score.toFixed(2)} · {difficulty.label}</span>
-          <em>{difficulty.evidence_level} 级 · 置信度 {Math.round(difficulty.confidence * 100)}%</em>
+        {(point.relations ?? []).length > 0 && (
+          <div className="knowledge-relation-chips">
+            {(point.relations ?? []).map((relation) => (
+              <div
+                className="knowledge-relation-chip"
+                key={`${relation.direction}-${relation.relation_type}-${relation.code}`}
+              >
+                <span>{relationLabels[relation.relation_type] ?? relation.relation_type}</span>
+                <b aria-hidden="true">{relation.direction === "outgoing" ? "→" : "←"}</b>
+                <div><Markdown>{relation.title}</Markdown></div>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="knowledge-card-evidence">
+          <h4>支撑这一知识点的参考原文</h4>
+          {point.references.length === 0 && <p>当前没有可定位的教材或大纲原文。</p>}
+          <CitationReferenceList citations={point.references} query={point.title} />
         </div>
-        <div className="difficulty"><span><i style={{ width: `${difficulty.score * 100}%` }} /></span></div>
-        <p>{difficulty.rationale}</p>
       </div>
-      {(point.relations ?? []).length > 0 && (
-        <div className="knowledge-relation-chips">
-          {(point.relations ?? []).map((relation) => (
-            <div
-              className="knowledge-relation-chip"
-              key={`${relation.direction}-${relation.relation_type}-${relation.code}`}
-            >
-              <span>{relationLabels[relation.relation_type] ?? relation.relation_type}</span>
-              <b aria-hidden="true">{relation.direction === "outgoing" ? "→" : "←"}</b>
-              <div><Markdown>{relation.title}</Markdown></div>
-            </div>
-          ))}
-        </div>
-      )}
-      <div className="knowledge-card-evidence">
-        <h4>支撑这一知识点的原文</h4>
-        {point.references.length === 0 && <p>当前没有可定位的教材或大纲原文。</p>}
-        {point.references.map((reference, referenceIndex) => (
-          <SourceEvidence
-            citation={reference}
-            index={referenceIndex}
-            marker={`证据 ${referenceIndex + 1}`}
-            query={point.title}
-            key={`${reference.source}-${reference.page ?? reference.section ?? "section"}-${referenceIndex}`}
-          />
-        ))}
-      </div>
-    </article>
+    </details>
   );
 }
 

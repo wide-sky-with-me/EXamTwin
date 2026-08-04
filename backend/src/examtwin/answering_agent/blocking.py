@@ -5,7 +5,7 @@ import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
-from typing import TypeVar
+from typing import Any, TypeVar
 
 ResultT = TypeVar("ResultT")
 
@@ -29,7 +29,7 @@ def _invoke_with_slot(
         _SUBMISSION_SLOTS.release()
 
 
-def _consume_late_outcome(future: asyncio.Future[object]) -> None:
+def _consume_late_outcome(future: asyncio.Future[Any]) -> None:
     """Retrieve a timed-out call's eventual exception without changing its outcome."""
 
     if future.cancelled():
@@ -63,6 +63,4 @@ async def run_blocking_bounded(
             outcome.add_done_callback(_consume_late_outcome)
         except RuntimeError:
             pass
-        raise TimeoutError(
-            f"blocking answering tool exceeded its {timeout:.0f}s timeout"
-        ) from None
+        raise TimeoutError(f"blocking answering tool exceeded its {timeout:.0f}s timeout") from None

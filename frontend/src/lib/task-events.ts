@@ -1,5 +1,7 @@
 import { websocketUrl } from "./api";
 
+const MAX_RECONNECT_ATTEMPTS = 6;
+
 export type TaskStreamState = "idle" | "connecting" | "live" | "reconnecting";
 
 type TaskSnapshot<T> = {
@@ -55,7 +57,6 @@ export function subscribeTaskSnapshots<T>(
     socket = current;
 
     current.onopen = () => {
-      reconnectAttempts = 0;
       options.onState("live");
     };
 
@@ -77,6 +78,7 @@ export function subscribeTaskSnapshots<T>(
         current.close(1003, "invalid task event");
         return;
       }
+      reconnectAttempts = 0;
       options.onSnapshot(message.data);
       if (options.isTerminal(message.data)) {
         options.onState("idle");
@@ -91,6 +93,12 @@ export function subscribeTaskSnapshots<T>(
         stopped = true;
         options.onState("idle");
         options.onUnavailable(event.reason || "任务不存在或已被清理。");
+        return;
+      }
+      if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS - 1) {
+        stopped = true;
+        options.onState("idle");
+        options.onError("实时进度连接多次失败。任务仍在后台运行，可手动重新连接。");
         return;
       }
       const delay = Math.min(500 * 2 ** reconnectAttempts, 8000);

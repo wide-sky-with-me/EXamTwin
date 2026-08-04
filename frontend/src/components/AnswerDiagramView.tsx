@@ -5,11 +5,13 @@ import {
   RotateCcw,
   Shrink,
 } from "lucide-react";
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 import rehypeKatex from "rehype-katex";
 import ReactMarkdown from "react-markdown";
 import remarkMath from "remark-math";
 import { canonicalizeMarkdownMath } from "../lib/markdown-math";
+import { apiUrl } from "../lib/api";
+import { useModalFocus } from "../lib/use-modal-focus";
 import type {
   AnswerDiagram,
   DiagramElement,
@@ -106,10 +108,12 @@ function DiagramMathLabel({
 
 function DiagramScene({
   diagram,
+  jobId,
   titleId,
   descriptionId,
 }: {
   diagram: AnswerDiagram;
+  jobId?: string;
   titleId: string;
   descriptionId: string;
 }) {
@@ -168,6 +172,19 @@ function DiagramScene({
           </marker>
         ))}
       </defs>
+      {diagram.source && jobId && (
+        <image
+          className="paper-diagram-source"
+          height={diagram.source.height}
+          href={apiUrl(
+            `/papers/jobs/${jobId}/source/pages/${diagram.source.page_number}`,
+          )}
+          preserveAspectRatio="none"
+          width={diagram.source.width}
+          x={0}
+          y={0}
+        />
+      )}
       {diagram.elements.map((element, elementIndex) => {
         const common = {
           className: elementClass(element),
@@ -180,10 +197,10 @@ function DiagramScene({
             return (
               <line
                 key={key}
-                x1={element.x1}
-                x2={element.x2}
-                y1={element.y1}
-                y2={element.y2}
+                x1={element.x1 ?? undefined}
+                x2={element.x2 ?? undefined}
+                y1={element.y1 ?? undefined}
+                y2={element.y2 ?? undefined}
                 {...common}
               />
             );
@@ -207,9 +224,9 @@ function DiagramScene({
             return (
               <circle
                 key={key}
-                cx={element.cx}
-                cy={element.cy}
-                r={element.r}
+                cx={element.cx ?? undefined}
+                cy={element.cy ?? undefined}
+                r={element.r ?? undefined}
                 {...common}
               />
             );
@@ -217,21 +234,21 @@ function DiagramScene({
             return (
               <ellipse
                 key={key}
-                cx={element.cx}
-                cy={element.cy}
-                rx={element.rx}
-                ry={element.ry}
+                cx={element.cx ?? undefined}
+                cy={element.cy ?? undefined}
+                rx={element.rx ?? undefined}
+                ry={element.ry ?? undefined}
                 {...common}
               />
             );
           case "path":
-            return <path key={key} d={element.d} {...common} />;
+            return <path key={key} d={element.d ?? undefined} {...common} />;
           case "point":
             return (
               <circle
                 key={key}
-                cx={element.x}
-                cy={element.y}
+                cx={element.x ?? undefined}
+                cy={element.y ?? undefined}
                 r={element.emphasis ? 5 : 3.5}
                 {...common}
               />
@@ -250,27 +267,20 @@ function DiagramScene({
   );
 }
 
-export function AnswerDiagramView({ diagram }: { diagram: AnswerDiagram }) {
+export function AnswerDiagramView({
+  diagram,
+  jobId,
+}: {
+  diagram: AnswerDiagram;
+  jobId?: string;
+}) {
   const id = useId().replaceAll(":", "");
   const titleId = `answer-diagram-title-${id}`;
   const descriptionId = `answer-diagram-description-${id}`;
   const [zoom, setZoom] = useState(1);
   const [expanded, setExpanded] = useState(false);
   const toolName = diagram.tool_name ?? "math_diagram";
-
-  useEffect(() => {
-    if (!expanded) return;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setExpanded(false);
-    };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [expanded]);
+  const containerRef = useModalFocus(expanded, setExpanded);
 
   const updateZoom = (next: number) => {
     setZoom(Math.min(2.5, Math.max(1, Number(next.toFixed(2)))));
@@ -278,13 +288,21 @@ export function AnswerDiagramView({ diagram }: { diagram: AnswerDiagram }) {
 
   return (
     <figure
+      aria-modal={expanded || undefined}
       aria-labelledby={titleId}
-      className={`answer-diagram${expanded ? " is-expanded" : ""}`}
+      className={`answer-diagram${diagram.source ? " is-source-backed" : ""}${expanded ? " is-expanded" : ""}`}
+      ref={containerRef}
+      role={expanded ? "dialog" : undefined}
+      tabIndex={expanded ? -1 : undefined}
     >
       <div className="answer-diagram-header">
         <div>
           <strong id={titleId}>{diagram.title}</strong>
-          <span>{TOOL_LABELS[toolName]} · 安全矢量图</span>
+          <span>
+            {diagram.source
+              ? `原图校准矢量叠绘 · 原卷第 ${diagram.source.page_number} 页`
+              : `${TOOL_LABELS[toolName]} · 安全矢量图`}
+          </span>
         </div>
         <div
           aria-label="图形查看控制"
@@ -322,6 +340,7 @@ export function AnswerDiagramView({ diagram }: { diagram: AnswerDiagram }) {
           <button
             aria-label={expanded ? "退出全屏查看" : "全屏查看图形"}
             aria-pressed={expanded}
+            data-modal-close={expanded ? "" : undefined}
             onClick={() => setExpanded((value) => !value)}
             title={expanded ? "退出全屏" : "全屏查看"}
             type="button"
@@ -333,11 +352,12 @@ export function AnswerDiagramView({ diagram }: { diagram: AnswerDiagram }) {
       <div className="answer-diagram-viewport" tabIndex={0}>
         <div
           className="answer-diagram-canvas"
-          style={{ width: `${zoom * 100}%` }}
+          style={{ transform: `scale(${zoom})` }}
         >
           <DiagramScene
             descriptionId={descriptionId}
             diagram={diagram}
+            jobId={jobId}
             titleId={titleId}
           />
         </div>

@@ -5,10 +5,13 @@ import mimetypes
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path, PurePosixPath
-from typing import BinaryIO, Protocol
+from typing import TYPE_CHECKING, BinaryIO, Protocol
 from uuid import uuid4
 
 from examtwin.local_storage import SafeLocalStorage
+
+if TYPE_CHECKING:
+    from examtwin.config import Settings
 
 
 @dataclass(frozen=True)
@@ -51,7 +54,9 @@ class ObjectCatalog(Protocol):
 
 class ObjectStore(Protocol):
     backend_name: str
-    bucket_name: str | None
+
+    @property
+    def bucket_name(self) -> str | None: ...
 
     def put_bytes(
         self,
@@ -469,7 +474,7 @@ class ManagedObjectStore:
             self.catalog.extend_retention(owner_type, owner_id, retain_until)
 
 
-def build_storage_backend(settings: object) -> ObjectStore:
+def build_storage_backend(settings: Settings) -> ObjectStore:
     """Build the configured backend without introducing persistence dependencies."""
 
     if settings.object_store_backend == "s3":

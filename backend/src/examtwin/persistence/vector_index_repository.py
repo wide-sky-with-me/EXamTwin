@@ -12,6 +12,7 @@ from examtwin.persistence.models import (
     VectorIndexBuildRunModel,
     VectorIndexPublicationModel,
 )
+from examtwin.persistence.results import affected_rows
 
 RUN_MUTABLE_FIELDS = frozenset(
     {
@@ -49,7 +50,7 @@ class VectorIndexRepository:
                 .where(VectorIndexBuildRunModel.id == run_id)
                 .values(**dict(values))
             )
-            if result.rowcount != 1:
+            if affected_rows(result) != 1:
                 raise LookupError(f"Vector index build run does not exist: {run_id}")
 
     def latest_resumable(self, *, subject_code: str, alias_name: str) -> dict[str, Any] | None:

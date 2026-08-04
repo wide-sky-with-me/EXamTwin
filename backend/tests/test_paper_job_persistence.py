@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,7 @@ from examtwin.persistence.paper_job_repository import LostLeaseError
 from examtwin.schemas import (
     AnswerDiagram,
     DiagramElement,
+    PaperDiagramSource,
     PaperQuestionAnswer,
 )
 from examtwin.services.paper_vision import (
@@ -50,6 +52,13 @@ def test_single_question_retry_repairs_only_a_missing_required_diagram(
                 AnswerDiagram(
                     title="Quadratic graph",
                     tool_name="math_plot",
+                    source=PaperDiagramSource(
+                        page_number=1,
+                        width=100,
+                        height=100,
+                        calibration="blank_axes",
+                    ),
+                    view_box=(0, 0, 100, 100),
                     elements=[
                         DiagramElement(
                             kind="line",
@@ -169,6 +178,29 @@ def test_expired_lease_can_be_reclaimed_and_rejects_old_heartbeat(tmp_path: Path
                 0,
                 f"{created.job_id}/stale.md",
             )
+    finally:
+        database.execute("DELETE FROM paper_jobs WHERE id=?", (created.job_id,))
+
+
+@pytest.mark.integration
+def test_two_workers_cannot_claim_the_same_paper_job(tmp_path: Path) -> None:
+    database = _test_database()
+    settings = Settings(object_store_local_root=tmp_path, paper_lease_seconds=30)
+    jobs = _job_service(database, settings)
+    runtimes = [_job_runtime(database, settings), _job_runtime(database, settings)]
+    created = jobs.create_job("race.md", b"# Question 1\nEnough content to parse.")
+    barrier = threading.Barrier(2)
+
+    def claim(runtime: Any) -> tuple[dict[str, Any], str] | None:
+        barrier.wait(timeout=2)
+        return runtime.claim_next()
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(claim, runtimes))
+        claimed = [result for result in results if result is not None]
+        assert len(claimed) == 1
+        assert claimed[0][0]["id"] == created.job_id
     finally:
         database.execute("DELETE FROM paper_jobs WHERE id=?", (created.job_id,))
 

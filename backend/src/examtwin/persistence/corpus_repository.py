@@ -14,6 +14,7 @@ from examtwin.persistence.models import (
     SourceDocumentModel,
     SourceDocumentVersionModel,
 )
+from examtwin.persistence.results import affected_rows
 from examtwin.persistence.session import utcnow
 
 
@@ -85,8 +86,7 @@ class CorpusRepository:
             if document_id is None:
                 document_id = hashlib.sha256(
                     (
-                        f"{values['subject_code']}:{values['source_type']}:"
-                        f"{values['checksum']}"
+                        f"{values['subject_code']}:{values['source_type']}:{values['checksum']}"
                     ).encode()
                 ).hexdigest()
 
@@ -134,9 +134,7 @@ class CorpusRepository:
                 location.present = True
                 location.last_seen_at = now
 
-            version_id = hashlib.sha256(
-                f"{document_id}:{values['checksum']}".encode()
-            ).hexdigest()
+            version_id = hashlib.sha256(f"{document_id}:{values['checksum']}".encode()).hexdigest()
             session.execute(
                 insert(SourceDocumentVersionModel)
                 .values(
@@ -195,7 +193,7 @@ class CorpusRepository:
                 .where(SourceDocumentModel.id == document_id)
                 .values(**values)
             )
-            if result.rowcount != 1:
+            if affected_rows(result) != 1:
                 raise LookupError(f"Source document does not exist: {document_id}")
 
     def get_converted(self, document_id: str) -> dict[str, Any] | None:

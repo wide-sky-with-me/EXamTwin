@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from collections.abc import Awaitable, Callable
+from typing import Any, cast
 
 from llama_index.core.llms import LLM
+from llama_index.core.tools import AsyncBaseTool
+from llama_index.core.tools.types import ToolOutput
 
 from examtwin.answering_agent.budget import budget_for_task
 from examtwin.answering_agent.capabilities import CapabilityRegistry
@@ -97,6 +100,8 @@ class AnsweringAgentRuntime:
                             "trusted question images were provided but "
                             "question_vision is unavailable"
                         )
+                    if not isinstance(question_vision, AsyncBaseTool):
+                        raise TypeError("question_vision must support asynchronous calls")
                     context.emit(
                         "tool",
                         "running",
@@ -104,7 +109,11 @@ class AnsweringAgentRuntime:
                         tool_name="question_vision",
                     )
                     try:
-                        vision_result = await question_vision.acall()
+                        call_question_vision = cast(
+                            Callable[..., Awaitable[ToolOutput]],
+                            question_vision.acall,
+                        )
+                        vision_result = await call_question_vision()
                         if vision_result.is_error or not vision_result.content.strip():
                             raise RuntimeError("question vision returned no usable observation")
                     except Exception:

@@ -148,7 +148,7 @@ def test_react_loop_requires_a_matching_plot_before_final_answer() -> None:
     )
 
     result = runtime.solve(
-        AnswerTask(subject_code="9660", question="7 (b) On Figure 3 sketch the graph of $y=x^2$.")
+        AnswerTask(subject_code="9660", question="7 (b) Sketch the graph of $y=x^2$.")
     )
 
     assert result.grounded is True

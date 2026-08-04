@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
-from examtwin.schemas.evidence import AnswerDiagram, AnswerImage, Citation
+from examtwin.schemas.base import SerializedResponse
+from examtwin.schemas.evidence import AnswerDiagram, AnswerImage, Citation, SubpartRequirement
 from examtwin.schemas.knowledge import (
     KnowledgeDifficultySummary,
     KnowledgePathItem,
@@ -12,7 +13,7 @@ from examtwin.schemas.knowledge import (
 )
 
 
-class PaperKnowledgeReference(BaseModel):
+class PaperKnowledgeReference(SerializedResponse):
     code: str
     title: str
     node_type: str
@@ -29,7 +30,7 @@ class PaperKnowledgeReference(BaseModel):
     difficulty: KnowledgeDifficultySummary | None = None
 
 
-class PaperQuestionAnswer(BaseModel):
+class PaperQuestionAnswer(SerializedResponse):
     number: str
     question_markdown: str
     answer_markdown: str
@@ -43,7 +44,7 @@ class PaperQuestionAnswer(BaseModel):
     error: str | None = None
 
 
-class PaperAnswerResponse(BaseModel):
+class PaperAnswerResponse(SerializedResponse):
     filename: str
     detected_questions: int
     succeeded: int
@@ -51,13 +52,13 @@ class PaperAnswerResponse(BaseModel):
     questions: list[PaperQuestionAnswer]
 
 
-class PaperJobCreated(BaseModel):
+class PaperJobCreated(SerializedResponse):
     job_id: str
     status: Literal["queued"]
     stage: Literal["queued"]
 
 
-class AgentStepSummary(BaseModel):
+class AgentStepSummary(SerializedResponse):
     run_attempt: int = Field(ge=1)
     sequence: int = Field(ge=1)
     phase: Literal["preparing", "deciding", "tool", "verifying", "finalizing"]
@@ -67,7 +68,7 @@ class AgentStepSummary(BaseModel):
     created_at: str
 
 
-class PaperJobQuestion(BaseModel):
+class PaperJobQuestion(SerializedResponse):
     position: int
     status: Literal["pending", "answering", "completed", "failed"]
     attempts: int = 0
@@ -75,7 +76,7 @@ class PaperJobQuestion(BaseModel):
     question_markdown: str
     source_pages: list[int] = Field(default_factory=list)
     source_warnings: list[str] = Field(default_factory=list)
-    answer_requirements: list[dict[str, Any]] = Field(default_factory=list)
+    answer_requirements: list[SubpartRequirement] = Field(default_factory=list)
     total_marks: int | None = None
     answer_markdown: str = ""
     diagrams: list[AnswerDiagram] = Field(default_factory=list)
@@ -89,7 +90,7 @@ class PaperJobQuestion(BaseModel):
     error: str | None = None
 
 
-class PaperJobChunk(BaseModel):
+class PaperJobChunk(SerializedResponse):
     chunk_index: int
     page_start: int
     page_end: int
@@ -98,7 +99,7 @@ class PaperJobChunk(BaseModel):
     error: str | None = None
 
 
-class PaperJobResponse(BaseModel):
+class PaperJobResponse(SerializedResponse):
     job_id: str
     filename: str
     subject_pack_id: str

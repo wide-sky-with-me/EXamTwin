@@ -35,8 +35,12 @@ describe("AnswerImageView", () => {
     expect(container.querySelector(".answer-image")).toHaveClass("is-expanded");
     expect(document.body.style.overflow).toBe("hidden");
 
-    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.getByRole("dialog", { name: image.title })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "退出全屏查看图片" })).toHaveFocus();
+
+    fireEvent.keyDown(document, { key: "Escape" });
     expect(container.querySelector(".answer-image")).not.toHaveClass("is-expanded");
+    expect(screen.getByRole("button", { name: "全屏查看图片" })).toHaveFocus();
     expect(document.body.style.overflow).toBe("");
   });
 });

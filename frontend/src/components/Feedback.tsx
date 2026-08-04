@@ -3,7 +3,7 @@ import { TriangleAlert } from "lucide-react";
 export function ErrorBanner({ message }: { message: string | null }) {
   if (!message) return null;
   return (
-    <div className="error-banner">
+    <div className="error-banner" role="alert">
       <TriangleAlert size={18} />
       <span>{message}</span>
     </div>

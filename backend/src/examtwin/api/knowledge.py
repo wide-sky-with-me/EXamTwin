@@ -11,6 +11,7 @@ from examtwin.schemas.knowledge import (
     DifficultyFeatures,
     DifficultyResult,
     KnowledgePointResponse,
+    KnowledgeRelationResponse,
 )
 from examtwin.services.difficulty import calculate_difficulty
 from examtwin.services.knowledge import list_knowledge_points, list_relations
@@ -34,10 +35,18 @@ def knowledge_points(
     )
 
 
-@router.get("/knowledge/relations")
-def knowledge_relations(settings: Settings = Depends(get_settings)) -> list[dict]:
+@router.get("/knowledge/relations", response_model=list[KnowledgeRelationResponse])
+def knowledge_relations(
+    settings: Settings = Depends(get_settings),
+) -> list[KnowledgeRelationResponse]:
     subject = subject_context(settings)
-    return list_relations(knowledge_repository(settings), subject_code=subject.subject_code)
+    return [
+        KnowledgeRelationResponse.model_validate(item)
+        for item in list_relations(
+            knowledge_repository(settings),
+            subject_code=subject.subject_code,
+        )
+    ]
 
 
 @router.post("/knowledge/difficulty", response_model=DifficultyResult)
@@ -53,7 +62,10 @@ def ask(
     try:
         return build_rag_service(settings).ask(request)
     except FileNotFoundError as error:
-        raise HTTPException(status_code=409, detail=str(error)) from error
+        raise HTTPException(
+            status_code=409,
+            detail="知识索引尚未准备完成，请先构建索引",
+        ) from error
     except Exception as error:
         raise upstream_http_error(
             "RAG_PROVIDER_FAILED",

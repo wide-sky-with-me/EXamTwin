@@ -24,20 +24,22 @@ class DashboardRepository:
     def stats(self) -> dict[str, Any]:
         with self.sessions() as session:
             documents_total = self._count(session, SourceDocumentModel)
-            by_type = dict(
-                session.execute(
+            by_type = {
+                str(source_type): int(count)
+                for source_type, count in session.execute(
                     select(SourceDocumentModel.source_type, func.count()).group_by(
                         SourceDocumentModel.source_type
                     )
-                ).all()
-            )
-            by_status = dict(
-                session.execute(
+                )
+            }
+            by_status = {
+                str(status): int(count)
+                for status, count in session.execute(
                     select(SourceDocumentModel.status, func.count()).group_by(
                         SourceDocumentModel.status
                     )
-                ).all()
-            )
+                )
+            }
             pairs: dict[str, set[str]] = defaultdict(set)
             pair_rows = session.execute(
                 select(SourceDocumentModel.pair_key, SourceDocumentModel.source_type).where(

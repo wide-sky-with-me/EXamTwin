@@ -183,7 +183,7 @@ def extract_examiner_evidence(
         source_types=["examiner_report"],
     )
     rows = [row for row in rows if row.get("markdown_path")]
-    documents = 0
+    document_count = 0
     questions = 0
     numeric_questions = 0
     observations: list[dict[str, Any]] = []
@@ -248,10 +248,10 @@ def extract_examiner_evidence(
             questions += 1
             extracted += 1
         if extracted:
-            documents += 1
+            document_count += 1
     difficulties.upsert_questions(observations)
     return {
-        "documents_with_evidence": documents,
+        "documents_with_evidence": document_count,
         "question_rows": questions,
         "numeric_question_rows": numeric_questions,
     }

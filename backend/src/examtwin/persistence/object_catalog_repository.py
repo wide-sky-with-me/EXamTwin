@@ -71,12 +71,7 @@ class ObjectCatalogRepository:
                             & (StoredObjectModel.updated_at <= stale_claim),
                         )
                     )
-                    .where(
-                        ~(
-                            (StoredObjectModel.owner_type == "paper_job")
-                            & active_paper_job
-                        )
-                    )
+                    .where(~((StoredObjectModel.owner_type == "paper_job") & active_paper_job))
                     .order_by(StoredObjectModel.retain_until, StoredObjectModel.created_at)
                     .with_for_update(skip_locked=True)
                     .limit(limit)
@@ -118,8 +113,7 @@ class ObjectCatalogRepository:
                 ).group_by(StoredObjectModel.state)
             ).all()
         by_state = {
-            str(state): {"objects": int(count), "bytes": int(size)}
-            for state, count, size in rows
+            str(state): {"objects": int(count), "bytes": int(size)} for state, count, size in rows
         }
         return {
             "by_state": by_state,

@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import fitz
 from examtwin.subjects import SubjectPack
@@ -17,8 +17,9 @@ def audit_subject_pack_pdf(subject_pack: SubjectPack, pdf_path: Path) -> dict[st
     topic_code_pattern = re.compile(rf"^({subject_pack.topic_code_pattern})(?:\s|:|$)")
     subject_code_visible = False
     with fitz.open(pdf_path) as document:
-        for page_index, page in enumerate(document):
-            text = page.get_text()
+        for page_index in range(document.page_count):
+            page = document.load_page(page_index)
+            text = cast(str, page.get_text("text"))
             if subject_pack.subject_code in text:
                 subject_code_visible = True
             for raw_line in text.splitlines():

@@ -15,7 +15,7 @@ import {
   useState,
 } from "react";
 import { ErrorBanner } from "./components/Feedback";
-import { api } from "./lib/api";
+import { apiClient, unwrapApi } from "./lib/api";
 import type {
   Health,
   KnowledgePoint,
@@ -56,6 +56,7 @@ export default function App() {
   const [points, setPoints] = useState<KnowledgePoint[]>([]);
   const [relations, setRelations] = useState<KnowledgeRelation[]>([]);
   const [reviews, setReviews] = useState<ReviewItem[]>([]);
+  const [health, setHealth] = useState<Health | null>(null);
   const [connected, setConnected] = useState(false);
   const [paperJobsReady, setPaperJobsReady] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -64,23 +65,27 @@ export default function App() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [health, nextStats, nextPoints, nextRelations, nextReviews] = await Promise.all([
-        api<Health>("/health"),
-        api<Stats>("/stats"),
-        api<KnowledgePoint[]>("/knowledge/points"),
-        api<KnowledgeRelation[]>("/knowledge/relations"),
-        api<ReviewItem[]>("/grading/reviews"),
+      const [nextHealth, nextStats, nextPoints, nextRelations, nextReviews] = await Promise.all([
+        unwrapApi(apiClient.GET("/api/v1/health")),
+        unwrapApi(apiClient.GET("/api/v1/stats")),
+        unwrapApi(apiClient.GET("/api/v1/knowledge/points")),
+        unwrapApi(apiClient.GET("/api/v1/knowledge/relations")),
+        unwrapApi(apiClient.GET("/api/v1/grading/reviews")),
       ]);
       setPaperJobsReady(
-        Array.isArray(health.capabilities)
-          && health.capabilities.includes("paper_jobs_v1")
-          && health.capabilities.includes("task_events_v1")
-          && health.capabilities.includes("answering_agent_v1"),
+        Array.isArray(nextHealth.capabilities)
+          && nextHealth.capabilities.includes("paper_jobs_v1")
+          && nextHealth.capabilities.includes("task_events_v1")
+          && nextHealth.capabilities.includes("answering_agent_v1")
+          && nextHealth.infrastructure != null
+          && Object.values(nextHealth.infrastructure).every(Boolean),
       );
+      setHealth(nextHealth);
       setStats(nextStats); setPoints(nextPoints); setRelations(nextRelations); setReviews(nextReviews);
       setConnected(true); setError(null);
     } catch (cause) {
       setConnected(false);
+      setHealth(null);
       setPaperJobsReady(false);
       setError(cause instanceof Error ? cause.message : "后端连接失败");
     } finally {
@@ -101,6 +106,8 @@ export default function App() {
     };
   }, [refresh]);
   const currentLabel = useMemo(() => navItems.find((item) => item.id === tab)?.label, [tab]);
+  const infrastructure = health?.infrastructure;
+  const apiHealthy = connected && health?.status === "ok";
 
   return (
     <div className="app-shell">
@@ -113,23 +120,37 @@ export default function App() {
         ))}</nav>
         <div className="infra">
           <span>INFRASTRUCTURE</span>
-          <p><i className={connected ? "up" : ""} /> PostgreSQL</p>
-          <p><i className={connected ? "up" : ""} /> Qdrant</p>
+          <p><i className={infrastructure?.postgresql ? "up" : connected ? "down" : ""} /> PostgreSQL</p>
+          <p><i className={infrastructure?.qdrant ? "up" : connected ? "down" : ""} /> Qdrant</p>
+          <p><i className={infrastructure?.object_storage ? "up" : connected ? "down" : ""} /> Object storage</p>
           <small>Docker Compose managed</small>
         </div>
       </aside>
       <main>
         <header>
           <span>{currentLabel}</span>
-          <div className={connected && paperJobsReady ? "api-live" : "api-offline"}>
+          <div className={apiHealthy && paperJobsReady ? "api-live" : "api-offline"}>
             <i />
-            {!connected ? "API offline" : paperJobsReady ? "API connected" : "API outdated"}
+            {!connected
+              ? "API offline"
+              : !apiHealthy
+                ? "API degraded"
+                : paperJobsReady
+                  ? "API connected"
+                  : "API outdated"}
           </div>
         </header>
         <div className="content">
           <Suspense fallback={<div className="panel empty">正在加载页面…</div>}>
-            {error && tab === "overview" && <ErrorBanner message={`请先启动 Docker 基础设施和 FastAPI：${error}`} />}
-            {tab === "overview" && <Overview stats={stats} refresh={refresh} loading={loading} />}
+            {error && <ErrorBanner message={`请先启动 Docker 基础设施和 FastAPI：${error}`} />}
+            {tab === "overview" && (
+              <Overview
+                stats={stats}
+                refresh={refresh}
+                loading={loading}
+                postgresqlUp={infrastructure?.postgresql ?? null}
+              />
+            )}
             {tab === "knowledge" && <Knowledge points={points} relations={relations} />}
             {tab === "ask" && <PaperAnswering enabled={paperJobsReady} />}
             {tab === "grading" && <Grading onCreated={refresh} />}

@@ -13,7 +13,7 @@ from llama_index.core.agent.react.types import (
     ResponseReasoningStep,
 )
 from llama_index.core.llms import LLM, ChatMessage, MessageRole
-from llama_index.core.tools import BaseTool
+from llama_index.core.tools import AsyncBaseTool, BaseTool
 
 from examtwin.answering_agent.contracts import AgentRunContext, AnswerTask, SubjectSkill
 from examtwin.answering_agent.finalization import (
@@ -67,7 +67,12 @@ class LlamaIndexReActRunner:
         timeout: float,
         initial_observations: tuple[str, ...] = (),
     ) -> str:
-        by_name = {tool.metadata.name: tool for tool in tools}
+        by_name: dict[str, BaseTool] = {}
+        for tool in tools:
+            name = tool.metadata.name
+            if not name:
+                raise ValueError("answering capability is missing a tool name")
+            by_name[name] = tool
         required_artifact_tools = _required_artifact_tools(skill, task)
         unavailable_artifact_tools = set(required_artifact_tools) - set(by_name)
         if unavailable_artifact_tools:
@@ -401,6 +406,8 @@ class LlamaIndexReActRunner:
                         tool_input = tool.metadata.fn_schema.model_validate(
                             step.action_input
                         ).model_dump()
+                    if not isinstance(tool, AsyncBaseTool):
+                        raise TypeError(f"answering tool {step.action} is not asynchronous")
                     result = await tool.acall(**tool_input)
                 except Exception as error:
                     record_failure(step.action, signature)

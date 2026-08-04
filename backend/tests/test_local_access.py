@@ -34,6 +34,4 @@ async def test_local_only_middleware_rejects_remote_http_and_websocket_clients()
         receive,  # type: ignore[arg-type]
         send,  # type: ignore[arg-type]
     )
-    assert messages == [
-        {"type": "websocket.close", "code": 4403, "reason": "local access only"}
-    ]
+    assert messages == [{"type": "websocket.close", "code": 4403, "reason": "local access only"}]

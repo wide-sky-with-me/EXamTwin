@@ -134,12 +134,18 @@ const inlineMarkdownComponents: Components = {
   },
 };
 
-export function Markdown({ children }: { children: string }) {
+export function Markdown({
+  children,
+  components,
+}: {
+  children: string;
+  components?: Components;
+}) {
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm, remarkMath]}
       rehypePlugins={[rehypeRaw, rehypeSanitize, rehypeTableMath, rehypeKatex]}
-      components={markdownComponents}
+      components={{ ...markdownComponents, ...components }}
     >
       {canonicalizeMarkdownMath(children)}
     </ReactMarkdown>

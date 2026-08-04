@@ -25,15 +25,21 @@ def pytest_configure(config: pytest.Config) -> None:
     with psycopg.connect(admin_url.render_as_string(hide_password=False), autocommit=True) as conn:
         conn.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database_name)))
     temporary_url = base_url.set(database=database_name).render_as_string(hide_password=False)
+    previous_database_url = os.environ.get("DATABASE_URL")
     os.environ["EXAMTWIN_TEST_DATABASE_URL"] = temporary_url
-    config.__dict__["_examtwin_test_database"] = (admin_url, database_name)
+    os.environ["DATABASE_URL"] = temporary_url
+    config.__dict__["_examtwin_test_database"] = (
+        admin_url,
+        database_name,
+        previous_database_url,
+    )
 
 
 def pytest_unconfigure(config: pytest.Config) -> None:
     owned = getattr(config, "_examtwin_test_database", None)
     if owned is None:
         return
-    admin_url, database_name = owned
+    admin_url, database_name, previous_database_url = owned
     with psycopg.connect(admin_url.render_as_string(hide_password=False), autocommit=True) as conn:
         conn.execute(
             "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
@@ -41,6 +47,10 @@ def pytest_unconfigure(config: pytest.Config) -> None:
             (database_name,),
         )
         conn.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(database_name)))
+    if previous_database_url is None:
+        os.environ.pop("DATABASE_URL", None)
+    else:
+        os.environ["DATABASE_URL"] = previous_database_url
 
 
 @pytest.fixture(autouse=True)
