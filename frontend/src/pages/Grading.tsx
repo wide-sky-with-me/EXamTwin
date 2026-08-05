@@ -12,20 +12,24 @@ import { apiClient, unwrapApi } from "../lib/api";
 import type { GradeResult } from "../types";
 import { SourceEvidence } from "../components/Evidence";
 import { Confidence, ErrorBanner } from "../components/Feedback";
+import { useToast } from "../components/toast-context";
 
 export function Grading({ onCreated }: { onCreated: () => Promise<void> }) {
-  const [question, setQuestion] = useState("Solve the equation shown and give all working.");
-  const [scheme, setScheme] = useState("1.M1 Award 1 mark for a valid method.\n1.A1 Award 1 mark for the correct final answer.");
-  const [answer, setAnswer] = useState("I rearranged the equation and obtained the final answer.");
-  const [maxMarks, setMaxMarks] = useState("2");
+  const [question, setQuestion] = useState("");
+  const [scheme, setScheme] = useState("");
+  const [answer, setAnswer] = useState("");
+  const [maxMarks, setMaxMarks] = useState("");
+  const [maxMarksTouched, setMaxMarksTouched] = useState(false);
   const [result, setResult] = useState<GradeResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { notify } = useToast();
   const parsedMaxMarks = Number(maxMarks);
   const maxMarksInvalid =
     maxMarks.trim() === ""
     || !Number.isFinite(parsedMaxMarks)
     || parsedMaxMarks <= 0;
+  const formIncomplete = !question.trim() || !scheme.trim() || !answer.trim();
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -47,6 +51,7 @@ export function Grading({ onCreated }: { onCreated: () => Promise<void> }) {
         }),
       );
       setResult(payload);
+      notify("自动初评已完成，并进入人工复核队列。");
       await onCreated();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "评分失败");
@@ -58,27 +63,34 @@ export function Grading({ onCreated }: { onCreated: () => Promise<void> }) {
   return (
     <section>
       <div className="page-heading compact">
-        <div><p className="eyebrow">MARK SCHEME FIRST</p><h1>自动初评</h1><p>当前支持学生 Markdown 答案；逐条 rubric 给分并保留证据。</p></div>
+        <div><h1>自动初评</h1><p>当前支持学生 Markdown 答案；逐条 rubric 给分并保留证据。</p></div>
       </div>
       <div className="grade-layout">
         <form className="panel form-panel grade-form" onSubmit={submit}>
-          <label>题目 Markdown<textarea rows={4} value={question} onChange={(e) => setQuestion(e.target.value)} /></label>
-          <label>Mark scheme Markdown<textarea rows={7} value={scheme} onChange={(e) => setScheme(e.target.value)} /></label>
-          <label>学生答案 Markdown<textarea rows={8} value={answer} onChange={(e) => setAnswer(e.target.value)} /></label>
+          <label>题目 Markdown<textarea placeholder="粘贴完整题目与分值要求" required rows={4} value={question} onChange={(e) => setQuestion(e.target.value)} /></label>
+          <label>Mark scheme Markdown<textarea placeholder="粘贴对应的官方评分方案" required rows={7} value={scheme} onChange={(e) => setScheme(e.target.value)} /></label>
+          <label>学生答案 Markdown<textarea placeholder="粘贴学生作答内容" required rows={8} value={answer} onChange={(e) => setAnswer(e.target.value)} /></label>
           <label className="short-field">
             满分
             <input
+              aria-label="满分"
               aria-invalid={maxMarksInvalid}
               min="0.5"
-              onChange={(e) => setMaxMarks(e.target.value)}
+              onBlur={() => setMaxMarksTouched(true)}
+              onChange={(e) => {
+                setMaxMarks(e.target.value);
+                setMaxMarksTouched(true);
+              }}
               required
               step="0.5"
               type="number"
               value={maxMarks}
             />
-            {maxMarksInvalid && <small className="field-error">请输入大于 0 的满分。</small>}
+            {maxMarksTouched && maxMarksInvalid && (
+              <small className="field-error">请输入大于 0 的满分。</small>
+            )}
           </label>
-          <button className="primary" disabled={loading || maxMarksInvalid}>
+          <button className="primary" disabled={loading || maxMarksInvalid || formIncomplete}>
             {loading ? <LoaderCircle className="spin" size={18} /> : <GraduationCap size={18} />}
             生成逐项评分
           </button>

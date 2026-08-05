@@ -4,13 +4,33 @@ import type { paths } from "../generated/openapi";
 import type { PaperJobCreated, SourceContextResult } from "../types";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api/v1";
+export const SUBJECT_STORAGE_KEY = "examtwin.subject";
+let activeSubject = window.localStorage.getItem(SUBJECT_STORAGE_KEY) || null;
+
+export function setApiSubject(subject: string | null): void {
+  activeSubject = subject;
+  if (subject) window.localStorage.setItem(SUBJECT_STORAGE_KEY, subject);
+  else window.localStorage.removeItem(SUBJECT_STORAGE_KEY);
+}
+
+export function getApiSubject(): string | null {
+  return activeSubject;
+}
+
+function subjectHeaders(headers?: HeadersInit): Headers {
+  const result = new Headers(headers);
+  if (activeSubject) result.set("X-ExamTwin-Subject", activeSubject);
+  return result;
+}
 const RESOLVED_API_BASE = new URL(API_BASE, window.location.origin);
 const API_ORIGIN = API_BASE.endsWith("/api/v1")
   ? RESOLVED_API_BASE.href.slice(0, -"/api/v1".length)
   : RESOLVED_API_BASE.href.replace(/\/$/, "");
 export const apiClient = createClient<paths>({
   baseUrl: API_ORIGIN,
-  fetch: (...arguments_) => globalThis.fetch(...arguments_),
+  fetch: (request: Request) => globalThis.fetch(
+    new Request(request, { headers: subjectHeaders(request.headers) }),
+  ),
 });
 
 export function apiUrl(path: string): string {
@@ -20,12 +40,16 @@ export function apiUrl(path: string): string {
 export function websocketUrl(path: string): string {
   const url = new URL(apiUrl(path), window.location.href);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  if (activeSubject) url.searchParams.set("subject", activeSubject);
   return url.toString();
 }
 
 export function backendResourceUrl(path: string): string {
   const apiPath = path.startsWith("/api/v1") ? path.slice("/api/v1".length) : path;
-  return apiUrl(apiPath.startsWith("/") ? apiPath : `/${apiPath}`);
+  const resource = apiUrl(apiPath.startsWith("/") ? apiPath : `/${apiPath}`);
+  if (!activeSubject) return resource;
+  const separator = resource.includes("?") ? "&" : "?";
+  return `${resource}${separator}subject=${encodeURIComponent(activeSubject)}`;
 }
 
 export class ApiError extends Error {
@@ -42,11 +66,11 @@ async function checkedFetch(path: string, init?: RequestInit): Promise<Response>
   const response = await fetch(new URL(`${API_BASE}${path}`, window.location.origin), {
     ...init,
     headers: isFormData
-      ? init?.headers
-      : {
+      ? subjectHeaders(init?.headers)
+      : subjectHeaders({
           "Content-Type": "application/json",
           ...init?.headers,
-        },
+        }),
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => ({ detail: response.statusText }));

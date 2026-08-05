@@ -1,11 +1,16 @@
 {
   "schema_version": 1,
-  "version": "2026-08-04.1",
+  "version": "2026-08-04.3",
   "id": "oxfordaqa-economics-9640",
   "subject_code": "9640",
   "title": "OxfordAQA International AS/A-level Economics (9640)",
   "board_id": "oxfordaqa",
   "specification_ref": "data/牛津AQA/经济/00_旧库补充/官方资料/考试大纲/oxfordaqa-a-level-economics-specification.pdf",
+  "runtime": {
+    "corpus_root": "data/牛津AQA/经济",
+    "vector_collection": "examtwin_9640",
+    "vector_alias": "examtwin_9640_live"
+  },
   "curriculum": {
     "unit_rules": [
       {
@@ -56,10 +61,18 @@
     "normalizer_key": "default-v1"
   },
   "answering": {
-    "enabled": false,
-    "disabled_reason": "The 9640 curriculum pack is installed, but its answering policy has not yet been reviewed.",
-    "tool_names": [],
-    "required_tool_names": [],
-    "mandatory_tool_names": []
+    "enabled": true,
+    "instructions_file": "SKILL.md",
+    "tool_names": [
+      "question_vision",
+      "knowledge_search",
+      "source_read",
+      "paired_exam_lookup",
+      "economics_calculate",
+      "economics_diagram"
+    ],
+    "required_tool_names": ["knowledge_search"],
+    "mandatory_tool_names": ["knowledge_search"],
+    "visual_policy": "economics-answer-visual-v1"
   }
 }

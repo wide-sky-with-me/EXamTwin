@@ -1,0 +1,84 @@
+{
+  "subject_code": "9660",
+  "top_k": 5,
+  "minimum_recall_at_k": 0.8,
+  "minimum_mrr": 0.6,
+  "cases": [
+    {
+      "id": "p1-surds-rationalisation",
+      "query": "Simplify surds and rationalise the denominator of a fraction.",
+      "unit_code": "P1",
+      "targets": [{"knowledge_code": "P1.1.O01"}]
+    },
+    {
+      "id": "p1-perpendicular-gradients",
+      "query": "What condition on gradients makes two straight lines perpendicular?",
+      "unit_code": "P1",
+      "targets": [{"knowledge_code": "P1.2.O02"}]
+    },
+    {
+      "id": "p1-binomial-expansion",
+      "query": "Use n choose r to expand (1+x)^n for a positive integer n.",
+      "unit_code": "P1",
+      "targets": [{"knowledge_code": "P1.5.O06"}]
+    },
+    {
+      "id": "psm1-newton-laws",
+      "query": "Apply Newton's laws to linear motion with constant acceleration on an inclined plane.",
+      "unit_code": "PSM1",
+      "targets": [{"knowledge_code": "M1.3.O03"}]
+    },
+    {
+      "id": "psm1-binomial-variance",
+      "query": "Find the mean, variance and standard deviation of a binomial distribution.",
+      "unit_code": "PSM1",
+      "targets": [{"knowledge_code": "S1.3.O05"}]
+    },
+    {
+      "id": "p2-double-angle",
+      "query": "Use the double angle formulae for sin 2x, cos 2x and tan 2x.",
+      "unit_code": "P2",
+      "targets": [{"knowledge_code": "P2.4.O05"}]
+    },
+    {
+      "id": "p2-simpsons-rule",
+      "query": "Numerically integrate a function using the mid-ordinate rule or Simpson's Rule.",
+      "unit_code": "P2",
+      "targets": [{"knowledge_code": "P2.9.O03"}]
+    },
+    {
+      "id": "s2-poisson-conditions",
+      "query": "State the conditions for applying a Poisson distribution.",
+      "unit_code": "S2",
+      "targets": [{"knowledge_code": "S2.1.O01"}]
+    },
+    {
+      "id": "s2-normal-unknown-variance",
+      "query": "Test the mean of a normal distribution when the variance is unknown using a t-statistic.",
+      "unit_code": "S2",
+      "targets": [{"knowledge_code": "S2.6.O07"}]
+    },
+    {
+      "id": "m2-conical-pendulum",
+      "query": "Model and solve a conical pendulum problem.",
+      "unit_code": "M2",
+      "targets": [{"knowledge_code": "M2.7.O05"}]
+    },
+    {
+      "id": "p1-mark-scheme-exact-k31",
+      "query": "Equation equating the 13th term and 3 times the kth term; k = 31.",
+      "unit_code": "P1",
+      "source_types": ["mark_scheme"],
+      "authority_tiers": ["official"],
+      "targets": [{"document_id": "e5768e4ea11d93d94252710ead89a797aedb55b1"}]
+    },
+    {
+      "id": "s2-mark-scheme-exact-normal-tail",
+      "query": "P(X < 6), z < -1.54, 1 - 0.93822 = 0.0618 using tables.",
+      "unit_code": "S2",
+      "source_types": ["mark_scheme"],
+      "authority_tiers": ["official"],
+      "targets": [{"document_id": "a8fc1ef5b2980bbd9d26ff2ab2e5c276000ca4c2"}]
+    }
+  ]
+}

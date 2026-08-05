@@ -17,7 +17,7 @@ import { sourceLabels } from "../lib/evidence";
 import { useModalFocus } from "../lib/use-modal-focus";
 import type { Citation, SourceContextResult } from "../types";
 import { ErrorBanner } from "./Feedback";
-import { Markdown } from "./Markdown";
+import { InlineMarkdown, Markdown } from "./Markdown";
 
 const evidenceRoleLabels: Record<string, string> = {
   definition: "知识定义",
@@ -118,7 +118,9 @@ function CitationDialog({
         <header>
           <div>
             <span>参考文献 [{index + 1}] · {labels.sourceType}</span>
-            <h2 id={`citation-dialog-title-${index}`}>{labels.title}</h2>
+            <h2 id={`citation-dialog-title-${index}`}>
+              <InlineMarkdown>{labels.title}</InlineMarkdown>
+            </h2>
             <p>
               {labels.filename} · {labels.location}
               {citation.section_path?.length
@@ -217,9 +219,11 @@ export function CitationReference({
           style={tooltipPosition}
         >
           <span>[{index + 1}] {labels.sourceType}{labels.role ? ` · ${labels.role}` : ""}</span>
-          <strong>{labels.title}</strong>
+          <strong><InlineMarkdown>{labels.title}</InlineMarkdown></strong>
           <em>{labels.location} · 点击查看完整原文</em>
-          <p>{citation.excerpt}</p>
+          <div className="citation-hover-excerpt">
+            <Markdown>{citation.excerpt}</Markdown>
+          </div>
         </div>,
         document.body,
       )
@@ -249,7 +253,7 @@ export function CitationReference({
         <button className="citation-reference-row" {...shared}>
           <span>[{index + 1}]</span>
           <span>
-            <strong>{labels.title}</strong>
+            <strong><InlineMarkdown>{labels.title}</InlineMarkdown></strong>
             <small>{labels.sourceType}{labels.role ? ` · ${labels.role}` : ""} · {labels.location}</small>
           </span>
           <em>查看原文</em>

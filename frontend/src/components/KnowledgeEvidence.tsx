@@ -1,7 +1,7 @@
 import { ChevronDown, FileText, X } from "lucide-react";
 import { forwardRef, useState } from "react";
 
-import { apiUrl } from "../lib/api";
+import { backendResourceUrl } from "../lib/api";
 import type { PaperKnowledgeReference } from "../types";
 import { CitationReferenceList } from "./CitationReferences";
 import { difficultyOf, relationLabels } from "../lib/evidence";
@@ -90,7 +90,7 @@ export const SourcePreviewDialog = forwardRef<HTMLDivElement, SourcePreviewDialo
     ref,
   ) {
     const [activePage, setActivePage] = useState(pages[0] ?? 1);
-    const activePageUrl = apiUrl(
+    const activePageUrl = backendResourceUrl(
       `/papers/jobs/${jobId}/source/pages/${activePage}`,
     );
 
@@ -166,7 +166,7 @@ export const SourcePreviewDialog = forwardRef<HTMLDivElement, SourcePreviewDialo
           </div>
           <footer>
             <a
-              href={apiUrl(`/papers/jobs/${jobId}/source`)}
+              href={backendResourceUrl(`/papers/jobs/${jobId}/source`)}
               target="_blank"
               rel="noreferrer"
             >

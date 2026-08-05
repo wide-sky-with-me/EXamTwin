@@ -20,6 +20,8 @@ REPLAY_SAFE_TOOLS = frozenset(
         "probability_calculate",
         "math_plot",
         "math_diagram",
+        "economics_calculate",
+        "economics_diagram",
     }
 )
 

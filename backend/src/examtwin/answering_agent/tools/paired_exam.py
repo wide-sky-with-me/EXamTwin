@@ -14,7 +14,7 @@ from examtwin.services.source_context import source_context
 
 
 class PairedExamReader(Protocol):
-    def exact_pair_documents(self, pair_key: str, limit: int = 3) -> list[dict[str, Any]]: ...
+    def exact_pair_documents(self, pair_key: str, limit: int = 4) -> list[dict[str, Any]]: ...
 
 
 class PairedExamLookupTool:
@@ -57,7 +57,7 @@ class PairedExamLookupTool:
                 if item
             )
             sections: list[str] = []
-            for row in rows[:3]:
+            for row in rows[:4]:
                 try:
                     result = await run_blocking_bounded(
                         source_context,
@@ -103,7 +103,8 @@ class PairedExamLookupTool:
             async_fn=paired_exam_lookup,
             name=self.name,
             description=(
-                "Read the official mark scheme, examiner report and question paper that "
+                "Read the official source booklet/insert, mark scheme, examiner report and "
+                "question paper that "
                 "match this uploaded paper's exact year/session/unit pair. Never guesses "
                 "or substitutes a nearby examination session."
             ),

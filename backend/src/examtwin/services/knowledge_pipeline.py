@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import uuid
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 from typing import Any, Protocol
 
 from examtwin.agent_harness import StructuredModelPort, StructuredTask, StructuredTaskRunner
@@ -14,10 +14,13 @@ from examtwin.persistence.session import utcnow
 from examtwin.prompt_templates import load_prompt_template
 from examtwin.services.cache_paths import resolve_markdown_cache_path
 from examtwin.services.curriculum import (
+    MINERU_MARKDOWN_PROJECTION,
+    PDF_TEXT_PROJECTION,
     CurriculumCandidate,
+    CurriculumExtraction,
     CurriculumValidation,
-    get_curriculum_extractor,
-    validate_curriculum_candidate,
+    pdf_text_curriculum_projection,
+    select_curriculum_projection,
 )
 from examtwin.services.knowledge_publication import publish_curriculum_graph
 from examtwin.services.structured_model import LiteLLMStructuredModel
@@ -179,22 +182,10 @@ class KnowledgeBuildPipeline:
         candidate_id: str | None = None
         try:
             document = self._syllabus_document()
-            markdown_path = resolve_markdown_cache_path(
-                self.settings,
-                str(document["id"]),
-                str(document["markdown_path"]),
-            )
-            markdown = markdown_path.read_text(encoding="utf-8")
-            input_hash = hashlib.sha256(markdown.encode("utf-8")).hexdigest()
-            candidate = get_curriculum_extractor(self.subject_pack).extract(
-                markdown,
-                self.subject_pack,
-                source_document_id=str(document["id"]),
-                source_ref=str(document["path"]),
-                input_hash=input_hash,
-            )
-            validation = validate_curriculum_candidate(candidate, self.subject_pack)
-            self._apply_published_graph_gate(candidate, validation)
+            extraction, markdown_path = self._curriculum_extraction(document)
+            candidate = extraction.candidate
+            validation = extraction.validation
+            input_hash = candidate.input_hash
             new_candidate_id = str(uuid.uuid4())
             candidate_now = utcnow()
             auto_publish = validation.passed and not validation.warnings
@@ -235,6 +226,7 @@ class KnowledgeBuildPipeline:
                 "topic_codes": [topic.code for topic in candidate.topics],
                 "objective_codes": [item["code"] for item in objectives],
                 "source_path": str(markdown_path),
+                "source_projection": extraction.projection,
                 "validation": validation.model_dump(),
             }
             self._update_run(
@@ -345,28 +337,40 @@ class KnowledgeBuildPipeline:
     def preview(self) -> dict[str, Any]:
         """Extract and validate a candidate without persisting or publishing it."""
         document = self._syllabus_document()
+        extraction, _markdown_path = self._curriculum_extraction(document)
+        candidate = extraction.candidate
+        validation = extraction.validation
+        return {
+            "candidate": candidate.model_dump(),
+            "candidate_hash": candidate.content_hash,
+            "source_projection": extraction.projection,
+            "validation": validation.model_dump(),
+            "publishable": validation.passed and not validation.warnings,
+        }
+
+    def _curriculum_extraction(
+        self,
+        document: Mapping[str, Any],
+    ) -> tuple[CurriculumExtraction, Path]:
         markdown_path = resolve_markdown_cache_path(
             self.settings,
             str(document["id"]),
             str(document["markdown_path"]),
         )
-        markdown = markdown_path.read_text(encoding="utf-8")
-        input_hash = hashlib.sha256(markdown.encode("utf-8")).hexdigest()
-        candidate = get_curriculum_extractor(self.subject_pack).extract(
-            markdown,
+        projections = [
+            (MINERU_MARKDOWN_PROJECTION, markdown_path.read_text(encoding="utf-8")),
+        ]
+        source_path = Path(str(document["path"])).resolve()
+        if source_path.suffix.lower() == ".pdf" and source_path.is_file():
+            projections.append((PDF_TEXT_PROJECTION, pdf_text_curriculum_projection(source_path)))
+        extraction = select_curriculum_projection(
+            projections,
             self.subject_pack,
             source_document_id=str(document["id"]),
             source_ref=str(document["path"]),
-            input_hash=input_hash,
         )
-        validation = validate_curriculum_candidate(candidate, self.subject_pack)
-        self._apply_published_graph_gate(candidate, validation)
-        return {
-            "candidate": candidate.model_dump(),
-            "candidate_hash": candidate.content_hash,
-            "validation": validation.model_dump(),
-            "publishable": validation.passed and not validation.warnings,
-        }
+        self._apply_published_graph_gate(extraction.candidate, extraction.validation)
+        return extraction, markdown_path
 
     def _syllabus_document(self) -> dict[str, Any]:
         row = self.repository.syllabus_document(self.subject_pack.subject_code)

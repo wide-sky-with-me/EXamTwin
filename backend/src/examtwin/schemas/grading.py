@@ -52,6 +52,7 @@ class SymbolicCheck(SerializedResponse):
 
 class GradeResponse(SerializedResponse):
     assessment_id: str
+    subject_code: str
     question_ref: str | None
     total_awarded: float
     total_available: float
@@ -79,6 +80,7 @@ class ReviewRequest(BaseModel):
 
 class ReviewQueueItem(SerializedResponse):
     id: str
+    subject_code: str
     question_ref: str | None
     total_awarded: float
     total_available: float

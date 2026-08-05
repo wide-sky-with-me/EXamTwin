@@ -18,6 +18,7 @@ export function paperProgress(job: PaperJobResult): number {
     return 60 + successfulProgress;
   }
   if (job.stage === "parsing") return Math.max(4, Math.round(pageProgress * 0.5));
+  if (job.stage === "vision_review") return 52;
   if (job.stage === "splitting") return 55;
   if (job.stage === "answering") return 60 + Math.round(answeredProgress * 0.4);
   return 4;

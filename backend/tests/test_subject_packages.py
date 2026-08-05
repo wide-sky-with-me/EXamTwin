@@ -6,6 +6,8 @@ from pathlib import Path
 import pytest
 from examtwin.answering_agent.contracts import AnswerTask
 from examtwin.answering_agent.prompts import compose_system_prompt
+from examtwin.config import Settings
+from examtwin.services.subject_context import subject_context
 from examtwin.subject_packages import (
     DEFAULT_SUBJECT_PACKS_ROOT,
     SubjectPackageRegistry,
@@ -13,7 +15,7 @@ from examtwin.subject_packages import (
 )
 
 
-def test_bundled_subject_packages_preserve_math_and_fail_closed_for_unreviewed_economics() -> None:
+def test_bundled_subject_packages_load_reviewed_math_and_economics_skills() -> None:
     mathematics = get_subject_package("oxfordaqa-mathematics-9660")
     economics = get_subject_package("oxfordaqa-economics-9640")
 
@@ -23,9 +25,34 @@ def test_bundled_subject_packages_preserve_math_and_fail_closed_for_unreviewed_e
     assert skill.mandatory_tool_names == ("knowledge_search",)
     assert skill.package_digest == mathematics.digest
     assert economics.pack.subject_code == "9640"
-    assert economics.answering_enabled is False
-    with pytest.raises(LookupError, match="has not yet been reviewed"):
-        economics.require_skill()
+    economics_skill = economics.require_skill()
+    assert economics.answering_enabled is True
+    assert (
+        economics_skill.required_visual_tool(
+            "With the help of a diagram, explain the difference between short-run "
+            "and long-run growth."
+        )
+        == "economics_diagram"
+    )
+    assert economics_skill.required_visual_tool("Define national income.") is None
+    assert economics_skill.mandatory_tool_names == ("knowledge_search",)
+    assert "economics_calculate" in economics_skill.tool_names
+    assert "economics_diagram" in economics_skill.tool_names
+
+
+def test_subject_context_switches_runtime_bindings_without_mutating_global_settings() -> None:
+    settings = Settings()
+    mathematics = subject_context(settings, "9660")
+    economics = subject_context(settings, "oxfordaqa-economics-9640")
+
+    assert mathematics.vector_alias == "examtwin_9660_live"
+    assert economics.subject_code == "9640"
+    assert economics.vector_alias == "examtwin_9640_live"
+    assert economics.corpus_dir.name == "经济"
+    runtime = economics.runtime_settings(settings)
+    assert runtime.subject_pack == "oxfordaqa-economics-9640"
+    assert runtime.qdrant_collection_alias == "examtwin_9640_live"
+    assert settings.subject_pack != runtime.subject_pack
 
 
 def test_subject_package_rejects_skill_path_escape(tmp_path: Path) -> None:

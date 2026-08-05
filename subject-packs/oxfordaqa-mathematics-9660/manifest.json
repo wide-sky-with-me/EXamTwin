@@ -6,6 +6,11 @@
   "title": "OxfordAQA International AS/A-level Mathematics (9660)",
   "board_id": "oxfordaqa",
   "specification_ref": "data/牛津AQA/数学/1.AQA-alevel数学-考试大纲/oxfordaqa-a-level-mathematics-specification.pdf",
+  "runtime": {
+    "corpus_root": "data/牛津AQA/数学",
+    "vector_collection": "examtwin_9660",
+    "vector_alias": "examtwin_9660_live"
+  },
   "curriculum": {
     "unit_rules": [
       {

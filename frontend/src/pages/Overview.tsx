@@ -1,7 +1,11 @@
 import {
+  BookOpenCheck,
+  CheckCircle2,
   CircleGauge,
   Database,
   FileCheck2,
+  HardDrive,
+  Layers3,
   LoaderCircle,
   Network,
   RefreshCw,
@@ -11,23 +15,26 @@ import { useState } from "react";
 
 import { apiClient, unwrapApi } from "../lib/api";
 import { sourceLabels } from "../lib/evidence";
-import type { Stats } from "../types";
+import type { PlatformStatus, SubjectStatus } from "../types";
 
 export function Overview({
-  stats,
+  platform,
+  selected,
+  selectSubject,
   refresh,
   loading,
-  postgresqlUp,
 }: {
-  stats: Stats | null;
+  platform: PlatformStatus | null;
+  selected: SubjectStatus | null;
+  selectSubject: (packageId: string | null) => void;
   refresh: () => Promise<void>;
   loading: boolean;
-  postgresqlUp: boolean | null;
 }) {
   const [inventorying, setInventorying] = useState(false);
   const [notice, setNotice] = useState("");
 
   async function inventory() {
+    if (!selected) return;
     setInventorying(true);
     setNotice("");
     try {
@@ -39,7 +46,7 @@ export function Overview({
         .join("；");
       setNotice(
         result.exam_identity_incomplete
-          ? `已核验 ${result.scanned} 份资料；${result.exam_identity_incomplete} 份考试资料身份不完整，未进入严格配对${failureSummary ? `（${failureSummary}）` : ""}。`
+          ? `已核验 ${result.scanned} 份资料；${result.exam_identity_incomplete} 份考试资料身份不完整${failureSummary ? `（${failureSummary}）` : ""}。`
           : `已核验 ${result.scanned} 份资料，全部考试资料身份均可判定。`,
       );
       await refresh();
@@ -50,6 +57,18 @@ export function Overview({
     }
   }
 
+  const infrastructure = platform?.infrastructure;
+  const infrastructureItems = [
+    ["PostgreSQL", infrastructure?.postgresql, Database],
+    ["Qdrant", infrastructure?.qdrant, Network],
+    ["对象存储", infrastructure?.object_storage, HardDrive],
+  ] as const;
+  const statusLabel = (ready: boolean | undefined) =>
+    ready === undefined ? "检查中" : ready ? "正常" : "异常";
+  const statusClass = (ready: boolean | undefined) =>
+    ready === undefined ? "checking" : ready ? "ready" : "offline";
+  const metricValue = (value: number | null | undefined) => value ?? "—";
+  const stats = selected?.stats;
   const metrics = [
     ["资料总数", stats?.documents_total ?? "—", Database],
     ["严格 QP/MS 配对", stats?.strict_pairs ?? "—", FileCheck2],
@@ -59,80 +78,142 @@ export function Overview({
 
   return (
     <section>
-      <div className="page-heading">
+      <div className="page-heading status-heading">
         <div>
-          <p className="eyebrow">9660 EVIDENCE FOUNDATION</p>
-          <h1>让每一个答案，都能追溯到证据。</h1>
-          <p>
-            syllabus 定义知识边界，历年题建立考法，mark scheme 控制给分，
-            examiner report 校准难度。
-          </p>
+          <h1>所有科目，一套可验证的工作流。</h1>
+          <p>在这里选择科目上下文，并检查资料、知识索引、答题能力与基础设施是否就绪。</p>
         </div>
-        <button className="secondary" onClick={inventory} disabled={inventorying}>
-          {inventorying ? <LoaderCircle className="spin" size={17} /> : <RefreshCw size={17} />}
-          重新清点资料
+        <button className="secondary" onClick={() => void refresh()} disabled={loading}>
+          {loading ? <LoaderCircle className="spin" size={17} /> : <RefreshCw size={17} />}
+          刷新状态
         </button>
       </div>
 
-      {notice && <div className="notice">{notice}</div>}
-      <div className="metric-grid">
-        {metrics.map(([label, value, Icon]) => (
-          <article className="metric-card" key={label}>
-            <div className="metric-icon"><Icon size={19} /></div>
+      <div className="infrastructure-strip" aria-label="基础设施状态">
+        {infrastructureItems.map(([label, ready, Icon]) => (
+          <div key={label} className={statusClass(ready)}>
+            <Icon size={17} />
             <span>{label}</span>
-            <strong>{loading ? "…" : value}</strong>
-          </article>
+            <b>{statusLabel(ready)}</b>
+          </div>
         ))}
       </div>
 
-      <div className="overview-grid">
-        <article className="panel">
-          <div className="panel-title">
-            <div><span className="kicker">CORPUS</span><h2>资料构成</h2></div>
-            <span className={`status ${postgresqlUp ? "" : "offline"}`}>
-              <span /> {postgresqlUp ? "PostgreSQL live" : "PostgreSQL unavailable"}
-            </span>
-          </div>
-          <div className="source-list">
-            {Object.entries(stats?.documents_by_type ?? {})
-              .sort((a, b) => b[1] - a[1])
-              .map(([type, count]) => {
-                const total = Math.max(stats?.documents_total ?? 1, 1);
-                return (
-                  <div className="source-row" key={type}>
-                    <span>{sourceLabels[type] ?? type}</span>
-                    <div className="bar"><i style={{ width: `${(count / total) * 100}%` }} /></div>
-                    <b>{count}</b>
-                  </div>
-                );
-              })}
-          </div>
-          {(stats?.exam_identity_incomplete ?? 0) > 0 && (
-            <div className="notice warning">
-              {stats?.exam_identity_incomplete} 份考试资料缺少年份、考季或 Unit，已从严格配对中排除。
-            </div>
-          )}
-        </article>
-
-        <article className="panel evidence-panel">
-          <div className="panel-title">
-            <div><span className="kicker">EVIDENCE POLICY</span><h2>证据等级</h2></div>
-            <CircleGauge size={22} />
-          </div>
-          <div className="evidence-level"><b>A</b><div><strong>官方量化证据</strong><span>facility、mean mark、discrimination</span></div></div>
-          <div className="evidence-level"><b>B</b><div><strong>官方定性证据</strong><span>考官报告中的常见错误与表现描述</span></div></div>
-          <div className="evidence-level"><b>C</b><div><strong>历史估计</strong><span>经验证的题目表现代理量</span></div></div>
-          <div className="evidence-level"><b>D</b><div><strong>冷启动推断</strong><span>知识深度、AO、解题步数；必须可被覆盖</span></div></div>
-        </article>
+      <div className="subject-status-grid">
+        {(platform?.subjects ?? []).map((item) => {
+          const active = item.id === selected?.id;
+          const converted = item.stats?.documents_by_status.converted;
+          return (
+            <button
+              type="button"
+              key={item.id}
+              className={`subject-status-card ${active ? "active" : ""}`}
+              onClick={() => selectSubject(item.id)}
+              aria-pressed={active}
+            >
+              <span className="subject-code">{item.subject_code}</span>
+              <div>
+                <strong>{item.title.replace(/^OxfordAQA International /, "")}</strong>
+                <small>{item.board_name} · {item.units.length} 个 Unit</small>
+              </div>
+              <dl>
+                <div><dt>资料</dt><dd>{metricValue(item.stats?.documents_total)}</dd></div>
+                <div><dt>已转换</dt><dd>{metricValue(converted)}</dd></div>
+                <div><dt>知识点</dt><dd>{metricValue(item.stats?.knowledge_points)}</dd></div>
+                <div><dt>向量</dt><dd>{item.vector_points}</dd></div>
+              </dl>
+              <footer>
+                <span className={item.answering_enabled ? "ready" : "pending"}>
+                  <BookOpenCheck size={14} /> {item.answering_enabled ? "答题 Skill 已启用" : "答题 Skill 未启用"}
+                </span>
+                <span className={item.vector_index_ready ? "ready" : "pending"}>
+                  <CheckCircle2 size={14} /> {item.vector_index_ready ? "检索可用" : "索引待发布"}
+                </span>
+              </footer>
+            </button>
+          );
+        })}
       </div>
+
+      {!selected ? (
+        <div className="panel context-empty">
+          <Layers3 size={28} />
+          <h2>选择一个科目，进入对应工作区</h2>
+          <p>切换后，Unit、资料统计、知识图谱、RAG 索引、试卷任务和评分复核会同步切换。</p>
+        </div>
+      ) : (
+        <>
+          <div className="selected-context-bar">
+            <div>
+              <span>当前上下文</span>
+              <strong>{selected.subject_code} · {selected.title}</strong>
+            </div>
+            <button className="secondary" onClick={inventory} disabled={inventorying}>
+              {inventorying ? <LoaderCircle className="spin" size={17} /> : <RefreshCw size={17} />}
+              重新清点该科资料
+            </button>
+          </div>
+          {notice && <div className="notice">{notice}</div>}
+          <div className="metric-grid">
+            {metrics.map(([label, value, Icon]) => (
+              <article className="metric-card" key={label}>
+                <div className="metric-icon"><Icon size={19} /></div>
+                <span>{label}</span>
+                <strong>{loading ? "…" : value}</strong>
+              </article>
+            ))}
+          </div>
+
+          <div className="overview-grid">
+            <article className="panel">
+              <div className="panel-title">
+                <div><span className="kicker">当前资料库</span><h2>资料构成</h2></div>
+                <span className={`status ${infrastructure?.postgresql ? "" : "offline"}`}>
+                  <span /> {infrastructure?.postgresql ? "资料服务正常" : "资料服务不可用"}
+                </span>
+              </div>
+              <div className="source-list">
+                {Object.entries(stats?.documents_by_type ?? {})
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([type, count]) => {
+                    const total = Math.max(stats?.documents_total ?? 1, 1);
+                    return (
+                      <div className="source-row" key={type}>
+                        <span>{sourceLabels[type] ?? type}</span>
+                        <div className="bar"><i style={{ width: `${(count / total) * 100}%` }} /></div>
+                        <b>{count}</b>
+                      </div>
+                    );
+                  })}
+              </div>
+              {(stats?.exam_identity_incomplete ?? 0) > 0 && (
+                <div className="notice warning">
+                  {stats?.exam_identity_incomplete} 份考试资料缺少年份、考季或 Unit，已从严格配对中排除。
+                </div>
+              )}
+            </article>
+
+            <article className="panel evidence-panel">
+              <div className="panel-title">
+                <div><span className="kicker">难度状态</span><h2>证据等级</h2></div>
+                <CircleGauge size={22} />
+              </div>
+              <div className="evidence-level"><b>A</b><div><strong>官方量化证据</strong><span>facility、mean mark、discrimination</span></div></div>
+              <div className="evidence-level"><b>B</b><div><strong>官方定性证据</strong><span>考官报告中的常见错误与表现描述</span></div></div>
+              <div className="evidence-level"><b>C</b><div><strong>历史估计</strong><span>经验证的题目表现代理量</span></div></div>
+              <div className="evidence-level"><b>D</b><div><strong>冷启动推断</strong><span>知识深度、AO、解题步数；必须可被覆盖</span></div></div>
+            </article>
+          </div>
+        </>
+      )}
 
       <div className="guardrail">
         <ShieldCheck size={26} />
         <div>
-          <strong>自动评分不直接发布</strong>
-          <p>模型只提出 rubric 逐项证据与建议分；总分始终进入人工复核队列。</p>
+          <strong>科目上下文隔离，自动评分仍需确认</strong>
+          <p>检索只访问当前科目的向量别名；评分建议只进入该科目的人工复核队列。</p>
         </div>
-        <span>Human-in-the-loop</span>
+        <span>教师最终确认</span>
       </div>
     </section>
   );

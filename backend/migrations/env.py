@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from logging.config import fileConfig
 
 from alembic import context
@@ -9,8 +10,10 @@ from examtwin.persistence.session import sqlalchemy_database_url
 from sqlalchemy import engine_from_config, pool
 
 config = context.config
-if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+if config.config_file_name is not None and not logging.getLogger().handlers:
+    # Alembic CLI still gets its own logger. Embedded migrations must preserve the
+    # API/Worker JSON handler installed before upgrade_database() is called.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 

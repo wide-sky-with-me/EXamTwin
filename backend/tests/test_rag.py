@@ -10,6 +10,7 @@ from examtwin.schemas import AskRequest, Citation
 from examtwin.services.model_json import parse_json_response
 from examtwin.services.rag import (
     RagService,
+    _card_node,
     calibrate_evidence_confidence,
     relevant_node_excerpt,
 )
@@ -128,6 +129,35 @@ def test_atomic_table_citation_uses_query_relevant_rows() -> None:
     assert "Unrelated algebra row" not in excerpt
     assert excerpt.endswith("</table>")
     assert node.node.get_content() == original_content == table
+
+
+def test_knowledge_card_preserves_subject_and_unit_scope() -> None:
+    node = _card_node(
+        {
+            "id": "9660:P1.1.O01",
+            "code": "P1.1.O01",
+            "title": "Use and manipulation of surds.",
+            "definition": "Simplify surds and rationalise denominators.",
+            "breadcrumb": "Mathematics › P1 › Surds",
+            "subject_code": "9660",
+            "unit_code": "P1",
+            "source_ref": "spec.pdf",
+            "path": [],
+            "relations": [],
+            "references": [],
+            "retrieval_score": 0.9,
+            "difficulty": {
+                "score": 0.3,
+                "label": "easy",
+                "confidence": 0.4,
+                "evidence_level": "D",
+                "rationale": "Cold-start estimate.",
+            },
+        }
+    )
+
+    assert node.node.metadata["subject_code"] == "9660"
+    assert node.node.metadata["unit_code"] == "P1"
 
 
 def test_rag_carries_question_images_into_answer_task(monkeypatch) -> None:

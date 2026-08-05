@@ -25,8 +25,8 @@ x-examtwin-python: &examtwin-python
   network_mode: host
   volumes:
     - type: bind
-      source: ./data/牛津AQA/数学
-      target: /app/data/牛津AQA/数学
+      source: ./data/牛津AQA
+      target: /app/data/牛津AQA
       read_only: true
       bind:
         create_host_path: false

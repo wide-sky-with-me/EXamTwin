@@ -7,8 +7,9 @@ import time
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
+from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from examtwin.answering_agent.contracts import AgentRunLedger, AgentStep, QuestionImage
 from examtwin.config import Settings
@@ -17,7 +18,7 @@ from examtwin.schemas.papers import PaperQuestionAnswer
 from examtwin.services.agent_run_ledger import PaperAgentRunLedger
 from examtwin.services.corpus_ingestion import render_documents
 from examtwin.services.inventory import parse_exam_identity
-from examtwin.services.paper_answering import PaperAnswerService
+from examtwin.services.paper_answering import SPLIT_CONTRACT_VERSION, PaperAnswerService
 from examtwin.services.paper_job_runtime import PaperJobRuntime
 from examtwin.services.paper_parsing import (
     mineru_reader,
@@ -71,6 +72,8 @@ class PaperWorker:
         chunk_parser: Callable[[Path, int, int], str] | None = None,
         vision_reviewer: (Callable[[Path, str, int, int], VisionReviewResult] | None) = None,
         wakeup: PaperJobWakeup | None = None,
+        subject_resolver: Callable[[str], SubjectContext] | None = None,
+        answer_service_factory: Callable[[SubjectContext], PaperAnswerService] | None = None,
     ):
         self.settings = settings
         self.subject = subject
@@ -79,6 +82,17 @@ class PaperWorker:
         self.chunk_parser = chunk_parser or self._parse_pdf_chunk
         self.vision_reviewer = vision_reviewer or PaperVisionReviewer(settings).review_chunk
         self.wakeup = wakeup or SleepPaperJobWakeup()
+        self.subject_resolver = subject_resolver
+        self.answer_service_factory = answer_service_factory
+
+    def _activate_job_subject(self, job: dict[str, Any]) -> None:
+        package_id = str(job.get("subject_pack_id") or "")
+        if self.subject_resolver is not None:
+            self.subject = self.subject_resolver(package_id)
+            if self.answer_service_factory is None:
+                raise RuntimeError("multi-subject worker is missing its answer service factory")
+            self.answer_service = self.answer_service_factory(self.subject)
+        self.subject.require(str(job.get("subject_code") or ""))
 
     def run_once(self) -> bool:
         claimed = self.jobs.claim_next()
@@ -96,7 +110,7 @@ class PaperWorker:
 
     def _process(self, job: dict[str, Any], token: str) -> None:
         job_id = job["id"]
-        self.subject.require(job["subject_code"])
+        self._activate_job_subject(job)
         with self._heartbeat(job_id, token):
             try:
                 self.jobs.recover_inflight(job_id, token)
@@ -197,16 +211,21 @@ class PaperWorker:
         job_id = job["id"]
         if self.jobs.list_questions(job_id):
             return
-        self.jobs.set_stage(job_id, token, "splitting")
+        vision_review_enabled = job["suffix"] == ".pdf" and self.settings.paper_vision_enabled
+        active_stage = "vision_review" if vision_review_enabled else "splitting"
+        self.jobs.set_stage(job_id, token, active_stage)
         started = time.monotonic()
         try:
-            sections = []
-            for chunk in self.jobs.list_chunks(job_id):
+            chunks = self.jobs.list_chunks(job_id)
+            source_path = self.jobs.source_path(job)
+            reviewed_by_chunk: dict[int, str] = {}
+            pending_reviews: list[tuple[dict[str, Any], str]] = []
+            for chunk in chunks:
                 if chunk["status"] != "completed" or not chunk["markdown_path"]:
                     raise ValueError("仍有未完成的 PDF 页段")
                 markdown_path = self.jobs.resolve_file(chunk["markdown_path"])
                 markdown = markdown_path.read_text(encoding="utf-8")
-                if job["suffix"] == ".pdf" and self.settings.paper_vision_enabled:
+                if vision_review_enabled:
                     reviewed_path = markdown_path.with_suffix(".vision.md")
                     reviewed_is_valid = False
                     if reviewed_path.is_file():
@@ -228,57 +247,116 @@ class PaperWorker:
                                 chunk["page_end"],
                             )
                     if not reviewed_is_valid:
-                        review_started = time.monotonic()
-                        review = self.vision_reviewer(
-                            self.jobs.source_path(job),
+                        pending_reviews.append((chunk, markdown))
+                    else:
+                        reviewed_by_chunk[chunk["chunk_index"]] = markdown
+                else:
+                    reviewed_by_chunk[chunk["chunk_index"]] = markdown
+
+            first_review_error: Exception | None = None
+            if pending_reviews:
+                with ThreadPoolExecutor(
+                    max_workers=min(
+                        self.settings.paper_vision_concurrency,
+                        len(pending_reviews),
+                    )
+                ) as executor:
+                    futures = {
+                        executor.submit(
+                            self.vision_reviewer,
+                            source_path,
                             markdown,
                             chunk["page_start"],
                             chunk["page_end"],
-                        )
-                        markdown = review.markdown
-                        validate_physical_page_markdown(
-                            markdown,
-                            chunk["page_start"],
-                            chunk["page_end"],
-                        )
-                        reviewed_rel = str(Path(chunk["markdown_path"]).with_suffix(".vision.md"))
-                        review_rel = str(Path(chunk["markdown_path"]).with_suffix(".vision.json"))
-                        self.jobs.write_file(reviewed_rel, markdown)
-                        self.jobs.write_file(
-                            review_rel,
-                            json.dumps(
-                                {
-                                    "model": review.model,
+                        ): (chunk, time.monotonic())
+                        for chunk, markdown in pending_reviews
+                    }
+                    for future in as_completed(futures):
+                        chunk, review_started = futures[future]
+                        try:
+                            review = future.result()
+                            markdown = review.markdown
+                            validate_physical_page_markdown(
+                                markdown,
+                                chunk["page_start"],
+                                chunk["page_end"],
+                            )
+                            reviewed_rel = str(
+                                Path(chunk["markdown_path"]).with_suffix(".vision.md")
+                            )
+                            review_rel = str(
+                                Path(chunk["markdown_path"]).with_suffix(".vision.json")
+                            )
+                            self.jobs.write_file(reviewed_rel, markdown)
+                            self.jobs.write_file(
+                                review_rel,
+                                json.dumps(
+                                    {
+                                        "model": review.model,
+                                        "page_start": chunk["page_start"],
+                                        "page_end": chunk["page_end"],
+                                        "confidence": review.confidence,
+                                        "repairs": list(review.repairs),
+                                    },
+                                    ensure_ascii=False,
+                                    indent=2,
+                                ),
+                            )
+                            reviewed_by_chunk[chunk["chunk_index"]] = markdown
+                            logger.info(
+                                "paper vision review completed",
+                                extra={
+                                    "event": "paper_vision_review_completed",
+                                    "job_id": job_id,
+                                    "stage": "vision_review",
                                     "page_start": chunk["page_start"],
                                     "page_end": chunk["page_end"],
-                                    "confidence": review.confidence,
-                                    "repairs": list(review.repairs),
+                                    "duration_ms": round(
+                                        (time.monotonic() - review_started) * 1000,
+                                        2,
+                                    ),
                                 },
-                                ensure_ascii=False,
-                                indent=2,
-                            ),
-                        )
-                        logger.info(
-                            "paper_job=%s stage=vision_review pages=%s-%s "
-                            "repairs=%s confidence=%.2f duration=%.2fs",
-                            job_id,
-                            chunk["page_start"],
-                            chunk["page_end"],
-                            len(review.repairs),
-                            review.confidence,
-                            time.monotonic() - review_started,
-                        )
-                sections.append(
-                    f"<!-- pages {chunk['page_start']}-{chunk['page_end']} -->\n{markdown}"
-                )
+                            )
+                        except Exception as error:
+                            first_review_error = first_review_error or error
+            if first_review_error is not None:
+                raise first_review_error
+
+            sections = [
+                f"<!-- pages {chunk['page_start']}-{chunk['page_end']} -->\n"
+                f"{reviewed_by_chunk[chunk['chunk_index']]}"
+                for chunk in chunks
+            ]
+            primary_markdown = "\n\n".join(sections)
             if job["suffix"] == ".pdf":
-                recovery = _pdf_text_recovery(self.jobs.source_path(job))
+                recovery = _pdf_text_recovery(source_path)
                 if recovery:
                     sections.append(recovery)
-            questions = self.answer_service.split_questions(
-                "\n\n".join(sections),
-                unit_code=job["unit_code"],
+            if vision_review_enabled:
+                active_stage = "splitting"
+                self.jobs.set_stage(job_id, token, active_stage)
+            paper_markdown = "\n\n".join(sections)
+            checkpointed_split = getattr(
+                self.answer_service,
+                "split_questions_checkpointed",
+                None,
             )
+            if callable(checkpointed_split):
+                questions = cast(
+                    list[dict[str, Any]],
+                    checkpointed_split(
+                        paper_markdown,
+                        unit_code=job["unit_code"],
+                        source_markdown=primary_markdown,
+                        load_checkpoint=partial(self._load_split_checkpoint, job_id),
+                        save_checkpoint=partial(self._save_split_checkpoint, job_id),
+                    ),
+                )
+            else:
+                questions = self.answer_service.split_questions(
+                    paper_markdown,
+                    unit_code=job["unit_code"],
+                )
             self.jobs.store_questions(job_id, token, questions)
             logger.info(
                 "paper_job=%s stage=splitting questions=%s duration=%.2fs",
@@ -289,7 +367,88 @@ class PaperWorker:
         except LostLeaseError:
             raise
         except Exception as error:
-            raise StageFailure("splitting", error) from error
+            raise StageFailure(active_stage, error) from error
+
+    def _load_split_checkpoint(
+        self,
+        job_id: str,
+        batch_index: int,
+        input_digest: str,
+    ) -> list[dict[str, Any]] | None:
+        relative_path = f"{job_id}/split/{batch_index:04d}.json"
+        path = self.jobs.resolve_file(relative_path)
+        if not path.is_file():
+            return None
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            questions = payload["questions"]
+            if (
+                payload.get("contract_version") != SPLIT_CONTRACT_VERSION
+                or payload.get("input_digest") != input_digest
+                or payload.get("batch_index") != batch_index
+                or not isinstance(questions, list)
+                or not all(isinstance(item, dict) for item in questions)
+            ):
+                raise ValueError("split checkpoint provenance mismatch")
+        except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+            logger.warning(
+                "paper split checkpoint rejected",
+                extra={
+                    "event": "paper_split_checkpoint_rejected",
+                    "job_id": job_id,
+                    "stage": "splitting",
+                    "batch_index": batch_index,
+                },
+            )
+            return None
+        logger.info(
+            "paper split checkpoint reused",
+            extra={
+                "event": "paper_split_batch_reused",
+                "job_id": job_id,
+                "stage": "splitting",
+                "batch_index": batch_index,
+                "cache_hit": True,
+            },
+        )
+        return questions
+
+    def _save_split_checkpoint(
+        self,
+        job_id: str,
+        batch_index: int,
+        batch_count: int,
+        input_digest: str,
+        questions: list[dict[str, Any]],
+        duration_ms: float,
+    ) -> None:
+        relative_path = f"{job_id}/split/{batch_index:04d}.json"
+        self.jobs.write_file(
+            relative_path,
+            json.dumps(
+                {
+                    "contract_version": SPLIT_CONTRACT_VERSION,
+                    "input_digest": input_digest,
+                    "batch_index": batch_index,
+                    "batch_count": batch_count,
+                    "questions": questions,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+        )
+        logger.info(
+            "paper split batch completed",
+            extra={
+                "event": "paper_split_batch_completed",
+                "job_id": job_id,
+                "stage": "splitting",
+                "batch_index": batch_index,
+                "batch_count": batch_count,
+                "cache_hit": False,
+                "duration_ms": round(duration_ms, 2),
+            },
+        )
 
     def _answer(self, job: dict[str, Any], token: str) -> None:
         job_id = job["id"]

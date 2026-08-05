@@ -9,6 +9,7 @@ from examtwin.persistence.knowledge_build_repository import KnowledgeBuildReposi
 from examtwin.persistence.knowledge_repository import KnowledgeRepository
 from examtwin.persistence.object_catalog_repository import ObjectCatalogRepository
 from examtwin.persistence.paper_job_repository import PaperJobRepository
+from examtwin.persistence.retrieval_trace_repository import RetrievalTraceRepository
 from examtwin.persistence.session import create_session_factory
 from examtwin.persistence.vector_index_repository import VectorIndexRepository
 from examtwin.services.corpus_ingestion import CorpusIngestor
@@ -20,7 +21,7 @@ from examtwin.services.paper_jobs import PaperJobService
 from examtwin.services.paper_sources import PaperSourceStore
 from examtwin.services.paper_worker import PaperWorker
 from examtwin.services.rag import RagService
-from examtwin.services.subject_context import subject_context
+from examtwin.services.subject_context import SubjectContext, subject_context
 from examtwin.services.task_events import PostgresPaperJobWakeup
 from examtwin.storage import ManagedObjectStore, build_storage_backend
 
@@ -59,49 +60,83 @@ def vector_index_repository(settings: Settings) -> VectorIndexRepository:
     return VectorIndexRepository(create_session_factory(settings.database_url))
 
 
-def build_corpus_ingestor(settings: Settings) -> CorpusIngestor:
+def retrieval_trace_repository(settings: Settings) -> RetrievalTraceRepository:
+    return RetrievalTraceRepository(
+        create_session_factory(settings.database_url),
+        max_rows_per_subject=settings.retrieval_trace_max_rows_per_subject,
+    )
+
+
+def build_corpus_ingestor(
+    settings: Settings,
+    subject: SubjectContext | None = None,
+) -> CorpusIngestor:
+    context = subject or subject_context(settings)
+    runtime_settings = context.runtime_settings(settings)
     return CorpusIngestor(
         corpus_repository(settings),
-        settings,
-        subject_context(settings),
+        runtime_settings,
+        context,
         build_object_store(settings),
     )
 
 
-def build_knowledge_pipeline(settings: Settings) -> KnowledgeBuildPipeline:
+def build_knowledge_pipeline(
+    settings: Settings,
+    subject: SubjectContext | None = None,
+) -> KnowledgeBuildPipeline:
     sessions = create_session_factory(settings.database_url)
+    context = subject or subject_context(settings)
     return KnowledgeBuildPipeline(
-        settings,
-        subject_context(settings),
+        context.runtime_settings(settings),
+        context,
         KnowledgeBuildRepository(sessions),
         KnowledgeRepository(sessions),
     )
 
 
-def build_rag_service(settings: Settings) -> RagService:
+def build_rag_service(
+    settings: Settings,
+    subject: SubjectContext | None = None,
+) -> RagService:
     sessions = create_session_factory(settings.database_url)
+    context = subject or subject_context(settings)
+    runtime_settings = context.runtime_settings(settings)
     return RagService(
-        settings,
-        subject_context(settings),
+        runtime_settings,
+        context,
         KnowledgeRepository(sessions),
         CorpusRepository(sessions),
+        RetrievalTraceRepository(
+            sessions,
+            max_rows_per_subject=runtime_settings.retrieval_trace_max_rows_per_subject,
+        ),
         object_store=build_object_store(settings),
     )
 
 
-def build_grading_service(settings: Settings) -> GradingService:
+def build_grading_service(
+    settings: Settings,
+    subject: SubjectContext | None = None,
+) -> GradingService:
     sessions = create_session_factory(settings.database_url)
+    context = subject or subject_context(settings)
     return GradingService(
         CorpusRepository(sessions),
         AssessmentRepository(sessions),
-        settings,
+        context.runtime_settings(settings),
+        context,
     )
 
 
-def build_paper_job_service(settings: Settings) -> PaperJobService:
+def build_paper_job_service(
+    settings: Settings,
+    subject: SubjectContext | None = None,
+) -> PaperJobService:
+    context = subject or subject_context(settings)
     return PaperJobService(
-        settings,
-        subject_context(settings),
+        context.runtime_settings(settings),
+        context,
         repository=PaperJobRepository(
             create_session_factory(settings.database_url),
             lease_seconds=settings.paper_lease_seconds,
@@ -118,14 +153,30 @@ def build_paper_worker(settings: Settings) -> PaperWorker:
     subject = subject_context(settings)
     documents = CorpusRepository(sessions)
     knowledge = KnowledgeRepository(sessions)
-    object_store = build_object_store(settings)
-    rag = RagService(settings, subject, knowledge, documents, object_store=object_store)
-    answers = PaperAnswerService(
-        settings,
-        subject,
-        knowledge_repository=knowledge,
-        rag=rag,
+    retrieval_traces = RetrievalTraceRepository(
+        sessions,
+        max_rows_per_subject=settings.retrieval_trace_max_rows_per_subject,
     )
+    object_store = build_object_store(settings)
+
+    def answer_service_for(context: SubjectContext) -> PaperAnswerService:
+        runtime_settings = context.runtime_settings(settings)
+        rag = RagService(
+            runtime_settings,
+            context,
+            knowledge,
+            documents,
+            retrieval_traces,
+            object_store=object_store,
+        )
+        return PaperAnswerService(
+            runtime_settings,
+            context,
+            knowledge_repository=knowledge,
+            rag=rag,
+        )
+
+    answers = answer_service_for(subject)
     jobs = PaperJobRuntime(
         PaperJobRepository(
             sessions,
@@ -142,4 +193,6 @@ def build_paper_worker(settings: Settings) -> PaperWorker:
         jobs=jobs,
         answer_service=answers,
         wakeup=PostgresPaperJobWakeup(settings.database_url),
+        subject_resolver=lambda selector: subject_context(settings, selector),
+        answer_service_factory=answer_service_for,
     )

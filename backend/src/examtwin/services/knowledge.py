@@ -132,9 +132,13 @@ def build_retrieval_cards(
             if _node_type(point) == "topic"
         ]
     catalog_by_code = {point["code"]: point for point in catalog}
+    question_matches = match_knowledge_points(
+        question,
+        catalog,
+        limit=max(20, limit * 4),
+    )
     selected: dict[str, tuple[float, dict[str, Any]]] = {
-        point["code"]: (score, point)
-        for score, point in match_knowledge_points(question, catalog, limit=limit)
+        point["code"]: (score, point) for score, point in question_matches
     }
 
     for evidence in evidence_items:
@@ -145,10 +149,26 @@ def build_retrieval_cards(
         primary_code = metadata.get("knowledge_code")
         if primary_code:
             metadata_codes = [primary_code, *metadata_codes]
-        for code in metadata_codes:
+        evidence_relevance = min(1.0, max(0.0, float(evidence.get("score") or 0)))
+        match_confidences = metadata.get("knowledge_match_confidence") or {}
+        unique_codes = list(dict.fromkeys(str(code) for code in metadata_codes if code))
+        for code in unique_codes:
             point = catalog_by_code.get(str(code))
-            if point:
-                selected.setdefault(point["code"], (1.25, point))
+            if point is None:
+                continue
+            if metadata.get("node_kind") == "knowledge_point" and code == str(primary_code):
+                linked_score = 1.0 + evidence_relevance
+            else:
+                link_confidence = min(
+                    1.0,
+                    max(0.0, float(match_confidences.get(code, 0.3))),
+                )
+                linked_score = 0.72 * evidence_relevance + 0.28 * link_confidence
+                if code == str(primary_code):
+                    linked_score = min(0.99, linked_score + 0.03)
+            existing = selected.get(point["code"])
+            if existing is None or linked_score > existing[0]:
+                selected[point["code"]] = (linked_score, point)
         for score, point in match_knowledge_points(
             str(evidence.get("excerpt") or ""),
             catalog,
@@ -206,6 +226,7 @@ def build_retrieval_cards(
                     "source_type": source_type,
                     "authority_tier": metadata.get("authority_tier"),
                     "pair_key": metadata.get("pair_key") or None,
+                    "unit_code": metadata.get("unit_code") or None,
                     "score": score or None,
                     "excerpt": excerpt[:1200],
                     "section": section,

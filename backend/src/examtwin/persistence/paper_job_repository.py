@@ -95,7 +95,9 @@ class PaperJobRepository:
         statement = (
             select(PaperJobModel)
             .where(
-                PaperJobModel.status.in_(("queued", "parsing", "splitting", "answering")),
+                PaperJobModel.status.in_(
+                    ("queued", "parsing", "vision_review", "splitting", "answering")
+                ),
                 (PaperJobModel.lease_token.is_(None) | (PaperJobModel.lease_expires_at < now)),
             )
             .order_by(PaperJobModel.created_at)

@@ -130,6 +130,11 @@ describe("AnswerDiagramView", () => {
     const sourceDiagram: AnswerDiagram = {
       ...diagram,
       view_box: [180, 340, 660, 560],
+      elements: [
+        ...diagram.elements,
+        element({ kind: "point", x: 698, y: 692, tone: "secondary" }),
+        element({ kind: "text", x: 577, y: 674, text: "(330°, 0)", tone: "secondary" }),
+      ],
       source: {
         kind: "paper_page",
         page_number: 7,
@@ -149,5 +154,9 @@ describe("AnswerDiagramView", () => {
       "/api/v1/papers/jobs/paper-job-1/source/pages/7",
     );
     expect(source?.nextElementSibling?.tagName.toLowerCase()).toBe("line");
+    const repairedLabel = [...container.querySelectorAll("text")].find(
+      (node) => node.textContent === "(330°, 0)",
+    );
+    expect(Number(repairedLabel?.getAttribute("x"))).toBeCloseTo(659.75, 1);
   });
 });

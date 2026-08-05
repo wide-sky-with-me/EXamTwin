@@ -16,6 +16,61 @@ from backend.tests.paper_job_support import (
 )
 
 
+def test_split_checkpoint_requires_matching_input_digest(tmp_path: Path) -> None:
+    class CheckpointFiles:
+        def resolve_file(self, relative_path: str) -> Path:
+            return tmp_path / relative_path
+
+        def write_file(self, relative_path: str, content: bytes | str) -> None:
+            path = tmp_path / relative_path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(content if isinstance(content, bytes) else content.encode())
+
+    settings = Settings(object_store_local_root=tmp_path)
+    worker = PaperWorker(
+        settings,
+        subject_context(settings),
+        jobs=CheckpointFiles(),  # type: ignore[arg-type]
+        answer_service=FakeAnswerService(),  # type: ignore[arg-type]
+    )
+    questions = [{"number": "1", "question_markdown": "1 Find x."}]
+
+    worker._save_split_checkpoint("job-1", 0, 2, "digest-a", questions, 25.0)
+
+    assert worker._load_split_checkpoint("job-1", 0, "digest-a") == questions
+    assert worker._load_split_checkpoint("job-1", 0, "digest-b") is None
+
+
+def test_worker_activates_the_subject_persisted_on_each_job(tmp_path: Path) -> None:
+    settings = Settings(object_store_local_root=tmp_path)
+    mathematics = subject_context(settings, "9660")
+    economics = subject_context(settings, "9640")
+    services: list[str] = []
+
+    def answer_service_for(subject: Any) -> FakeAnswerService:
+        services.append(subject.subject_code)
+        return FakeAnswerService()
+
+    worker = PaperWorker(
+        settings,
+        mathematics,
+        jobs=object(),  # type: ignore[arg-type]
+        answer_service=FakeAnswerService(),  # type: ignore[arg-type]
+        subject_resolver=lambda selector: subject_context(settings, selector),
+        answer_service_factory=answer_service_for,  # type: ignore[arg-type]
+    )
+
+    worker._activate_job_subject(
+        {
+            "subject_pack_id": economics.pack.id,
+            "subject_code": economics.subject_code,
+        }
+    )
+
+    assert worker.subject.subject_code == "9640"
+    assert services == ["9640"]
+
+
 def test_worker_carries_source_pages_and_trusted_jpegs_into_answer_service(
     tmp_path: Path,
 ) -> None:

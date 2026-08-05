@@ -81,6 +81,30 @@ def test_answer_contract_requires_every_subpart_and_visual_artifact() -> None:
     verify_answer_contract(task, "(a) plotted. (b) illustrated.", [diagram], [image])
 
 
+def test_answer_contract_allows_blank_axes_fallback_but_not_existing_curve_fallback() -> None:
+    diagram = AnswerDiagram(
+        title="Plot",
+        tool_name="math_plot",
+        elements=[DiagramElement(kind="point", x=1, y=1)],
+    )
+    blank_axes = AnswerTask(
+        subject_code="9660",
+        question="On Figure 1 sketch the graph of y=x^2.",
+        question_spec=QuestionSpec(
+            subparts=(SubpartRequirement(answer_kind="math_plot", required_tool="math_plot"),)
+        ),
+    )
+    existing_curve = AnswerTask(
+        subject_code="9660",
+        question="On Figure 4 draw the five trapezia under the existing curve.",
+        question_spec=blank_axes.question_spec,
+    )
+
+    verify_answer_contract(blank_axes, "A mathematically equivalent plot is shown.", [diagram], [])
+    with pytest.raises(RuntimeError, match="existing curve/grid"):
+        verify_answer_contract(existing_curve, "The trapezia are shown.", [diagram], [])
+
+
 def test_agent_budget_scales_with_subparts_but_respects_hard_caps() -> None:
     simple = budget_for_task(
         AnswerTask(subject_code="9660", question="State one fact."),

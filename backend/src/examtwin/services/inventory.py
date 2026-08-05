@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import re
+import zipfile
 from collections import Counter
 from pathlib import Path
 from typing import Any
+from xml.etree import ElementTree
 
 from examtwin.persistence.corpus_repository import CorpusRepository
 from examtwin.persistence.dashboard_repository import DashboardRepository
@@ -44,7 +46,7 @@ def classify_source(path: Path) -> str:
         return "mark_scheme"
     if "examiner" in filename or "report on exam" in filename or re.search(r"(^| )er ", filename):
         return "examiner_report"
-    if "insert" in filename:
+    if "insert" in filename or re.search(r"(?:^| )in (?:20|economics|mathematics)", filename):
         return "insert"
     if re.search(r"(?:^|[^a-z])qp(?:[^a-z]|$)", filename) or "question paper" in filename:
         return "question_paper"
@@ -136,12 +138,18 @@ def parse_exam_identity(
 
 
 def page_count(path: Path) -> int | None:
-    if path.suffix.lower() != ".pdf":
-        return None
+    suffix = path.suffix.lower()
     try:
-        return len(PdfReader(path).pages)
-    except Exception:
+        if suffix == ".pdf":
+            return len(PdfReader(path).pages)
+        if suffix == ".pptx":
+            with zipfile.ZipFile(path) as archive:
+                presentation = ElementTree.fromstring(archive.read("ppt/presentation.xml"))
+            slide_id_tag = "{http://schemas.openxmlformats.org/presentationml/2006/main}sldId"
+            return sum(1 for element in presentation.iter() if element.tag == slide_id_tag)
+    except (OSError, ValueError, KeyError, zipfile.BadZipFile, ElementTree.ParseError):
         return None
+    return None
 
 
 def scan_corpus(
@@ -203,5 +211,9 @@ def scan_corpus(
     }
 
 
-def corpus_stats(repository: DashboardRepository) -> dict[str, Any]:
-    return repository.stats()
+def corpus_stats(
+    repository: DashboardRepository,
+    *,
+    subject_code: str | None = None,
+) -> dict[str, Any]:
+    return repository.stats(subject_code=subject_code)

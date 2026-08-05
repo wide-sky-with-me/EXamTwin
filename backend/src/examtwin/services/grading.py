@@ -20,6 +20,7 @@ from examtwin.schemas.grading import (
 )
 from examtwin.services.cache_paths import MarkdownCacheMissing, resolve_markdown_cache_path
 from examtwin.services.structured_model import LiteLLMStructuredModel
+from examtwin.services.subject_context import SubjectContext
 from examtwin.services.symbolic import parse_safe_expression
 from pydantic import BaseModel, ConfigDict, Field
 from sympy import simplify
@@ -92,12 +93,14 @@ class GradingService:
         documents: CorpusRepository,
         assessments: AssessmentRepository,
         settings: Settings,
+        subject: SubjectContext,
         *,
         structured_model: StructuredModelPort | None = None,
     ):
         self.settings = settings
         self.documents = documents
         self.assessments = assessments
+        self.subject = subject
         self.structured_model = structured_model
 
     def _document_text(self, row: dict[str, Any]) -> str | None:
@@ -121,7 +124,10 @@ class GradingService:
         pair_key: str | None = None
 
         if request.question_ref:
-            row = self.documents.resolve_reference(request.question_ref)
+            row = self.documents.resolve_reference(
+                request.question_ref,
+                subject_code=self.subject.subject_code,
+            )
             if row:
                 pair_key = row.get("pair_key")
                 if question is None and row["source_type"] == "question_paper":
@@ -136,11 +142,14 @@ class GradingService:
                         excerpt=(question or mark_scheme or "")[:360],
                     )
                 )
-            elif request.question_ref.startswith("9660:"):
+            elif request.question_ref.startswith(f"{self.subject.subject_code}:"):
                 pair_key = request.question_ref
 
         if mark_scheme is None and pair_key:
-            rows = self.documents.mark_schemes(pair_key)
+            rows = self.documents.mark_schemes(
+                pair_key,
+                subject_code=self.subject.subject_code,
+            )
             texts = [text for row in rows if (text := self._document_text(row))]
             if texts:
                 mark_scheme = "\n\n".join(texts)
@@ -237,6 +246,7 @@ MAXIMUM MARKS:
         assessment_id = str(uuid.uuid4())
         result = GradeResponse(
             assessment_id=assessment_id,
+            subject_code=self.subject.subject_code,
             question_ref=request.question_ref,
             total_awarded=round(total_awarded, 2),
             total_available=round(total_available, 2),
@@ -252,6 +262,7 @@ MAXIMUM MARKS:
         self.assessments.create(
             {
                 "id": assessment_id,
+                "subject_code": self.subject.subject_code,
                 "question_ref": request.question_ref,
                 "answer_markdown": request.answer_markdown,
                 "total_awarded": result.total_awarded,
@@ -266,7 +277,7 @@ MAXIMUM MARKS:
         return result
 
     def pending_reviews(self) -> list[dict[str, Any]]:
-        return self.assessments.pending()
+        return self.assessments.pending(subject_code=self.subject.subject_code)
 
     def review(self, assessment_id: str, request: ReviewRequest) -> dict[str, Any]:
         return self.assessments.review(
@@ -275,4 +286,5 @@ MAXIMUM MARKS:
             decision=request.decision,
             override_mark=request.override_mark,
             note=request.note,
+            subject_code=self.subject.subject_code,
         )

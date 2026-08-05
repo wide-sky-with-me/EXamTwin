@@ -9,6 +9,7 @@ from examtwin.config import Settings
 from examtwin.persistence.corpus_repository import CorpusRepository
 from examtwin.schemas.common import JobResult
 from examtwin.services.cache_paths import MarkdownCacheStore
+from examtwin.services.source_preprocessing import prepare_for_mineru, restore_source_pages
 from examtwin.services.subject_context import SubjectContext
 from examtwin.storage import ManagedObjectStore
 from llama_index.core import Document
@@ -115,22 +116,29 @@ class CorpusIngestor:
             }
             if source.suffix.lower() == ".md":
                 body = source.read_text(encoding="utf-8")
-            elif source.suffix.lower() == ".pdf" and (row.get("page_count") or 0) > 200:
-                parts: list[str] = []
-                for start in range(1, int(row["page_count"]) + 1, 200):
-                    end = min(start + 199, int(row["page_count"]))
-                    part_suffix = f".pages-{start}-{end}.md"
-                    if self.cache.exists(document_id, part_suffix) and not force:
-                        parts.append(self.cache.read(document_id, part_suffix))
-                        continue
-                    documents = self._load_mineru(source, metadata, pages=f"{start}-{end}")
-                    rendered = render_documents(documents)
-                    self.cache.write(document_id, rendered, suffix=part_suffix)
-                    parts.append(rendered)
-                body = "\n\n".join(parts)
             else:
-                documents = self._load_mineru(source, metadata)
-                body = render_documents(documents)
+                with prepare_for_mineru(
+                    source,
+                    page_count=row.get("page_count"),
+                ) as prepared_sources:
+                    parts: list[str] = []
+                    for prepared in prepared_sources:
+                        part_suffix = prepared.cache_suffix
+                        is_derived_part = prepared.page_range is not None
+                        if (
+                            is_derived_part
+                            and self.cache.exists(document_id, part_suffix)
+                            and not force
+                        ):
+                            parts.append(self.cache.read(document_id, part_suffix))
+                            continue
+                        documents = self._load_mineru(prepared.path, metadata)
+                        restore_source_pages(documents, prepared)
+                        rendered = render_documents(documents)
+                        if is_derived_part:
+                            self.cache.write(document_id, rendered, suffix=part_suffix)
+                        parts.append(rendered)
+                    body = "\n\n".join(parts)
             target = self.cache.write(document_id, _frontmatter(metadata) + body)
             self.documents.update_status(
                 document_id,
@@ -157,6 +165,7 @@ class CorpusIngestor:
             document_ids=document_ids,
             source_types=source_types,
             authority_tiers=authority_tiers,
+            subject_code=self.subject.subject_code,
             limit=limit,
         )
 

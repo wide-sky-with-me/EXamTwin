@@ -10,7 +10,7 @@ import rehypeKatex from "rehype-katex";
 import ReactMarkdown from "react-markdown";
 import remarkMath from "remark-math";
 import { canonicalizeMarkdownMath } from "../lib/markdown-math";
-import { apiUrl } from "../lib/api";
+import { backendResourceUrl } from "../lib/api";
 import { useModalFocus } from "../lib/use-modal-focus";
 import type {
   AnswerDiagram,
@@ -29,6 +29,7 @@ const TONES: DiagramTone[] = [
 const TOOL_LABELS: Record<NonNullable<AnswerDiagram["tool_name"]>, string> = {
   math_plot: "函数与坐标绘图",
   math_diagram: "几何与示意绘图",
+  economics_diagram: "经济学标准图",
 };
 
 function hasMathNotation(value: string) {
@@ -106,6 +107,44 @@ function DiagramMathLabel({
   );
 }
 
+const COORDINATE_LABEL = /^\s*\([^,]+,\s*[^)]+\)\s*$/;
+
+function displayElements(diagram: AnswerDiagram): DiagramElement[] {
+  if (diagram.source?.calibration !== "blank_axes") return diagram.elements;
+  const [minX, , width] = diagram.view_box;
+  const maxX = minX + width;
+  return diagram.elements.map((element, index) => {
+    const point = diagram.elements[index - 1];
+    if (
+      element.kind !== "text"
+      || !element.text
+      || element.x == null
+      || point?.kind !== "point"
+      || point.x == null
+      || !COORDINATE_LABEL.test(element.text)
+    ) {
+      return element;
+    }
+    const labelWidth = Math.max(
+      12,
+      [...element.text].reduce(
+        (total, character) => total + (character.trim() ? 9 : 4.5),
+        0,
+      ),
+    );
+    const currentCenter = element.x + labelWidth / 2;
+    if (Math.abs(currentCenter - point.x) <= Math.max(24, labelWidth * 0.35)) {
+      return element;
+    }
+    return {
+      ...element,
+      // Compatibility repair for diagrams persisted before paper-space label
+      // layout was introduced. New artifacts already satisfy this condition.
+      x: Math.min(Math.max(minX + 4, point.x - labelWidth / 2), maxX - labelWidth - 4),
+    };
+  });
+}
+
 function DiagramScene({
   diagram,
   jobId,
@@ -119,6 +158,7 @@ function DiagramScene({
 }) {
   const markerPrefix = `answer-arrow-${useId().replaceAll(":", "")}`;
   const [minX, minY, width, height] = diagram.view_box;
+  const elements = displayElements(diagram);
   const points = (value: [number, number][]) =>
     value.map(([x, y]) => `${x},${y}`).join(" ");
   const tone = (element: DiagramElement): DiagramTone =>
@@ -176,7 +216,7 @@ function DiagramScene({
         <image
           className="paper-diagram-source"
           height={diagram.source.height}
-          href={apiUrl(
+          href={backendResourceUrl(
             `/papers/jobs/${jobId}/source/pages/${diagram.source.page_number}`,
           )}
           preserveAspectRatio="none"
@@ -185,7 +225,7 @@ function DiagramScene({
           y={0}
         />
       )}
-      {diagram.elements.map((element, elementIndex) => {
+      {elements.map((element, elementIndex) => {
         const common = {
           className: elementClass(element),
           vectorEffect: "non-scaling-stroke" as const,

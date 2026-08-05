@@ -63,7 +63,10 @@ class QdrantIndexPublisher:
     def validate(self, collection_name: str, expected_points: int) -> PublicationGate:
         if not self.client.collection_exists(collection_name):
             raise FileNotFoundError(f"Qdrant staging collection does not exist: {collection_name}")
-        indexed_points = int(self.client.get_collection(collection_name).points_count or 0)
+        # Collection telemetry can temporarily over-count points while Qdrant compacts
+        # segments. Publication is a correctness gate, so use the exact count endpoint
+        # instead of the eventually consistent collection summary.
+        indexed_points = int(self.client.count(collection_name, exact=True).count or 0)
         gate = PublicationGate(
             expected_points=expected_points,
             indexed_points=indexed_points,

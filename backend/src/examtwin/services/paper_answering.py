@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import re
+import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -33,6 +36,10 @@ PAGE_SECTION = re.compile(
     r"(?=<!--\s*(?:pages?\s+\d+|examtwin:physical-page=\d+))",
     re.IGNORECASE,
 )
+SPLIT_CONTRACT_VERSION = "paper-question-split-v2"
+
+SplitCheckpointLoader = Callable[[int, str], list[dict[str, Any]] | None]
+SplitCheckpointSaver = Callable[[int, int, str, list[dict[str, Any]], float], None]
 
 
 def _split_markdown_batches(markdown: str, *, max_chars: int) -> list[str]:
@@ -98,7 +105,7 @@ class PaperAnswerService:
         self.subject = subject
         self.knowledge_repository = knowledge_repository
         self.rag = rag or RagService(settings, subject, knowledge_repository)
-        self.splitter = splitter or self._split_with_llm
+        self.splitter = splitter
         self.parser = parser or upload_to_markdown
         self.catalog_loader = catalog_loader or self._load_catalog
 
@@ -124,8 +131,11 @@ class PaperAnswerService:
         self,
         markdown: str,
         catalog: list[dict[str, Any]],
+        *,
+        load_checkpoint: SplitCheckpointLoader | None = None,
+        save_checkpoint: SplitCheckpointSaver | None = None,
     ) -> list[dict[str, Any]]:
-        catalog_text = "\n".join(f"- {point['code']}: {point['title']}" for point in catalog)
+        del catalog
 
         def split_batch(batch: str) -> list[dict[str, Any]]:
             prompt = f"""
@@ -146,8 +156,6 @@ Each visually reviewed PDF page starts with an immutable
 question positions after your response, so `source_pages` is only a compatibility
 field and will never be trusted as provenance.
 
-For each question, assign up to four best matching knowledge codes from the supplied
-catalog. Never invent a code.
 Set `requires_visual_context` to true only when solving the question depends on a
 printed figure, diagram, graph, chart, plot, shaded region, or other spatial visual
 information. It must be false for text-only probability/algebra questions even though
@@ -155,10 +163,11 @@ their source PDF pages are available.
 Extract an `answer_requirements` item for every visible subpart, or one item labelled
 `whole` when there are no subparts. Preserve the printed subpart label and marks.
 `answer_kind` must be one of text, numeric, expression, proof, table, math_plot,
-math_diagram, image. Copy an explicit accuracy instruction and required units.
+math_diagram, economics_diagram, image. Copy an explicit accuracy instruction and required units.
 Set `required_tool` only when the candidate must create that answer artifact:
 math_plot for coordinate/statistical plots, math_diagram for exact geometry or other
-vector diagrams, image_generate only for a genuinely pictorial response. Merely
+mathematical vector diagrams, economics_diagram for a required economics graph or
+diagram, and image_generate only for a genuinely pictorial response. Merely
 reading a printed source figure does not require an answer artifact.
 
 Return only:
@@ -180,13 +189,10 @@ Return only:
           "required_tool": null
         }}
       ],
-      "knowledge_codes": ["P2.7.O03"]
+      "knowledge_codes": []
     }}
   ]
 }}
-
-Knowledge catalog:
-{catalog_text}
 
 Paper Markdown:
 {batch}
@@ -207,12 +213,65 @@ Paper Markdown:
                 raise ValueError("模型没有返回可用的试卷题目列表")
             return [item for item in questions if isinstance(item, dict)]
 
-        extracted: list[dict[str, Any]] = []
-        for batch in _split_markdown_batches(
+        batches = _split_markdown_batches(
             markdown,
             max_chars=self.settings.paper_split_max_chars,
-        ):
-            extracted.extend(split_batch(batch))
+        )
+        completed: dict[int, list[dict[str, Any]]] = {}
+        pending: list[tuple[int, str, str]] = []
+        for batch_index, batch in enumerate(batches):
+            digest = hashlib.sha256(
+                json.dumps(
+                    {
+                        "contract": SPLIT_CONTRACT_VERSION,
+                        "model": self.settings.paper_split_model,
+                        "reasoning_effort": self.settings.paper_split_reasoning_effort,
+                        "markdown": batch,
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ).encode("utf-8")
+            ).hexdigest()
+            cached = load_checkpoint(batch_index, digest) if load_checkpoint else None
+            if cached is None:
+                pending.append((batch_index, digest, batch))
+            else:
+                completed[batch_index] = cached
+
+        first_error: Exception | None = None
+        if pending:
+            with ThreadPoolExecutor(
+                max_workers=min(self.settings.paper_split_concurrency, len(pending))
+            ) as executor:
+                futures = {
+                    executor.submit(split_batch, batch): (
+                        batch_index,
+                        digest,
+                        time.monotonic(),
+                    )
+                    for batch_index, digest, batch in pending
+                }
+                for future in as_completed(futures):
+                    batch_index, digest, batch_started = futures[future]
+                    try:
+                        questions = future.result()
+                        completed[batch_index] = questions
+                        if save_checkpoint:
+                            save_checkpoint(
+                                batch_index,
+                                len(batches),
+                                digest,
+                                questions,
+                                (time.monotonic() - batch_started) * 1000,
+                            )
+                    except Exception as error:
+                        first_error = first_error or error
+        if first_error is not None:
+            raise first_error
+
+        extracted = [
+            item for batch_index in range(len(batches)) for item in completed.get(batch_index, [])
+        ]
         return _merge_split_questions(extracted)
 
     def _fallback_codes(
@@ -379,10 +438,51 @@ Paper Markdown:
         *,
         unit_code: str | None = None,
     ) -> list[dict[str, Any]]:
+        return self._split_questions(
+            markdown,
+            unit_code=unit_code,
+        )
+
+    def split_questions_checkpointed(
+        self,
+        markdown: str,
+        *,
+        unit_code: str | None = None,
+        source_markdown: str | None = None,
+        load_checkpoint: SplitCheckpointLoader,
+        save_checkpoint: SplitCheckpointSaver,
+    ) -> list[dict[str, Any]]:
+        """Split a paper in bounded batches and reuse only digest-matched results."""
+
+        return self._split_questions(
+            markdown,
+            unit_code=unit_code,
+            source_markdown=source_markdown,
+            load_checkpoint=load_checkpoint,
+            save_checkpoint=save_checkpoint,
+        )
+
+    def _split_questions(
+        self,
+        markdown: str,
+        *,
+        unit_code: str | None,
+        source_markdown: str | None = None,
+        load_checkpoint: SplitCheckpointLoader | None = None,
+        save_checkpoint: SplitCheckpointSaver | None = None,
+    ) -> list[dict[str, Any]]:
         if len(markdown.strip()) < 20:
             raise ValueError("解析后的试卷内容过短，无法识别题目")
         catalog = self._catalog(unit_code)
-        questions = self.splitter(markdown, catalog)
+        if self.splitter is None:
+            questions = self._split_with_llm(
+                markdown,
+                catalog,
+                load_checkpoint=load_checkpoint,
+                save_checkpoint=save_checkpoint,
+            )
+        else:
+            questions = self.splitter(markdown, catalog)
         normalized = [item for item in questions if str(item.get("question_markdown", "")).strip()]
         if not normalized:
             raise ValueError("没有识别到顶层题目，请检查试卷内容或 MinerU 解析结果")
@@ -390,7 +490,7 @@ Paper Markdown:
             spec = question_spec_from_item(item)
             item["answer_requirements"] = [part.model_dump(mode="json") for part in spec.subparts]
             item["total_marks"] = spec.total_marks
-        return reconcile_question_source_pages(markdown, normalized)
+        return reconcile_question_source_pages(source_markdown or markdown, normalized)
 
     def answer_question(
         self,

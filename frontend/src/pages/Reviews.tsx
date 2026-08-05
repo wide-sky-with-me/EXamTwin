@@ -4,12 +4,18 @@ import { useState } from "react";
 import { apiClient, unwrapApi } from "../lib/api";
 import type { ReviewItem } from "../types";
 import { Confidence, ErrorBanner } from "../components/Feedback";
+import { useToast } from "../components/toast-context";
+
+const REVIEWER_STORAGE_KEY = "examtwin.reviewerName";
 
 export function Reviews({ items, refresh }: { items: ReviewItem[]; refresh: () => Promise<void> }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [reviewer, setReviewer] = useState("teacher");
+  const [reviewer, setReviewer] = useState(() =>
+    window.localStorage.getItem(REVIEWER_STORAGE_KEY) ?? "",
+  );
   const [overrideMarks, setOverrideMarks] = useState<Record<string, string>>({});
+  const { notify } = useToast();
 
   async function review(item: ReviewItem, decision: "confirm" | "override") {
     const reviewerName = reviewer.trim();
@@ -29,6 +35,12 @@ export function Reviews({ items, refresh }: { items: ReviewItem[]; refresh: () =
       setError(`改分必须在 0–${item.total_available} 之间。`);
       return;
     }
+    const action = decision === "confirm"
+      ? `确认沿用建议分 ${item.total_awarded}/${item.total_available}`
+      : `改为 ${overrideMark}/${item.total_available} 并确认`;
+    if (!window.confirm(`${action}？提交后会形成最终评分，且不能在当前界面撤销。`)) {
+      return;
+    }
     setBusy(item.id); setError(null);
     try {
       await unwrapApi(
@@ -41,6 +53,8 @@ export function Reviews({ items, refresh }: { items: ReviewItem[]; refresh: () =
           },
         }),
       );
+      window.localStorage.setItem(REVIEWER_STORAGE_KEY, reviewerName);
+      notify(decision === "confirm" ? "评分已确认并写入审计记录。" : "改分已确认并写入审计记录。");
       await refresh();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "复核失败");
@@ -51,12 +65,17 @@ export function Reviews({ items, refresh }: { items: ReviewItem[]; refresh: () =
 
   return (
     <section>
-      <div className="page-heading compact"><div><p className="eyebrow">HUMAN REVIEW</p><h1>人工复核队列</h1><p>确认或改分后才成为最终评分；自动结果不直接发布。</p></div></div>
+      <div className="page-heading compact"><div><h1>人工复核队列</h1><p>确认或改分后才成为最终评分；自动结果不直接发布。</p></div></div>
       <div className="panel review-toolbar">
         <label>
           复核人
           <input
-            onChange={(event) => setReviewer(event.target.value)}
+            onChange={(event) => {
+              const value = event.target.value;
+              setReviewer(value);
+              if (value.trim()) window.localStorage.setItem(REVIEWER_STORAGE_KEY, value);
+              else window.localStorage.removeItem(REVIEWER_STORAGE_KEY);
+            }}
             placeholder="填写教师或复核人名称"
             required
             value={reviewer}

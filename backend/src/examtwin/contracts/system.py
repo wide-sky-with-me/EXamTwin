@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-API_CONTRACT_VERSION = "2026-08-04.composable-harness-v16"  # gitleaks:allow
+API_CONTRACT_VERSION = "2026-08-05.hybrid-retrieval-v24"  # gitleaks:allow
 
 API_CAPABILITIES = (
     "paper_jobs_v1",
@@ -31,6 +31,16 @@ API_CAPABILITIES = (
     "vector_index_atomic_publication_v1",
     "versioned_schema_migrations_v1",
     "economics_subject_pack_9640_v1",
+    "economics_answering_skill_v1",
+    "economics_calculator_v1",
+    "economics_diagram_v1",
+    "runtime_subject_selection_v1",
+    "multi_subject_status_v1",
+    "theme_selection_v1",
+    "paired_source_booklet_v1",
+    "knowledge_graph_v1",
+    "grading_assessment_v1",
+    "human_review_v1",
     "syllabus_driven_curriculum_v1",
     "curriculum_candidates_v1",
     "managed_object_storage_v1",
@@ -52,4 +62,17 @@ API_CAPABILITIES = (
     "provider_neutral_agent_contracts_v1",
     "task_scoped_tool_surface_v1",
     "shared_structured_model_tasks_v1",
+    "paper_vision_stage_v1",
+    "paper_split_batch_checkpoint_v1",
+    "bounded_stage_concurrency_v1",
+    "blank_axes_plot_resilience_v1",
+    "citation_math_rendering_v1",
+    "paper_space_plot_labels_v1",
+    "paper_tick_plot_calibration_v1",
+    "oversized_source_preprocessing_v1",
+    "qdrant_prefiltered_hybrid_retrieval_v1",
+    "retrieval_raw_evidence_fallback_v1",
+    "bounded_retrieval_traces_v1",
+    "subject_retrieval_evaluation_v1",
+    "incremental_vector_embedding_reuse_v1",
 )

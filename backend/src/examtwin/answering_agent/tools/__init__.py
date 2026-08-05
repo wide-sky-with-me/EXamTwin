@@ -1,3 +1,5 @@
+from examtwin.answering_agent.tools.economics_calculate import EconomicsCalculateTool
+from examtwin.answering_agent.tools.economics_diagram import EconomicsDiagramTool
 from examtwin.answering_agent.tools.image_generate import (
     AnswerImageStore,
     ImageGenerationTool,
@@ -16,6 +18,8 @@ from examtwin.answering_agent.tools.question_vision import (
 from examtwin.answering_agent.tools.source_read import SourceReadTool
 
 __all__ = [
+    "EconomicsCalculateTool",
+    "EconomicsDiagramTool",
     "KnowledgeSearchTool",
     "AnswerImageStore",
     "ImageGenerationTool",

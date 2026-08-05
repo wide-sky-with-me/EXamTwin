@@ -16,6 +16,7 @@ from examtwin.schemas import (
     ReviewRequest,
 )
 from examtwin.services.grading import GradingService, symbolic_checks
+from examtwin.services.subject_context import subject_context
 from pydantic import BaseModel
 
 StructuredResultT = TypeVar("StructuredResultT", bound=BaseModel)
@@ -101,6 +102,7 @@ def test_grading_always_enters_review_queue() -> None:
         CorpusRepository(sessions),
         AssessmentRepository(sessions),
         settings,
+        subject_context(settings),
         structured_model=FakeStructuredModel(),
     )
     result = service.grade(

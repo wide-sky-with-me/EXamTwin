@@ -106,9 +106,16 @@ class PaperJobResponse(SerializedResponse):
     subject_code: str
     unit_code: str | None
     status: Literal[
-        "queued", "parsing", "splitting", "answering", "completed", "partial_failed", "failed"
+        "queued",
+        "parsing",
+        "vision_review",
+        "splitting",
+        "answering",
+        "completed",
+        "partial_failed",
+        "failed",
     ]
-    stage: Literal["queued", "parsing", "splitting", "answering", "completed"]
+    stage: Literal["queued", "parsing", "vision_review", "splitting", "answering", "completed"]
     total_pages: int
     parsed_pages: int
     total_questions: int

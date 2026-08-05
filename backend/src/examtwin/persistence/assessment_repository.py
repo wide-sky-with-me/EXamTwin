@@ -21,10 +21,13 @@ class AssessmentRepository:
         with self.sessions.begin() as session:
             session.add(AssessmentModel(**dict(values)))
 
-    def pending(self) -> list[dict[str, Any]]:
+    def pending(self, *, subject_code: str) -> list[dict[str, Any]]:
         statement = (
             select(AssessmentModel)
-            .where(AssessmentModel.status == "pending_review")
+            .where(
+                AssessmentModel.subject_code == subject_code,
+                AssessmentModel.status == "pending_review",
+            )
             .order_by(AssessmentModel.created_at.desc())
         )
         with self.sessions() as session:
@@ -32,6 +35,7 @@ class AssessmentRepository:
         return [
             {
                 "id": row.id,
+                "subject_code": row.subject_code,
                 "question_ref": row.question_ref,
                 "total_awarded": row.total_awarded,
                 "total_available": row.total_available,
@@ -51,10 +55,16 @@ class AssessmentRepository:
         decision: str,
         override_mark: float | None,
         note: str | None,
+        subject_code: str,
     ) -> dict[str, Any]:
         with self.sessions.begin() as session:
             assessment = session.scalar(
-                select(AssessmentModel).where(AssessmentModel.id == assessment_id).with_for_update()
+                select(AssessmentModel)
+                .where(
+                    AssessmentModel.id == assessment_id,
+                    AssessmentModel.subject_code == subject_code,
+                )
+                .with_for_update()
             )
             if assessment is None:
                 raise LookupError("Assessment not found")

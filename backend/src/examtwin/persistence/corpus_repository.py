@@ -205,16 +205,24 @@ class CorpusRepository:
             row = session.scalar(statement)
         return None if row is None else _document_dict(row)
 
+    def get(self, document_id: str) -> dict[str, Any] | None:
+        with self.sessions() as session:
+            row = session.get(SourceDocumentModel, document_id)
+        return None if row is None else _document_dict(row)
+
     def list(
         self,
         *,
         document_ids: Sequence[str] | None = None,
         source_types: Sequence[str] | None = None,
         authority_tiers: Sequence[str] | None = None,
+        subject_code: str | None = None,
         status: str | None = None,
         limit: int | None = None,
     ) -> list[dict[str, Any]]:
         statement = select(SourceDocumentModel)
+        if subject_code:
+            statement = statement.where(SourceDocumentModel.subject_code == subject_code)
         if document_ids:
             statement = statement.where(SourceDocumentModel.id.in_(tuple(document_ids)))
         if source_types:
@@ -238,8 +246,11 @@ class CorpusRepository:
         source_type: str | None,
         status: str | None,
         limit: int,
+        subject_code: str | None = None,
     ) -> list[dict[str, Any]]:
         statement = select(SourceDocumentModel)
+        if subject_code:
+            statement = statement.where(SourceDocumentModel.subject_code == subject_code)
         if source_type:
             statement = statement.where(SourceDocumentModel.source_type == source_type)
         if status:
@@ -270,11 +281,12 @@ class CorpusRepository:
         )
         return [{field: getattr(row, field) for field in fields} for row in rows]
 
-    def exact_pair_documents(self, pair_key: str, limit: int = 3) -> list[dict[str, Any]]:
+    def exact_pair_documents(self, pair_key: str, limit: int = 4) -> list[dict[str, Any]]:
         priority = case(
             (SourceDocumentModel.source_type == "mark_scheme", 0),
-            (SourceDocumentModel.source_type == "examiner_report", 1),
-            else_=2,
+            (SourceDocumentModel.source_type == "insert", 1),
+            (SourceDocumentModel.source_type == "examiner_report", 2),
+            else_=3,
         )
         statement = (
             select(SourceDocumentModel)
@@ -282,7 +294,7 @@ class CorpusRepository:
                 SourceDocumentModel.pair_key == pair_key,
                 SourceDocumentModel.markdown_path.is_not(None),
                 SourceDocumentModel.source_type.in_(
-                    ("mark_scheme", "examiner_report", "question_paper")
+                    ("mark_scheme", "insert", "examiner_report", "question_paper")
                 ),
             )
             .order_by(priority, SourceDocumentModel.path)
@@ -292,7 +304,12 @@ class CorpusRepository:
             rows = list(session.scalars(statement))
         return [_document_dict(row) for row in rows]
 
-    def resolve_reference(self, reference: str) -> dict[str, Any] | None:
+    def resolve_reference(
+        self,
+        reference: str,
+        *,
+        subject_code: str | None = None,
+    ) -> dict[str, Any] | None:
         priority = case((SourceDocumentModel.source_type == "question_paper", 0), else_=1)
         statement = (
             select(SourceDocumentModel)
@@ -307,11 +324,18 @@ class CorpusRepository:
             .order_by(priority)
             .limit(1)
         )
+        if subject_code:
+            statement = statement.where(SourceDocumentModel.subject_code == subject_code)
         with self.sessions() as session:
             row = session.scalar(statement)
         return None if row is None else _document_dict(row)
 
-    def mark_schemes(self, pair_key: str) -> list[dict[str, Any]]:
+    def mark_schemes(
+        self,
+        pair_key: str,
+        *,
+        subject_code: str | None = None,
+    ) -> list[dict[str, Any]]:
         statement = (
             select(SourceDocumentModel)
             .where(
@@ -321,6 +345,8 @@ class CorpusRepository:
             )
             .order_by(SourceDocumentModel.path)
         )
+        if subject_code:
+            statement = statement.where(SourceDocumentModel.subject_code == subject_code)
         with self.sessions() as session:
             rows = list(session.scalars(statement))
         return [_document_dict(row) for row in rows]

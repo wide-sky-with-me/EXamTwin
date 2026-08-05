@@ -11,7 +11,6 @@ from examtwin.answering_agent.contracts import (
 )
 from examtwin.answering_agent.skills import (
     mathematics_source_plot_overlay_mode,
-    select_mathematics_answer_visual_tool,
 )
 from examtwin.config import Settings
 from examtwin.persistence.paper_job_repository import PaperJobRepository
@@ -61,6 +60,16 @@ class PaperJobService:
         self.subject = subject
         self.repository = repository
         self.files = files or PaperSourceStore(settings.object_store_root / "paper-jobs")
+
+    def _require_job(self, job_id: str) -> dict[str, Any]:
+        job = self.repository.get(job_id)
+        if not job:
+            raise LookupError("试卷任务不存在")
+        try:
+            self.subject.require(str(job.get("subject_code") or ""))
+        except ValueError as error:
+            raise LookupError("试卷任务不属于当前科目上下文") from error
+        return job
 
     def create_job(
         self,
@@ -143,9 +152,7 @@ class PaperJobService:
         return PaperJobCreated(job_id=job_id, status="queued", stage="queued")
 
     def get_job(self, job_id: str) -> PaperJobResponse:
-        job = self.repository.get(job_id)
-        if not job:
-            raise LookupError("试卷任务不存在")
+        job = self._require_job(job_id)
         chunk_rows = self.repository.chunks(job_id)
         rows = self.repository.questions(job_id)
         step_rows = self.repository.steps(job_id)
@@ -245,18 +252,21 @@ class PaperJobService:
         )
 
     def source_file(self, job_id: str) -> tuple[Path, str, str]:
+        self._require_job(job_id)
         job = self.repository.source_record(job_id)
         if not job:
             raise LookupError("试卷任务不存在")
         return self.files.source_file(job)
 
     def source_page(self, job_id: str, page_number: int) -> Path:
+        self._require_job(job_id)
         job = self.repository.source_record(job_id)
         if not job:
             raise LookupError("试卷任务不存在")
         return self.files.source_page(job, job_id, page_number)
 
     def retry(self, job_id: str) -> PaperJobCreated:
+        self._require_job(job_id)
         self.repository.retry_job(job_id)
         self.files.extend_retention(job_id)
         return PaperJobCreated(job_id=job_id, status="queued", stage="queued")
@@ -264,6 +274,7 @@ class PaperJobService:
     def retry_question(self, job_id: str, position: int) -> PaperJobCreated:
         if position < 0:
             raise ValueError("题目位置不能为负数")
+        self._require_job(job_id)
         question = self.repository.retry_candidate(job_id, position)
         if question["status"] == "completed":
             try:
@@ -278,14 +289,16 @@ class PaperJobService:
             )
             required_tools = spec.required_tool_names
             if not required_tools:
-                fallback = select_mathematics_answer_visual_tool(question["question_markdown"])
+                skill = self.subject.package.require_skill()
+                fallback = skill.required_visual_tool(question["question_markdown"])
                 required_tools = () if fallback is None else (fallback,)
             try:
                 answer = PaperQuestionAnswer.model_validate_json(question["answer_json"] or "{}")
             except ValueError:
                 answer = None
             requires_source_overlay = (
-                mathematics_source_plot_overlay_mode(question["question_markdown"]) is not None
+                self.subject.subject_code == "9660"
+                and mathematics_source_plot_overlay_mode(question["question_markdown"]) is not None
             )
             source_overlay_present = answer is not None and any(
                 diagram.tool_name == "math_plot" and diagram.source is not None

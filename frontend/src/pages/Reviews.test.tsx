@@ -1,11 +1,12 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { ReviewItem } from "../types";
 import { Reviews } from "./Reviews";
 
 const item: ReviewItem = {
   id: "assessment-1",
+  subject_code: "9660",
   question_ref: "Q1",
   total_awarded: 1,
   total_available: 2,
@@ -14,6 +15,7 @@ const item: ReviewItem = {
   created_at: "2026-08-03T00:00:00Z",
   result: {
     assessment_id: "assessment-1",
+    subject_code: "9660",
     question_ref: "Q1",
     total_awarded: 1,
     total_available: 2,
@@ -28,6 +30,8 @@ const item: ReviewItem = {
 };
 
 describe("Reviews", () => {
+  beforeEach(() => window.localStorage.clear());
+
   test("submits an explicit reviewer and override mark", async () => {
     const user = userEvent.setup();
     const refresh = vi.fn().mockResolvedValue(undefined);
@@ -36,10 +40,12 @@ describe("Reviews", () => {
       { status: 200, headers: { "Content-Type": "application/json" } },
     ));
     vi.stubGlobal("fetch", fetch);
+    vi.stubGlobal("confirm", vi.fn(() => true));
     render(<Reviews items={[item]} refresh={refresh} />);
 
     await user.clear(screen.getByRole("textbox", { name: "复核人" }));
     await user.type(screen.getByRole("textbox", { name: "复核人" }), "Ms Chen");
+    expect(window.localStorage.getItem("examtwin.reviewerName")).toBe("Ms Chen");
     await user.type(screen.getByRole("spinbutton", { name: "Q1 最终得分" }), "1.5");
     await user.click(screen.getByRole("button", { name: "改分并确认" }));
 
@@ -50,5 +56,19 @@ describe("Reviews", () => {
       decision: "override",
       override_mark: 1.5,
     });
+  });
+
+  test("does not publish a final score when the confirmation is cancelled", async () => {
+    const user = userEvent.setup();
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    vi.stubGlobal("confirm", vi.fn(() => false));
+    render(<Reviews items={[item]} refresh={vi.fn()} />);
+
+    await user.type(screen.getByRole("textbox", { name: "复核人" }), "Ms Chen");
+    await user.click(screen.getByRole("button", { name: "确认评分" }));
+
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

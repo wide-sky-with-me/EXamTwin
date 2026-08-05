@@ -9,6 +9,7 @@ _CONDITIONAL_TOOLS = frozenset(
         "paired_exam_lookup",
         "math_plot",
         "math_diagram",
+        "economics_diagram",
         "image_generate",
     }
 )

@@ -1,5 +1,5 @@
 import { Network } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { difficultyOf, relationLabels } from "../lib/evidence";
 import { InlineMarkdown } from "../components/Markdown";
@@ -14,6 +14,7 @@ export function Knowledge({
 }) {
   const [unit, setUnit] = useState("ALL");
   const [selectedCode, setSelectedCode] = useState<string | null>(null);
+  const [expandedTopics, setExpandedTopics] = useState<Set<string>>(() => new Set());
   const units = [
     "ALL",
     ...points
@@ -44,12 +45,24 @@ export function Knowledge({
       && visibleCodes.has(relation.target_code),
   );
   const selectedDifficulty = selected ? difficultyOf(selected) : null;
+  const selectedTopicCode = selected
+    ? selected.features.node_type === "topic"
+      ? selected.code
+      : topics.find((topic) => topic.id === selected.parent_id)?.code ?? null
+    : null;
+
+  useEffect(() => {
+    if (!selectedTopicCode) return;
+    setExpandedTopics((current) => {
+      if (current.has(selectedTopicCode)) return current;
+      return new Set([...current, selectedTopicCode]);
+    });
+  }, [selectedTopicCode]);
 
   return (
     <section>
       <div className="page-heading compact">
         <div>
-          <p className="eyebrow">KNOWLEDGE GRAPH</p>
           <h1>从 Unit 下钻到可考查目标</h1>
           <p>Unit → 章节 → syllabus 学习目标；同时展示先修、顺序、难度方法与证据等级。</p>
         </div>
@@ -61,6 +74,7 @@ export function Knowledge({
             onClick={() => {
               setUnit(item);
               setSelectedCode(null);
+              setExpandedTopics(new Set());
             }}
             key={item}
           >
@@ -78,7 +92,21 @@ export function Knowledge({
           {topics.map((topic) => {
             const children = objectives.filter((item) => item.parent_id === topic.id);
             return (
-              <details className={selected?.code === topic.code ? "active" : ""} key={topic.id}>
+              <details
+                className={selected?.code === topic.code ? "active" : ""}
+                key={topic.id}
+                onToggle={(event) => {
+                  const open = event.currentTarget.open;
+                  setExpandedTopics((current) => {
+                    if (current.has(topic.code) === open) return current;
+                    const next = new Set(current);
+                    if (open) next.add(topic.code);
+                    else next.delete(topic.code);
+                    return next;
+                  });
+                }}
+                open={expandedTopics.has(topic.code)}
+              >
                 <summary onClick={() => setSelectedCode(topic.code)}>
                   <span><code>{topic.code}</code><strong><InlineMarkdown>{topic.title}</InlineMarkdown></strong></span>
                   <em>{children.length} 项</em>

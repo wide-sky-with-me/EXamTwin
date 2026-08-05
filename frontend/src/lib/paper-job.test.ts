@@ -51,6 +51,13 @@ function question(overrides: Partial<PaperJobQuestion> = {}): PaperJobQuestion {
 }
 
 describe("paper job presentation", () => {
+  test("shows visual review as a distinct progress phase", () => {
+    expect(paperProgress(job({
+      status: "vision_review",
+      stage: "vision_review",
+    }))).toBe(52);
+  });
+
   test("does not present a partially failed paper as 100 percent complete", () => {
     expect(paperProgress(job({
       status: "partial_failed",

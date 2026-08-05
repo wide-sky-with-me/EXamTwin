@@ -1,7 +1,7 @@
 [project]
 name = "examtwin"
 version = "0.1.0"
-description = "Evidence-grounded RAG and marking workbench for OxfordAQA Mathematics 9660"
+description = "Multi-subject evidence-grounded RAG, paper answering, and marking workbench"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 dependencies = [
@@ -71,6 +71,8 @@ quote-style = "double"
 include = ["backend/src/examtwin"]
 exclude = ["backend/migrations"]
 pythonVersion = "3.11"
+venvPath = "."
+venv = ".venv"
 typeCheckingMode = "standard"
 reportMissingTypeStubs = false
 reportUnnecessaryTypeIgnoreComment = "warning"

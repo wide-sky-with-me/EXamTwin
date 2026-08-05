@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from examtwin.config import Settings
@@ -12,15 +13,23 @@ from examtwin.services.vector_index_publication import QdrantIndexPublisher
 class FakeQdrantClient:
     def __init__(self) -> None:
         self.collections = {"examtwin_9660": 12, "staging": 15, "short": 14}
+        self.summary_counts: dict[str, int] = {}
         self.aliases: dict[str, str] = {}
-        self.alias_updates: list[list[object]] = []
+        self.alias_updates: list[list[Any]] = []
 
     def collection_exists(self, name: str) -> bool:
         return name in self.collections or name in self.aliases
 
     def get_collection(self, name: str) -> SimpleNamespace:
         target = self.aliases.get(name, name)
-        return SimpleNamespace(points_count=self.collections[target])
+        return SimpleNamespace(
+            points_count=self.summary_counts.get(target, self.collections[target])
+        )
+
+    def count(self, name: str, *, exact: bool) -> SimpleNamespace:
+        assert exact is True
+        target = self.aliases.get(name, name)
+        return SimpleNamespace(count=self.collections[target])
 
     def get_aliases(self) -> SimpleNamespace:
         return SimpleNamespace(
@@ -30,7 +39,7 @@ class FakeQdrantClient:
             ]
         )
 
-    def update_collection_aliases(self, *, change_aliases_operations: list[object]) -> None:
+    def update_collection_aliases(self, *, change_aliases_operations: list[Any]) -> None:
         self.alias_updates.append(change_aliases_operations)
         updated = dict(self.aliases)
         for operation in change_aliases_operations:
@@ -71,6 +80,21 @@ def test_publication_gate_keeps_live_alias_on_incomplete_staging() -> None:
 
     assert publisher.alias_target() == "examtwin_9660"
     assert client.alias_updates == []
+
+
+def test_publication_gate_uses_exact_count_during_qdrant_compaction() -> None:
+    client = FakeQdrantClient()
+    client.summary_counts["staging"] = 17
+    publisher = QdrantIndexPublisher(
+        client,
+        base_collection="examtwin_9660",
+        alias_name="examtwin_9660_live",
+    )
+
+    gate = publisher.validate("staging", expected_points=15)
+
+    assert gate.indexed_points == 15
+    assert gate.passed
 
 
 def test_collection_base_and_alias_cannot_collide() -> None:

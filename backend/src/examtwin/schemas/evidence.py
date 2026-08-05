@@ -15,9 +15,15 @@ AnswerKind = Literal[
     "table",
     "math_plot",
     "math_diagram",
+    "economics_diagram",
     "image",
 ]
-AnswerArtifactTool = Literal["math_plot", "math_diagram", "image_generate"]
+AnswerArtifactTool = Literal[
+    "math_plot",
+    "math_diagram",
+    "economics_diagram",
+    "image_generate",
+]
 
 
 class SubpartRequirement(SerializedResponse):
@@ -129,7 +135,7 @@ class DiagramElement(SerializedResponse):
 class AnswerDiagram(SerializedResponse):
     title: str = Field(min_length=1, max_length=160)
     caption: str = Field(default="", max_length=500)
-    tool_name: Literal["math_plot", "math_diagram"] = "math_diagram"
+    tool_name: Literal["math_plot", "math_diagram", "economics_diagram"] = "math_diagram"
     view_box: tuple[float, float, float, float] = (0, 0, 600, 360)
     elements: list[DiagramElement] = Field(default_factory=list, min_length=1, max_length=160)
     legend: list[DiagramLegendItem] = Field(default_factory=list, max_length=12)

@@ -437,10 +437,36 @@ class QuestionDifficultyModel(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class RetrievalTraceModel(Base):
+    __tablename__ = "retrieval_traces"
+    __table_args__ = (Index("idx_retrieval_traces_subject_created", "subject_code", "created_at"),)
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    subject_code: Mapped[str] = mapped_column(Text)
+    query_hash: Mapped[str] = mapped_column(Text)
+    query_text: Mapped[str] = mapped_column(Text)
+    filters_json: Mapped[str] = mapped_column(Text, default="{}")
+    retrieval_mode: Mapped[str] = mapped_column(Text)
+    candidate_limit: Mapped[int] = mapped_column(Integer)
+    candidate_count: Mapped[int] = mapped_column(Integer)
+    postfilter_count: Mapped[int] = mapped_column(Integer)
+    reranked_count: Mapped[int] = mapped_column(Integer)
+    card_count: Mapped[int] = mapped_column(Integer)
+    raw_fallback_count: Mapped[int] = mapped_column(Integer)
+    result_count: Mapped[int] = mapped_column(Integer)
+    index_build_id: Mapped[str | None] = mapped_column(Text)
+    result_json: Mapped[str] = mapped_column(Text, default="[]")
+    duration_ms: Mapped[float] = mapped_column(Float)
+    status: Mapped[str] = mapped_column(Text)
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class AssessmentModel(Base):
     __tablename__ = "assessments"
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
+    subject_code: Mapped[str] = mapped_column(Text)
     question_ref: Mapped[str | None] = mapped_column(Text)
     answer_markdown: Mapped[str] = mapped_column(Text)
     total_awarded: Mapped[float] = mapped_column(Float)

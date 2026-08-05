@@ -13,8 +13,10 @@ TOOL_LABELS = {
     "paired_exam_lookup": "读取同卷评分证据",
     "math_calculate": "执行数学计算",
     "probability_calculate": "核验概率计算",
+    "economics_calculate": "核验经济量化计算",
     "math_plot": "生成坐标图",
     "math_diagram": "生成答案图形",
+    "economics_diagram": "生成经济学图形",
     "image_generate": "生成答案图片",
 }
 

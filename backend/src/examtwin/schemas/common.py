@@ -13,7 +13,7 @@ class InfrastructureHealthResponse(SerializedResponse):
 
 class HealthResponse(SerializedResponse):
     status: str
-    subject_code: str = "9660"
+    subject_code: str | None = None
     api_contract_version: str
     capabilities: list[str]
     llm_model: str
@@ -88,3 +88,15 @@ class StatsResponse(SerializedResponse):
     question_difficulty_rows: int
     pending_reviews: int
     exam_identity_incomplete: int = 0
+
+
+class SubjectStatusResponse(SubjectPackResponse):
+    vector_alias: str
+    vector_index_ready: bool
+    vector_points: int
+    stats: StatsResponse | None = None
+
+
+class PlatformStatusResponse(SerializedResponse):
+    infrastructure: InfrastructureHealthResponse
+    subjects: list[SubjectStatusResponse]

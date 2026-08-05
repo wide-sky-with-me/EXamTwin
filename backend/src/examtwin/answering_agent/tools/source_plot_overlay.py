@@ -134,6 +134,53 @@ def _detect_blank_axes(gray: np.ndarray) -> tuple[int, int, int, int, int, int]:
     return best[1]
 
 
+def _positive_x_tick_extent(
+    gray: np.ndarray,
+    *,
+    origin_x: int,
+    axis_y: int,
+    axis_right: int,
+) -> int | None:
+    """Return the last regularly spaced positive x tick when it is unambiguous.
+
+    Blank exam axes often leave an arrow beyond the final labelled value. Mapping the
+    requested x maximum to that arrow shifts every plotted coordinate. We do not OCR
+    labels here; instead, accept only two or more short vertical ticks whose spacing,
+    including the origin, is regular and whose final gap to the arrow is a small margin.
+    """
+
+    height, width = gray.shape
+    top = max(0, axis_y - max(3, round(height * 0.003)))
+    bottom = min(height, axis_y + max(8, round(height * 0.007)))
+    search_left = origin_x + max(10, round(width * 0.01))
+    # Keep the arrow head out of the candidate band; its near-vertical flank can
+    # otherwise look exactly like a short terminal tick.
+    search_right = axis_right - max(12, round(width * 0.015))
+    if search_left >= search_right or top >= bottom:
+        return None
+
+    ink = (gray[top:bottom, search_left:search_right] < 160).sum(axis=0)
+    baseline = float(np.median(ink))
+    minimum_ink = max(5, math.ceil(baseline) + 3)
+    ticks = _group_centers(
+        np.flatnonzero(ink >= minimum_ink) + search_left,
+        gap=2,
+    )
+    if len(ticks) < 2:
+        return None
+
+    steps = np.diff([origin_x, *ticks]).astype(float)
+    typical_step = float(np.median(steps))
+    if typical_step <= 0:
+        return None
+    tolerance = max(6.0, typical_step * 0.08)
+    if any(abs(step - typical_step) > tolerance for step in steps):
+        return None
+    if axis_right - ticks[-1] > typical_step * 0.45:
+        return None
+    return ticks[-1]
+
+
 def _regular_sequence(points: list[int]) -> list[int]:
     """Select the longest nearly equally spaced sequence of grid lines."""
 
@@ -287,6 +334,132 @@ def _transform_element(
     return element.model_copy(update=update)
 
 
+def _overlay_text_box(
+    x: float,
+    baseline_y: float,
+    text: str,
+) -> tuple[float, float, float, float]:
+    """Approximate the fixed-size browser label box in paper pixel coordinates."""
+
+    width = max(12.0, sum(4.5 if character.isspace() else 9.0 for character in text))
+    return (x, baseline_y - 16.0, x + width, baseline_y + 5.0)
+
+
+def _boxes_overlap(
+    first: tuple[float, float, float, float],
+    second: tuple[float, float, float, float],
+) -> bool:
+    return (
+        first[0] < second[2]
+        and first[2] > second[0]
+        and first[1] < second[3]
+        and first[3] > second[1]
+    )
+
+
+def _relayout_point_labels(
+    elements: list[DiagramElement],
+    *,
+    crop: tuple[float, float, float, float],
+    point_labels: Sequence[str],
+) -> list[DiagramElement]:
+    """Keep auto point labels close after mapping onto a differently scaled paper figure.
+
+    Standalone labels are laid out in a 600x360 canvas. Transforming their offsets along
+    with the mathematical coordinates can move a label hundreds of paper pixels away,
+    even though the text itself keeps a fixed browser font size. Point labels are emitted
+    immediately after their point, so re-anchor only those pairs and leave explicit labels
+    untouched.
+    """
+
+    crop_left, crop_top, crop_width, crop_height = crop
+    bounds = (
+        crop_left + 4.0,
+        crop_top + 4.0,
+        crop_left + crop_width - 4.0,
+        crop_top + crop_height - 4.0,
+    )
+    point_pairs: list[tuple[int, int]] = []
+    point_ordinal = 0
+    for index, element in enumerate(elements[:-1]):
+        if element.kind != "point":
+            continue
+        expected = point_labels[point_ordinal] if point_ordinal < len(point_labels) else ""
+        point_ordinal += 1
+        following = elements[index + 1]
+        if expected and following.kind == "text" and following.text == expected:
+            point_pairs.append((index, index + 1))
+    paired_label_indexes = {label_index for _point_index, label_index in point_pairs}
+    occupied = [
+        _overlay_text_box(element.x, element.y, element.text)
+        for index, element in enumerate(elements)
+        if index not in paired_label_indexes
+        and element.kind == "text"
+        and element.x is not None
+        and element.y is not None
+        and element.text
+    ]
+    point_boxes = [
+        (element.x - 6.0, element.y - 6.0, element.x + 6.0, element.y + 6.0)
+        for element in elements
+        if element.kind == "point" and element.x is not None and element.y is not None
+    ]
+    result = list(elements)
+    for point_index, label_index in point_pairs:
+        point = elements[point_index]
+        label = elements[label_index]
+        if (
+            point.kind != "point"
+            or label.kind != "text"
+            or point.x is None
+            or point.y is None
+            or label.text is None
+        ):
+            continue
+        width = _overlay_text_box(0.0, 0.0, label.text)[2]
+        candidates = (
+            (point.x - width / 2.0, point.y - 12.0),
+            (point.x - width / 2.0, point.y + 27.0),
+            (point.x + 10.0, point.y - 7.0),
+            (point.x - width - 10.0, point.y - 7.0),
+            (point.x + 10.0, point.y + 24.0),
+            (point.x - width - 10.0, point.y + 24.0),
+        )
+        valid = []
+        for candidate_x, candidate_y in candidates:
+            box = _overlay_text_box(candidate_x, candidate_y, label.text)
+            if (
+                box[0] >= bounds[0]
+                and box[1] >= bounds[1]
+                and box[2] <= bounds[2]
+                and box[3] <= bounds[3]
+            ):
+                valid.append((candidate_x, candidate_y, box))
+        chosen = next(
+            (
+                candidate
+                for candidate in valid
+                if not any(
+                    _boxes_overlap(candidate[2], other) for other in (*occupied, *point_boxes)
+                )
+            ),
+            None,
+        )
+        if chosen is None and valid:
+            chosen = min(
+                valid,
+                key=lambda candidate: sum(
+                    1 for other in (*occupied, *point_boxes) if _boxes_overlap(candidate[2], other)
+                ),
+            )
+        if chosen is None:
+            continue
+        candidate_x, candidate_y, box = chosen
+        result[label_index] = label.model_copy(update={"x": candidate_x, "y": candidate_y})
+        occupied.append(box)
+    return result
+
+
 def _blank_axes_overlay(
     spec: Any,
     standalone: AnswerDiagram,
@@ -298,10 +471,35 @@ def _blank_axes_overlay(
     left, right, top, bottom, origin_x, origin_y = _detect_blank_axes(gray)
     x_min, x_max = spec.x_range
     y_min, y_max = spec.y_range
-    if not (x_min < 0 < x_max and y_min < 0 < y_max):
-        raise PlotCalibrationError("blank source axes require x/y ranges that cross zero")
-    x_scale = min((origin_x - left) / -x_min, (right - origin_x) / x_max) * 0.92
-    y_scale = min((origin_y - top) / y_max, (bottom - origin_y) / -y_min) * 0.92
+    if not (x_min <= 0 <= x_max and y_min <= 0 <= y_max):
+        raise PlotCalibrationError("blank source axes require x/y ranges that include zero")
+
+    x_scales = []
+    tick_extent = None
+    if math.isclose(x_min, 0.0, abs_tol=1e-9) and x_max > 0:
+        tick_extent = _positive_x_tick_extent(
+            gray,
+            origin_x=origin_x,
+            axis_y=origin_y,
+            axis_right=right,
+        )
+    if tick_extent is not None:
+        x_scales.append((tick_extent - origin_x) / x_max)
+    else:
+        if x_min < 0:
+            x_scales.append((origin_x - left) / -x_min)
+        if x_max > 0:
+            x_scales.append((right - origin_x) / x_max)
+    y_scales = []
+    if y_min < 0:
+        y_scales.append((bottom - origin_y) / -y_min)
+    if y_max > 0:
+        y_scales.append((origin_y - top) / y_max)
+    if not x_scales or not y_scales:
+        raise PlotCalibrationError("blank source axes have no drawable range around zero")
+
+    x_scale = min(x_scales) if tick_extent is not None else min(x_scales) * 0.92
+    y_scale = min(y_scales) * 0.92
     target_rect = (
         origin_x + x_min * x_scale,
         origin_y - y_max * y_scale,
@@ -323,6 +521,11 @@ def _blank_axes_overlay(
         bottom + 34,
         width=width,
         height=height,
+    )
+    elements = _relayout_point_labels(
+        elements,
+        crop=crop,
+        point_labels=[point.label for point in spec.points],
     )
     return standalone.model_copy(
         update={

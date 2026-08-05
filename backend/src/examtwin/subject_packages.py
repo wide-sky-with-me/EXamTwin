@@ -79,6 +79,16 @@ class AnsweringManifest(BaseModel):
         return self
 
 
+class RuntimeManifest(BaseModel):
+    """Per-subject storage and retrieval bindings used by the shared runtime."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    corpus_root: str = Field(min_length=1)
+    vector_collection: str = Field(pattern=r"^[a-zA-Z0-9_.-]+$")
+    vector_alias: str = Field(pattern=r"^[a-zA-Z0-9_.-]+$")
+
+
 class SubjectPackageManifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -89,6 +99,7 @@ class SubjectPackageManifest(BaseModel):
     title: str = Field(min_length=1)
     board_id: str = Field(min_length=1)
     specification_ref: str = Field(min_length=1)
+    runtime: RuntimeManifest
     curriculum: CurriculumManifest
     answering: AnsweringManifest
 
@@ -154,6 +165,18 @@ class SubjectPackageRegistry:
             raise ValueError(
                 f"Unknown subject package {package_id!r}; available: {available}"
             ) from error
+
+    def resolve(self, selector: str) -> SubjectPackage:
+        """Resolve a package id or a unique public subject code."""
+
+        package = self._packages.get(selector)
+        if package is not None:
+            return package
+        matches = [item for item in self._packages.values() if item.pack.subject_code == selector]
+        if len(matches) == 1:
+            return matches[0]
+        available = ", ".join(f"{item.pack.subject_code} ({item.pack.id})" for item in self.all())
+        raise ValueError(f"Unknown subject {selector!r}; available: {available}")
 
     def all(self) -> tuple[SubjectPackage, ...]:
         return tuple(self._packages[key] for key in sorted(self._packages))

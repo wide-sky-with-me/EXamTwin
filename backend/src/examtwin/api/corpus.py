@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from examtwin.api.dependencies import get_subject_context
 from examtwin.api.errors import api_http_error, guarded_api_call
 from examtwin.composition import (
     build_corpus_ingestor,
@@ -23,7 +24,7 @@ from examtwin.schemas.knowledge import (
 from examtwin.services.ingestion import build_vector_index
 from examtwin.services.inventory import scan_corpus
 from examtwin.services.source_context import source_context
-from examtwin.services.subject_context import subject_context
+from examtwin.services.subject_context import SubjectContext
 
 router = APIRouter()
 
@@ -32,9 +33,9 @@ router = APIRouter()
 def inventory(
     _request: InventoryRequest,
     settings: Settings = Depends(get_settings),
+    subject: SubjectContext = Depends(get_subject_context),
 ) -> InventoryResponse:
     def operation() -> InventoryResponse:
-        subject = subject_context(settings)
         return InventoryResponse.model_validate(
             scan_corpus(corpus_repository(settings), subject.corpus_dir, subject.pack)
         )
@@ -52,12 +53,14 @@ def documents(
     status: str | None = None,
     limit: int = Query(default=100, ge=1, le=1000),
     settings: Settings = Depends(get_settings),
+    subject: SubjectContext = Depends(get_subject_context),
 ) -> list[dict]:
     return guarded_api_call(
         lambda: corpus_repository(settings).list_for_api(
             source_type=source_type,
             status=status,
             limit=limit,
+            subject_code=subject.subject_code,
         ),
         code="CORPUS_DOCUMENTS_FAILED",
         message="资料列表暂时不可用，请稍后重试",
@@ -70,8 +73,12 @@ def source_document_context(
     page: int | None = Query(default=None, ge=1),
     query: str = Query(default="", max_length=500),
     settings: Settings = Depends(get_settings),
+    subject: SubjectContext = Depends(get_subject_context),
 ) -> SourceContextResponse:
     try:
+        row = corpus_repository(settings).get(document_id)
+        if row is None or row.get("subject_code") != subject.subject_code:
+            raise LookupError("资料不存在于当前科目上下文")
         return source_context(
             corpus_repository(settings), settings, document_id, page=page, query=query
         )
@@ -90,9 +97,10 @@ def source_document_context(
 def convert(
     request: ConvertRequest,
     settings: Settings = Depends(get_settings),
+    subject: SubjectContext = Depends(get_subject_context),
 ) -> JobResult:
     return guarded_api_call(
-        lambda: build_corpus_ingestor(settings).convert_batch(
+        lambda: build_corpus_ingestor(settings, subject).convert_batch(
             document_ids=request.document_ids,
             source_types=request.source_types,
             authority_tiers=request.authority_tiers,
@@ -110,11 +118,13 @@ def convert(
 def index(
     request: IndexRequest,
     settings: Settings = Depends(get_settings),
+    subject: SubjectContext = Depends(get_subject_context),
 ) -> JobResult:
+    runtime_settings = subject.runtime_settings(settings)
     return guarded_api_call(
         lambda: build_vector_index(
-            settings,
-            subject_context(settings),
+            runtime_settings,
+            subject,
             vector_index_repository(settings),
             knowledge_repository(settings),
             limit=request.limit,

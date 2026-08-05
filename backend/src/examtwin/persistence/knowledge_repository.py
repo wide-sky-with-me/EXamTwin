@@ -4,7 +4,7 @@ import json
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, insert, or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from examtwin.persistence.models import (
@@ -116,9 +116,11 @@ class KnowledgeRepository:
                     KnowledgeEvidenceModel.knowledge_point_id.in_(subject_ids),
                 )
             )
-            for values in evidence:
-                payload = {**dict(values), "build_id": build_id}
-                self._upsert_evidence(session, payload)
+            if evidence:
+                session.execute(
+                    insert(KnowledgeEvidenceModel),
+                    [{**dict(values), "build_id": build_id} for values in evidence],
+                )
 
     def points(
         self,

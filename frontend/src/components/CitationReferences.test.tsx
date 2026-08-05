@@ -9,10 +9,10 @@ const citation: Citation = {
   source: "licensed-textbook/chapter-1.md",
   document_id: "doc-1",
   page: 22,
-  section: "Sequences",
+  section: "Sequences $u_{n+1}=u_n+d$",
   source_type: "textbook",
   evidence_role: "explanation",
-  excerpt: "A sequence may be specified by a recurrence relation.",
+  excerpt: "A sequence may satisfy \\(u_{n+1}=u_n+d\\).",
   authority_tier: null,
   content_url: null,
   index_build_id: null,
@@ -30,7 +30,7 @@ describe("CitationMarkdown", () => {
         document_id: "doc-1",
         source: citation.source,
         page: 22,
-        content_markdown: "## Full source\n\nComplete recurrence explanation.",
+        content_markdown: "## Full source\n\nComplete recurrence: \\(u_{n+1}=u_n+d\\).",
         truncated: false,
       }), {
         status: 200,
@@ -44,13 +44,17 @@ describe("CitationMarkdown", () => {
 
     const marker = screen.getByRole("button", { name: "查看参考文献 1" });
     await user.hover(marker);
-    expect(screen.getByRole("tooltip")).toHaveTextContent("Sequences");
+    const tooltip = screen.getByRole("tooltip");
+    expect(tooltip).toHaveTextContent("Sequences");
+    expect(tooltip.querySelectorAll(".katex")).toHaveLength(2);
 
     await user.click(marker);
-    expect(screen.getByRole("dialog", { name: "Sequences" })).toBeInTheDocument();
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "关闭参考文献详情" })).toHaveFocus();
     await waitFor(() => {
-      expect(screen.getByText("Complete recurrence explanation.")).toBeInTheDocument();
+      expect(screen.getByText(/Complete recurrence:/)).toBeInTheDocument();
+      expect(dialog.querySelectorAll(".katex").length).toBeGreaterThanOrEqual(2);
     });
 
     rerender(
@@ -58,10 +62,10 @@ describe("CitationMarkdown", () => {
         The recurrence follows the textbook definition [S1].
       </CitationMarkdown>,
     );
-    expect(screen.getByRole("dialog", { name: "Sequences" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
 
     await user.keyboard("{Escape}");
-    expect(screen.queryByRole("dialog", { name: "Sequences" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(marker).toHaveFocus();
   });
 });

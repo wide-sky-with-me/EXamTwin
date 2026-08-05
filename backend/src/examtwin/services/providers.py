@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import hashlib
+import logging
+import time
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -14,6 +18,69 @@ from examtwin.config import Settings
 from llama_index.core.schema import NodeWithScore, QueryBundle
 from llama_index.embeddings.openai import OpenAIEmbedding
 from llama_index.llms.openai_like import OpenAILike
+
+logger = logging.getLogger(__name__)
+
+
+def _is_siliconflow_parameter_error(error: Exception) -> bool:
+    detail = str(error).lower()
+    return "20015" in detail or "parameter is invalid" in detail
+
+
+def _embedding_batch_with_fallback(
+    fetch: Callable[[list[str]], list[list[float]]],
+    texts: list[str],
+    *,
+    max_attempts: int = 3,
+    pause: Callable[[float], None] = time.sleep,
+) -> list[list[float]]:
+    """Retry SiliconFlow's transient 20015 and isolate a truly invalid input."""
+
+    last_error: Exception | None = None
+    for attempt in range(1, max(1, max_attempts) + 1):
+        try:
+            return fetch(texts)
+        except Exception as error:
+            if not _is_siliconflow_parameter_error(error):
+                raise
+            last_error = error
+            logger.warning(
+                "embedding_parameter_retry batch_size=%d attempt=%d",
+                len(texts),
+                attempt,
+            )
+            if attempt < max_attempts:
+                pause(float(attempt))
+
+    if len(texts) > 1:
+        midpoint = len(texts) // 2
+        return [
+            *_embedding_batch_with_fallback(
+                fetch,
+                texts[:midpoint],
+                max_attempts=max_attempts,
+                pause=pause,
+            ),
+            *_embedding_batch_with_fallback(
+                fetch,
+                texts[midpoint:],
+                max_attempts=max_attempts,
+                pause=pause,
+            ),
+        ]
+
+    fingerprint = hashlib.sha256(texts[0].encode("utf-8")).hexdigest()[:12]
+    raise RuntimeError(
+        "Embedding provider rejected one input after bounded retries: "
+        f"chars={len(texts[0])}, sha256={fingerprint}"
+    ) from last_error
+
+
+class ResilientOpenAIEmbedding(OpenAIEmbedding):
+    """OpenAI-compatible embedding adapter with bounded provider-400 recovery."""
+
+    def _get_text_embeddings(self, texts: list[str]) -> list[list[float]]:
+        return _embedding_batch_with_fallback(super()._get_text_embeddings, texts)
 
 
 def _secret(value: Any) -> str:
@@ -87,7 +154,7 @@ def build_image_generation_provider(settings: Settings) -> OpenAICompatibleImage
 
 
 def build_embedding(settings: Settings) -> OpenAIEmbedding:
-    return OpenAIEmbedding(
+    return ResilientOpenAIEmbedding(
         model_name=settings.embedding_model,
         api_base=settings.siliconflow_base_url,
         api_key=_secret(settings.siliconflow_api_key),

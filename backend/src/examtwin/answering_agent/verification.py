@@ -32,11 +32,15 @@ def verify_answer_contract(
         missing = sorted(set(required_tools) - produced)
         raise RuntimeError("answer is missing required visual artifacts: " + ", ".join(missing))
 
-    if mathematics_source_plot_overlay_mode(task.question) is not None and not any(
+    overlay_mode = (
+        mathematics_source_plot_overlay_mode(task.question) if task.subject_code == "9660" else None
+    )
+    if overlay_mode == "existing_curve_grid" and not any(
         diagram.tool_name == "math_plot" and diagram.source is not None for diagram in diagrams
     ):
         raise RuntimeError(
-            "answer drawing must be calibrated to the supplied original-paper figure"
+            "answer drawing on an existing curve/grid must be calibrated to the "
+            "supplied original-paper figure"
         )
 
     labels = task.question_spec.labelled_subparts

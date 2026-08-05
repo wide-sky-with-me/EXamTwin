@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import hashlib
+import json
+import logging
 import re
+import time
+import uuid
 from functools import lru_cache
 from pathlib import Path
 from urllib.parse import quote
@@ -16,6 +21,8 @@ from examtwin.answering_agent.factory import AnswerEvidenceReader, build_answeri
 from examtwin.answering_agent.finalization import FinalAnswerProvider
 from examtwin.config import Settings
 from examtwin.persistence.knowledge_repository import KnowledgeRepository
+from examtwin.persistence.retrieval_trace_repository import RetrievalTraceRepository
+from examtwin.persistence.session import utcnow
 from examtwin.schemas.evidence import Citation
 from examtwin.schemas.knowledge import AskRequest, AskResponse
 from examtwin.services.ingestion import load_vector_index
@@ -26,8 +33,10 @@ from examtwin.services.providers import (
     build_final_answer_provider,
 )
 from examtwin.services.subject_context import SubjectContext
+from examtwin.services.vector_retrieval import retrieval_filters
 from examtwin.storage import ManagedObjectStore
 from llama_index.core.schema import NodeWithScore, TextNode
+from llama_index.core.vector_stores.types import VectorStoreQueryMode
 from pypdf import PdfReader
 
 STOP_WORDS = {
@@ -57,6 +66,7 @@ STOP_WORDS = {
     "with",
     "would",
 }
+logger = logging.getLogger(__name__)
 
 
 def _tokens(text: str) -> set[str]:
@@ -215,6 +225,8 @@ def _card_node(card: dict) -> NodeWithScore:
     primary = references[0] if references else {}
     metadata = {
         "node_kind": "knowledge_card",
+        "subject_code": card.get("subject_code") or str(card["id"]).split(":", 1)[0],
+        "unit_code": card.get("unit_code") or primary.get("unit_code") or "",
         "knowledge_code": card["code"],
         "knowledge_card": card,
         "evidence_items": references,
@@ -295,6 +307,7 @@ class RagService:
         subject: SubjectContext,
         knowledge_repository: KnowledgeRepository | None = None,
         documents: AnswerEvidenceReader | None = None,
+        trace_repository: RetrievalTraceRepository | None = None,
         *,
         final_answer_provider: FinalAnswerProvider | None = None,
         object_store: ManagedObjectStore | None = None,
@@ -302,9 +315,95 @@ class RagService:
         self.settings = settings
         self.knowledge_repository = knowledge_repository
         self.documents = documents
+        self.trace_repository = trace_repository
         self.subject = subject
         self.final_answer_provider = final_answer_provider or build_final_answer_provider(settings)
         self.object_store = object_store
+
+    @staticmethod
+    def _in_scope(
+        node: NodeWithScore,
+        *,
+        subject_code: str,
+        unit_code: str | None,
+        pair_key: str | None,
+        source_types: set[str],
+        authority_tiers: set[str],
+    ) -> bool:
+        metadata = node.node.metadata
+        return bool(
+            metadata.get("subject_code") == subject_code
+            and (not unit_code or metadata.get("unit_code") == unit_code)
+            and (not pair_key or metadata.get("pair_key") == pair_key)
+            and (not source_types or metadata.get("source_type") in source_types)
+            and (not authority_tiers or metadata.get("authority_tier") in authority_tiers)
+        )
+
+    def _raw_fallbacks(
+        self,
+        reranked: list[NodeWithScore],
+        cards: list[dict],
+    ) -> list[NodeWithScore]:
+        represented = {
+            (
+                reference.get("document_id"),
+                reference.get("page"),
+                reference.get("section"),
+            )
+            for card in cards
+            for reference in card.get("references", [])
+        }
+        fallbacks: list[NodeWithScore] = []
+        seen: set[tuple[object, object, object]] = set()
+        for node in reranked:
+            metadata = node.node.metadata
+            if metadata.get("node_kind") not in {None, "evidence_chunk"}:
+                continue
+            key = (
+                metadata.get("document_id"),
+                metadata.get("page"),
+                metadata.get("section"),
+            )
+            if key in represented or key in seen:
+                continue
+            seen.add(key)
+            fallbacks.append(node)
+            if len(fallbacks) >= self.settings.retrieval_raw_fallback_count:
+                break
+        return fallbacks
+
+    @staticmethod
+    def _filter_cards_to_scope(
+        cards: list[dict],
+        *,
+        pair_key: str | None,
+        source_types: set[str],
+        authority_tiers: set[str],
+    ) -> list[dict]:
+        scoped: list[dict] = []
+        explicit_evidence_scope = bool(pair_key or source_types or authority_tiers)
+        for card in cards:
+            references = [
+                reference
+                for reference in card.get("references", [])
+                if (not pair_key or reference.get("pair_key") == pair_key)
+                and (not source_types or reference.get("source_type") in source_types)
+                and (not authority_tiers or reference.get("authority_tier") in authority_tiers)
+            ]
+            if explicit_evidence_scope and not references:
+                continue
+            scoped_card = dict(card)
+            scoped_card["references"] = references
+            scoped.append(scoped_card)
+        return scoped
+
+    def _record_trace(self, values: dict[str, object]) -> None:
+        if not self.settings.retrieval_trace_enabled or self.trace_repository is None:
+            return
+        try:
+            self.trace_repository.record(values)
+        except Exception:
+            logger.warning("retrieval_trace_write_failed", exc_info=True)
 
     def retrieve(
         self,
@@ -318,65 +417,154 @@ class RagService:
         top_k: int | None = None,
     ) -> list[NodeWithScore]:
         self.subject.require(subject_code)
+        started = time.perf_counter()
         top_n = top_k or self.settings.rerank_top_n
-        embedding = build_embedding(self.settings)
-        index = load_vector_index(self.settings, embedding)
         candidate_count = max(self.settings.similarity_top_k, top_n * 4)
-        nodes = index.as_retriever(similarity_top_k=candidate_count).retrieve(question)
-        filtered = [
-            node
-            for node in nodes
-            if node.node.metadata.get("subject_code") == subject_code
-            and (not unit_code or node.node.metadata.get("unit_code") == unit_code)
-            and (not pair_key or node.node.metadata.get("pair_key") == pair_key)
-            and (not source_types or node.node.metadata.get("source_type") in set(source_types))
-            and (
-                not authority_tiers
-                or node.node.metadata.get("authority_tier") in set(authority_tiers)
-            )
-        ]
-        if not filtered:
-            return []
-        reranked = SiliconFlowReranker(self.settings).rerank(
-            question,
-            filtered,
-            top_n=min(max(top_n * 3, top_n), len(filtered)),
-        )
-        if self.knowledge_repository is None:
-            return reranked[:top_n]
-        build_ids = {
-            str(node.node.metadata["index_build_id"])
-            for node in reranked
-            if node.node.metadata.get("index_build_id")
+        source_type_set = set(source_types or ())
+        authority_tier_set = set(authority_tiers or ())
+        trace: dict[str, object] = {
+            "id": str(uuid.uuid4()),
+            "subject_code": subject_code,
+            "query_hash": hashlib.sha256(question.encode("utf-8")).hexdigest(),
+            "query_text": question[:2000],
+            "filters_json": json.dumps(
+                {
+                    "unit_code": unit_code,
+                    "pair_key": pair_key,
+                    "source_types": sorted(source_type_set),
+                    "authority_tiers": sorted(authority_tier_set),
+                },
+                ensure_ascii=False,
+            ),
+            "candidate_limit": candidate_count,
+            "candidate_count": 0,
+            "postfilter_count": 0,
+            "reranked_count": 0,
+            "card_count": 0,
+            "raw_fallback_count": 0,
+            "result_count": 0,
+            "index_build_id": None,
+            "result_json": "[]",
+            "duration_ms": 0.0,
+            "status": "failed",
+            "error": None,
+            "created_at": utcnow(),
         }
-        if len(build_ids) > 1:
-            raise RuntimeError("Live vector alias returned nodes from multiple index builds")
-        index_build_id = next(iter(build_ids), None)
-        evidence_items = [
-            {
-                "excerpt": relevant_node_excerpt(node, question),
-                "score": float(node.score or 0),
-                "metadata": dict(node.node.metadata),
-            }
-            for node in reranked
-        ]
-        cards = build_retrieval_cards(
-            self.knowledge_repository,
-            question,
-            evidence_items,
-            subject_code=subject_code,
-            index_build_id=index_build_id,
-            unit_code=unit_code,
-            limit=top_n,
-        )
-        for card in cards:
-            card["references"] = [
-                reference
-                for reference in card.get("references", [])
-                if (not source_types or reference.get("source_type") in set(source_types))
-                and (not authority_tiers or reference.get("authority_tier") in set(authority_tiers))
+        try:
+            embedding = build_embedding(self.settings)
+            index = load_vector_index(self.settings, embedding)
+            hybrid = bool(getattr(index.vector_store, "enable_hybrid", False))
+            trace["retrieval_mode"] = "hybrid" if hybrid else "dense_compat"
+            retriever = index.as_retriever(
+                similarity_top_k=candidate_count,
+                sparse_top_k=candidate_count,
+                hybrid_top_k=candidate_count,
+                alpha=self.settings.retrieval_hybrid_alpha,
+                vector_store_query_mode=(
+                    VectorStoreQueryMode.HYBRID if hybrid else VectorStoreQueryMode.DEFAULT
+                ),
+                filters=retrieval_filters(
+                    subject_code=subject_code,
+                    unit_code=unit_code,
+                    pair_key=pair_key,
+                    source_types=tuple(source_type_set),
+                    authority_tiers=tuple(authority_tier_set),
+                ),
+            )
+            nodes = retriever.retrieve(question)
+            trace["candidate_count"] = len(nodes)
+            filtered = [
+                node
+                for node in nodes
+                if self._in_scope(
+                    node,
+                    subject_code=subject_code,
+                    unit_code=unit_code,
+                    pair_key=pair_key,
+                    source_types=source_type_set,
+                    authority_tiers=authority_tier_set,
+                )
             ]
-        return [_card_node(card) for card in cards] or reranked[:top_n]
+            trace["postfilter_count"] = len(filtered)
+            if not filtered:
+                trace.update(status="empty", retrieval_mode=trace["retrieval_mode"])
+                return []
+            reranked = SiliconFlowReranker(self.settings).rerank(
+                question,
+                filtered,
+                top_n=min(max(top_n * 3, top_n), len(filtered)),
+            )
+            trace["reranked_count"] = len(reranked)
+            if self.knowledge_repository is None:
+                results = reranked[:top_n]
+                trace["result_count"] = len(results)
+                trace["status"] = "succeeded"
+                return results
+            build_ids = {
+                str(node.node.metadata["index_build_id"])
+                for node in reranked
+                if node.node.metadata.get("index_build_id")
+            }
+            if len(build_ids) > 1:
+                raise RuntimeError("Live vector alias returned nodes from multiple index builds")
+            index_build_id = next(iter(build_ids), None)
+            trace["index_build_id"] = index_build_id
+            evidence_items = [
+                {
+                    "excerpt": relevant_node_excerpt(node, question),
+                    "score": float(node.score or 0),
+                    "metadata": dict(node.node.metadata),
+                }
+                for node in reranked
+            ]
+            cards = build_retrieval_cards(
+                self.knowledge_repository,
+                question,
+                evidence_items,
+                subject_code=subject_code,
+                index_build_id=index_build_id,
+                unit_code=unit_code,
+                limit=top_n,
+            )
+            cards = self._filter_cards_to_scope(
+                cards,
+                pair_key=pair_key,
+                source_types=source_type_set,
+                authority_tiers=authority_tier_set,
+            )
+            if cards:
+                raw_fallbacks = self._raw_fallbacks(reranked, cards)
+                results = [*[_card_node(card) for card in cards], *raw_fallbacks]
+            else:
+                raw_fallbacks = reranked[:top_n]
+                results = raw_fallbacks
+            trace.update(
+                card_count=len(cards),
+                raw_fallback_count=len(raw_fallbacks),
+                result_count=len(results),
+                status="succeeded",
+            )
+            trace["result_json"] = json.dumps(
+                [
+                    {
+                        "node_id": node.node.node_id,
+                        "score": node.score,
+                        "node_kind": node.node.metadata.get("node_kind"),
+                        "document_id": node.node.metadata.get("document_id"),
+                        "page": node.node.metadata.get("page"),
+                        "knowledge_code": node.node.metadata.get("knowledge_code"),
+                    }
+                    for node in results
+                ],
+                ensure_ascii=False,
+            )
+            return results
+        except Exception as error:
+            trace["error"] = str(error)[:2000]
+            raise
+        finally:
+            trace["duration_ms"] = round((time.perf_counter() - started) * 1000, 2)
+            self._record_trace(trace)
 
     def ask(
         self,

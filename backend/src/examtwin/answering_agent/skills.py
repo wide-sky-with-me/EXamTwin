@@ -48,6 +48,13 @@ _TRAPEZIA_DRAWING = re.compile(
     r"\b(?:draw|show|mark)\b[^.!?\n]{0,220}\btrapez(?:ium|ia|oid)s?\b",
     re.IGNORECASE,
 )
+_ECONOMICS_VISUAL_REQUEST = re.compile(
+    r"\b(?:with\s+(?:the\s+)?help\s+of|using)\s+(?:an?\s+)?diagrams?\b"
+    r"|\b(?:draw|sketch|show)\b[^.!?\n]{0,220}\b(?:economic|supply|demand|"
+    r"aggregate\s+(?:demand|supply)|lorenz|phillips|ppc|production\s+possibility|"
+    r"cost|revenue|externalit|tariff|welfare)\b[^.!?\n]{0,120}\b(?:curve|diagram|graph)?",
+    re.IGNORECASE,
+)
 
 
 def _request_context(question: str, request: re.Match[str]) -> str:
@@ -83,6 +90,13 @@ def mathematics_source_plot_overlay_mode(question: str) -> str | None:
     return None
 
 
+def select_economics_answer_visual_tool(question: str) -> str | None:
+    """Require the reviewed economics template tool for explicit diagram answers."""
+
+    return "economics_diagram" if _ECONOMICS_VISUAL_REQUEST.search(question) else None
+
+
 VISUAL_TOOL_POLICIES = {
     "mathematics-answer-visual-v1": select_mathematics_answer_visual_tool,
+    "economics-answer-visual-v1": select_economics_answer_visual_tool,
 }

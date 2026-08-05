@@ -110,7 +110,8 @@
             "default": "math_diagram",
             "enum": [
               "math_plot",
-              "math_diagram"
+              "math_diagram",
+              "economics_diagram"
             ],
             "title": "Tool Name",
             "type": "string"
@@ -1124,6 +1125,10 @@
             "title": "Status",
             "type": "string"
           },
+          "subject_code": {
+            "title": "Subject Code",
+            "type": "string"
+          },
           "symbolic_checks": {
             "items": {
               "$ref": "#/components/schemas/SymbolicCheck"
@@ -1149,6 +1154,7 @@
         },
         "required": [
           "assessment_id",
+          "subject_code",
           "question_ref",
           "total_awarded",
           "total_available",
@@ -1220,9 +1226,15 @@
             "type": "string"
           },
           "subject_code": {
-            "default": "9660",
-            "title": "Subject Code",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject Code"
           }
         },
         "required": [
@@ -2008,6 +2020,7 @@
             "enum": [
               "queued",
               "parsing",
+              "vision_review",
               "splitting",
               "answering",
               "completed"
@@ -2019,6 +2032,7 @@
             "enum": [
               "queued",
               "parsing",
+              "vision_review",
               "splitting",
               "answering",
               "completed",
@@ -2177,6 +2191,26 @@
         "title": "PaperKnowledgeReference",
         "type": "object"
       },
+      "PlatformStatusResponse": {
+        "properties": {
+          "infrastructure": {
+            "$ref": "#/components/schemas/InfrastructureHealthResponse"
+          },
+          "subjects": {
+            "items": {
+              "$ref": "#/components/schemas/SubjectStatusResponse"
+            },
+            "title": "Subjects",
+            "type": "array"
+          }
+        },
+        "required": [
+          "infrastructure",
+          "subjects"
+        ],
+        "title": "PlatformStatusResponse",
+        "type": "object"
+      },
       "ReviewDecisionResponse": {
         "properties": {
           "assessment_id": {
@@ -2243,6 +2277,10 @@
             "title": "Status",
             "type": "string"
           },
+          "subject_code": {
+            "title": "Subject Code",
+            "type": "string"
+          },
           "total_available": {
             "title": "Total Available",
             "type": "number"
@@ -2254,6 +2292,7 @@
         },
         "required": [
           "id",
+          "subject_code",
           "question_ref",
           "total_awarded",
           "total_available",
@@ -2561,6 +2600,95 @@
         "title": "SubjectPackResponse",
         "type": "object"
       },
+      "SubjectStatusResponse": {
+        "properties": {
+          "answering_disabled_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answering Disabled Reason"
+          },
+          "answering_enabled": {
+            "title": "Answering Enabled",
+            "type": "boolean"
+          },
+          "board_name": {
+            "title": "Board Name",
+            "type": "string"
+          },
+          "digest": {
+            "title": "Digest",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "stats": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StatsResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "subject_code": {
+            "title": "Subject Code",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "units": {
+            "items": {
+              "$ref": "#/components/schemas/SubjectUnitResponse"
+            },
+            "title": "Units",
+            "type": "array"
+          },
+          "vector_alias": {
+            "title": "Vector Alias",
+            "type": "string"
+          },
+          "vector_index_ready": {
+            "title": "Vector Index Ready",
+            "type": "boolean"
+          },
+          "vector_points": {
+            "title": "Vector Points",
+            "type": "integer"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "digest",
+          "subject_code",
+          "title",
+          "board_name",
+          "answering_enabled",
+          "answering_disabled_reason",
+          "units",
+          "vector_alias",
+          "vector_index_ready",
+          "vector_points",
+          "stats"
+        ],
+        "title": "SubjectStatusResponse",
+        "type": "object"
+      },
       "SubjectUnitResponse": {
         "properties": {
           "code": {
@@ -2609,6 +2737,7 @@
               "table",
               "math_plot",
               "math_diagram",
+              "economics_diagram",
               "image"
             ],
             "title": "Answer Kind",
@@ -2639,6 +2768,7 @@
                 "enum": [
                   "math_plot",
                   "math_diagram",
+                  "economics_diagram",
                   "image_generate"
                 ],
                 "type": "string"
@@ -2810,6 +2940,40 @@
     "/api/v1/corpus/convert": {
       "post": {
         "operationId": "convert_api_v1_corpus_convert_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -2892,6 +3056,38 @@
               "title": "Limit",
               "type": "integer"
             }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
           }
         ],
         "responses": {
@@ -2927,6 +3123,40 @@
     "/api/v1/corpus/index": {
       "post": {
         "operationId": "index_api_v1_corpus_index_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -2965,6 +3195,40 @@
     "/api/v1/corpus/inventory": {
       "post": {
         "operationId": "inventory_api_v1_corpus_inventory_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -3003,6 +3267,40 @@
     "/api/v1/grading/assess": {
       "post": {
         "operationId": "assess_api_v1_grading_assess_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -3041,6 +3339,40 @@
     "/api/v1/grading/reviews": {
       "get": {
         "operationId": "reviews_api_v1_grading_reviews_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -3055,6 +3387,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Reviews"
@@ -3071,6 +3413,38 @@
             "schema": {
               "title": "Assessment Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
             }
           }
         ],
@@ -3200,6 +3574,38 @@
               ],
               "title": "Strand"
             }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
           }
         ],
         "responses": {
@@ -3234,6 +3640,40 @@
     "/api/v1/knowledge/relations": {
       "get": {
         "operationId": "knowledge_relations_api_v1_knowledge_relations_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -3248,6 +3688,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Knowledge Relations"
@@ -3256,6 +3706,40 @@
     "/api/v1/papers/answer": {
       "post": {
         "operationId": "answer_paper_api_v1_papers_answer_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "multipart/form-data": {
@@ -3302,6 +3786,38 @@
             "schema": {
               "title": "Job Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
             }
           }
         ],
@@ -3351,6 +3867,38 @@
               "title": "Position",
               "type": "integer"
             }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
           }
         ],
         "responses": {
@@ -3390,6 +3938,38 @@
               "title": "Job Id",
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
           }
         ],
         "responses": {
@@ -3428,6 +4008,38 @@
             "schema": {
               "title": "Job Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
             }
           }
         ],
@@ -3470,6 +4082,38 @@
               "title": "Page Number",
               "type": "integer"
             }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
           }
         ],
         "responses": {
@@ -3493,6 +4137,40 @@
     "/api/v1/rag/ask": {
       "post": {
         "operationId": "ask_api_v1_rag_ask_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -3568,6 +4246,38 @@
               "title": "Query",
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
           }
         ],
         "responses": {
@@ -3598,6 +4308,40 @@
     "/api/v1/stats": {
       "get": {
         "operationId": "stats_api_v1_stats_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -3608,6 +4352,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Stats"
@@ -3616,6 +4370,40 @@
     "/api/v1/subject": {
       "get": {
         "operationId": "subject_metadata_api_v1_subject_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -3626,9 +4414,59 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Subject Metadata"
+      }
+    },
+    "/api/v1/subjects": {
+      "get": {
+        "operationId": "subjects_api_v1_subjects_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SubjectPackResponse"
+                  },
+                  "title": "Response Subjects Api V1 Subjects Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Subjects"
+      }
+    },
+    "/api/v1/subjects/status": {
+      "get": {
+        "operationId": "platform_status_api_v1_subjects_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Platform Status"
       }
     }
   }

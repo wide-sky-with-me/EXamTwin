@@ -10,7 +10,10 @@ from sympy import Symbol, lambdify
 
 from examtwin.answering_agent.contracts import AgentRunContext
 from examtwin.answering_agent.skills import mathematics_source_plot_overlay_mode
-from examtwin.answering_agent.tools.source_plot_overlay import compile_paper_plot_overlay
+from examtwin.answering_agent.tools.source_plot_overlay import (
+    PlotCalibrationError,
+    compile_paper_plot_overlay,
+)
 from examtwin.schemas.evidence import (
     AnswerDiagram,
     DiagramElement,
@@ -593,25 +596,50 @@ class MathPlotTool:
             diagram = compile_math_plot(spec)
             overlay_mode = mathematics_source_plot_overlay_mode(context.task.question)
             if overlay_mode is not None:
-                diagram = compile_paper_plot_overlay(
-                    spec,
-                    diagram,
-                    context.task.question_images,
-                    context.task.question,
-                    overlay_mode,
-                    base_element_count=len(_base_elements(spec)),
-                )
+                try:
+                    diagram = compile_paper_plot_overlay(
+                        spec,
+                        diagram,
+                        context.task.question_images,
+                        context.task.question,
+                        overlay_mode,
+                        base_element_count=len(_base_elements(spec)),
+                    )
+                except PlotCalibrationError as error:
+                    if overlay_mode != "blank_axes":
+                        raise
+                    fallback_note = (
+                        "原卷坐标轴未能通过自动校准；以下为按相同数学范围生成的独立精确矢量图。"
+                    )
+                    diagram = diagram.model_copy(
+                        update={
+                            "caption": " ".join(
+                                part for part in (diagram.caption, fallback_note) if part
+                            )
+                        }
+                    )
+                    calibration_failure = str(error)
+                else:
+                    calibration_failure = ""
+            else:
+                calibration_failure = ""
             context.add_diagram(diagram)
             canvas_description = (
                 "a calibrated original-paper background"
                 if diagram.source
                 else "a standalone canvas"
             )
-            return (
+            result = (
                 f"Plot '{diagram.title}' accepted with {len(spec.curves)} curves, "
                 f"{len(diagram.elements)} rendered elements, and "
                 f"{canvas_description}."
             )
+            if calibration_failure:
+                result += (
+                    " Original-paper calibration was unavailable, so a mathematically "
+                    f"equivalent standalone vector plot was used ({calibration_failure})."
+                )
+            return result
 
         return FunctionTool.from_defaults(
             async_fn=create_math_plot,
@@ -626,6 +654,8 @@ class MathPlotTool:
                 "when the exam question explicitly requires a drawn/visual answer. When the "
                 "question requires drawing on supplied axes, a figure, or a grid, the tool "
                 "automatically detects the trusted paper figure and overlays deterministic "
-                "vectors; never recreate that background or replace it with image generation."
+                "vectors. If blank axes cannot be calibrated safely, it falls back to a "
+                "mathematically equivalent standalone vector plot; it never replaces an exact "
+                "coordinate answer with image generation."
             ),
         )

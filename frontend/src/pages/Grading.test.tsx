@@ -10,7 +10,7 @@ describe("Grading", () => {
     vi.stubGlobal("fetch", fetch);
     render(<Grading onCreated={vi.fn()} />);
 
-    await user.clear(screen.getByRole("spinbutton", { name: "满分" }));
+    await user.type(screen.getByRole("spinbutton", { name: "满分" }), "0");
 
     expect(screen.getByText("请输入大于 0 的满分。")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "生成逐项评分" })).toBeDisabled();
@@ -45,6 +45,11 @@ describe("Grading", () => {
     })));
     render(<Grading onCreated={vi.fn().mockResolvedValue(undefined)} />);
 
+    const [question, scheme, answer] = screen.getAllByRole("textbox");
+    await user.type(question, "Solve x=3.");
+    await user.type(scheme, "A1 Award one mark for x=3.");
+    await user.type(answer, "x=2");
+    await user.type(screen.getByRole("spinbutton", { name: "满分" }), "2");
     await user.click(screen.getByRole("button", { name: "生成逐项评分" }));
 
     await waitFor(() => expect(screen.getByText("低置信度，需要人工核对。")).toBeInTheDocument());

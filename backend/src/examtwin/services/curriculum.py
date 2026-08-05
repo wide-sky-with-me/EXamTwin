@@ -6,12 +6,18 @@ import json
 import math
 import re
 from collections import Counter
+from collections.abc import Sequence
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Protocol, TypedDict
 
 from examtwin.subjects import SubjectPack, UnitRule
 from pydantic import BaseModel, ConfigDict, Field
+from pypdf import PdfReader
 
 EXTRACTOR_VERSION = "structured-markdown-curriculum-v1"
+MINERU_MARKDOWN_PROJECTION = "mineru-markdown-v1"
+PDF_TEXT_PROJECTION = "pdf-text-layer-v1"
 
 
 class _RawTopicRecord(TypedDict):
@@ -84,6 +90,15 @@ class CurriculumValidation(BaseModel):
     errors: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     metrics: dict[str, int | float] = Field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class CurriculumExtraction:
+    """One selected, validated semantic projection of a syllabus source."""
+
+    projection: str
+    candidate: CurriculumCandidate
+    validation: CurriculumValidation
 
 
 class CurriculumExtractor(Protocol):
@@ -435,3 +450,64 @@ def validate_curriculum_candidate(
             "topics_without_objectives": len(empty_topics),
         },
     )
+
+
+def pdf_text_curriculum_projection(pdf_path: Path) -> str:
+    """Preserve PDF text lines for syllabus semantics without replacing MinerU RAG Markdown."""
+
+    reader = PdfReader(str(pdf_path))
+    return "\n".join(
+        f"## Page {page_number}\n{page.extract_text() or ''}"
+        for page_number, page in enumerate(reader.pages, start=1)
+    )
+
+
+def select_curriculum_projection(
+    projections: Sequence[tuple[str, str]],
+    subject_pack: SubjectPack,
+    *,
+    source_document_id: str,
+    source_ref: str,
+) -> CurriculumExtraction:
+    """Use canonical MinerU Markdown when publishable, otherwise choose a safer projection.
+
+    MinerU intentionally keeps a table as one source block for RAG. Some PDF tables omit cell
+    line breaks in their HTML serialization, however, which can collapse many syllabus outcomes
+    into one row. A native text-layer projection is therefore allowed as a semantic fallback while
+    the canonical Markdown remains unchanged and available for citation.
+    """
+
+    if not projections:
+        raise ValueError("At least one curriculum projection is required")
+    extractor = get_curriculum_extractor(subject_pack)
+    results: list[CurriculumExtraction] = []
+    for projection, text in projections:
+        input_hash = hashlib.sha256(f"{projection}\0{text}".encode()).hexdigest()
+        candidate = extractor.extract(
+            text,
+            subject_pack,
+            source_document_id=source_document_id,
+            source_ref=source_ref,
+            input_hash=input_hash,
+        )
+        validation = validate_curriculum_candidate(candidate, subject_pack)
+        result = CurriculumExtraction(
+            projection=projection,
+            candidate=candidate,
+            validation=validation,
+        )
+        results.append(result)
+        if validation.passed and not validation.warnings:
+            return result
+
+    def quality(result: CurriculumExtraction) -> tuple[int, int, int, int, int]:
+        metrics = result.validation.metrics
+        return (
+            int(result.validation.passed),
+            -len(result.validation.errors),
+            int(metrics.get("topics", 0)),
+            int(metrics.get("objectives", 0)),
+            -len(result.validation.warnings),
+        )
+
+    return max(results, key=quality)

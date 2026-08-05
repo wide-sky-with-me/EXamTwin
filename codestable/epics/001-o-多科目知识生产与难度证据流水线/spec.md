@@ -54,6 +54,10 @@ flowchart LR
 - API 启动只初始化 schema 和执行无破坏的兼容检查，不发起 AI 调用，不因来源不可读删除证据。
 - 新科目通过配置选择已注册的 `SubjectPack`；科目专用解析和规则留在科目包内，库存、流水线、
   证据和发布主流程不感知具体科目代码。
+- Web 工作台不预选 9660 或任何科目；用户显式选择 SubjectPack 后，资料、知识、答题、评分、
+  复核和资源请求共享同一科目上下文。已明确选择的上下文可以在本机保存，但不是产品默认值。
+- 状态总览在选择科目前展示全部已安装科目及基础设施状态；依赖降级时仍应显示科目目录，
+  不得把“统计暂不可用”伪装为零。界面提供浅色、深色和跟随系统三种主题偏好。
 - 表格、图片、公式、页码属于原始结构块；检索 chunk 是派生物，不能反向充当知识点真相。
 - 难度页同时展示聚合分数、证据等级、置信度、方法和来源；AI 冷启动可以用，但必须可识别。
 - 构建失败保持上一正式版本可用；质量门禁不过不发布。
@@ -68,6 +72,27 @@ flowchart LR
 - PostgreSQL 图谱用单事务发布保证失败不留下半套数据；Qdrant 写入带 build id
   的 staging collection，点数门禁通过后使用稳定 alias 原子切换，不再删正式
   collection 后就地重建。
+
+## 多科目前端上下文（目标）
+
+角色与入口：内容维护者或教师先进入状态总览，检查平台与各科目就绪度，再显式选择一个科目
+进入该上下文中的工作页面。图示状态：本 Epic 的目标界面。
+
+```text
+┌─ ExamTwin ─────────────┬─ 状态总览 ─────────────── [主题] [系统状态] ┐
+│ 状态总览               │ PostgreSQL / Qdrant / 对象存储             │
+│                        │ ┌─ 9660 状态 ─┐ ┌─ 9640 状态 ─┐ …         │
+│ 选择科目上下文 [     ▾]│ │资料/知识/索引│ │资料/知识/索引│           │
+│ 未选择时不开放科目页面 │ └─────────────┘ └─────────────┘           │
+├────────────────────────┤                                             │
+│ 选择后显示当前科目导航 │ 当前科目的详细状态；切换科目不强制跳页，   │
+│ 作答 / 知识 / 评分 / 复核│ 不支持的页面能力回到状态总览              │
+└────────────────────────┴─────────────────────────────────────────────┘
+```
+
+稳定约束：科目选择是请求、WebSocket 和资源 URL 的共同上下文；切换时清空上一科的页面数据，
+晚返回的旧请求不得覆盖新科目。主题只改变视觉呈现，不改变证据风险色和业务状态。加载、异常与
+未建索引必须是不同状态；统计服务异常时用“—”而不是 0。
 
 ## 质量约束与取舍
 
@@ -115,11 +140,21 @@ flowchart LR
   生成 4/84/484。候选持久化输入/内容哈希、提取器版本、完整结构、校验和审核状态；已发布
   节点消失时 fail closed。9660 新候选复用 183 条 AI 难度缓存发布，并删除 72 条无来源的旧
   顺序推断 `prerequisite_of`。
+- [已实现] P9 检索质量流水线：Qdrant 在召回前按 subject/Unit/配对键/来源/
+  权威等级做 must 过滤，稠密向量与确定性词法稀疏向量混合召回后再 rerank。知识卡片
+  在当前证据范围内无引用时退出，由原始 rerank 节点补位，不得用 syllabus 元数据伪装
+  为 mark scheme 证据。QP/MS prose chunk 收窄为 450/60，表格仍整体保留。每次检索持久化
+  有界 trace；SubjectPack 自持黄金集和 Recall@K/MRR/空结果/范围越界门禁。新索引节点使用
+  稳定内容指纹，仅在 embedding endpoint/model、schema 与内容全部一致时复用旧稠密
+  向量；中断恢复按节点 ID 查缺，不再把 collection 点数当成写入顺序。
 
 ### 剩余阻碍
 
-- Economics 9640 已证明 SubjectPack、通用候选提取器和官方课纲接缝，但尚未运行 MinerU 全量转换、知识
-  build 和独立 Qdrant 索引；因此不宣称经济科 RAG 已上线。
+- Economics 9640 已发布 4/84/484 正式知识图谱和独立 `examtwin_9640_live`
+  索引；273/273 份库存已转换并索引为 18,307 个向量节点，活跃构建保存 34,959 条关联
+  证据，覆盖 273 份资料和 479 个学习目标。但库存质量仍有 36 份考试身份不完整、
+  4 份 Question Paper 无严格配对 Mark Scheme，且尚无题目难度行；不把“全量转换已完成”
+  扩大为“资料质量缺口已清零”。
 - 旧整卷任务、评分和部分知识读取仍通过兼容 `Database` 包装器访问，尚未按领域全部迁移到
   ORM/Repository；继续以 Alembic revision 分批替换，不一次性机械重写。
 
@@ -154,9 +189,42 @@ flowchart LR
   新增通用课程候选提取、校验、漂移门禁和 `curriculum_candidates` 审计表。首次真实发布因
   PostgreSQL `LIKE` 百分号未经过兼容包装器转义而在事务入口失败，正式图谱未变；修正后重跑
   成功，失败候选与成功候选均保留用于审计。
+- 2026-08-04：以 9640 独立环境变量执行库存、确定性知识发布和 Qdrant staging/alias
+  发布；正式图谱为 4 Unit / 84 topic / 484 objective，独立索引为 822 points。
+  使用“maximum price below equilibrium”问题真实走通硅基流动 embedding/rerank、
+  Qdrant 和知识点卡片，返回 3 个 U1 候选，首项定位官方课纲第 12 页。总览统计
+  同时改为按当前 SubjectPack 过滤，避免 9660/9640 入同库后在前端混算。
+- 2026-08-04：工作台取消任何 UI 默认科目，SubjectPack 选择作为持久化的请求上下文传入
+  REST、上传、资源 URL 与 WebSocket；切换只更新上下文，不再强制跳到试卷作答，且丢弃
+  旧科目晚返回的知识/复核结果。状态总览列出全部安装科目和独立就绪度；PostgreSQL 统计
+  不可用时保留科目目录并返回空统计。新增浅色/深色/跟随系统主题并使用同一组设计 token。
+- 2026-08-04：完成 9640 全量向量发布。首次全量构建因 Qdrant 后台 segment 合并期间
+  `get_collection().points_count` 短暂从精确的 18,307 偏高为 18,502，安全门禁拒绝了切换且保留
+  旧 822 点 alias。发布门禁改用 `count(exact=true)`，并将新 build 的证据写入从逐条
+  SELECT/INSERT 改为先清理该 build 后批量 INSERT；断点恢复后原子切换至 18,307 点。
+- 2026-08-05：确认数学目录是 403 PDF + 53 PPT，456/456 份在 PostgreSQL 均有 Markdown
+  路径且无 error，逐份检查 S3 对象缓存为 456/456 存在。当前 live alias 指向今日
+  发布的 456 文档 / 22,011 节点混合索引；旧“209 已索引 / 247 discovered”是未处理
+  完老 PPT 与超大 PDF 时的历史快照，不再是运行态真相。
+- 2026-08-05：首次 12 条真实检索黄金集暴露了知识卡片在精确 mark scheme 范围下回退
+  syllabus 元数据的 8 个越界结果。修复为“卡片必须有当前范围内原文，否则原始证据
+  补位”后复验 12/12 命中，Recall@5=1.0000、MRR=0.9167、空结果率 0、范围越界 0。
+  不默认增加 LLM HyDE/查询改写：当前 Agent 已可迭代调用 `knowledge_search`，强制每次多一次
+  生成会增加延迟和伪关键词；仅在黄金集出现可复现多跳漏召回时再作有门槛 fallback。
+- 2026-08-05：部署契约 `2026-08-05.hybrid-retrieval-v24`。仅替换 API、两个 Paper Worker 与
+  storage-gc，PostgreSQL/Qdrant/SeaweedFS 和持久化卷保留；基础设施三项健康，9660 仍为
+  456 indexed / 22,011 live points。当前 live 是混合索引；稳定节点指纹会在下一次完整
+  索引构建写入，其后的构建才能跨版本复用未变向量；本次未为追求指纹而付费重算
+  已验证可用的 22,011 个稠密向量。
 
 ## 验证
 
+- 本轮多科目前端上下文：科目包/状态/统计相关后端测试 `6 passed`；后端 Ruff check/format、
+  basedpyright、OpenAPI 快照和 Compose 配置通过。前端 Vitest `18 passed`、ESLint、OpenAPI
+  类型一致性、TypeScript/Vite production build 和 Playwright 无默认科目/主题切换、桌面作图、
+  窄屏作图与 1024px 布局四项通过。
+  全量非集成后端测试在当前沙箱另暴露 `paired_exam_lookup` 的阻塞工具 future 已完成、
+  `asyncio.wait_for` 仍在 30 秒后走 timeout 的问题；本轮未把它冒充为多科目回归或通过。
 - 后端：Ruff 通过；`153 passed, 11 deselected`，额外的局部 API/PostgreSQL 集成穿刺
   `1 passed`。新增测试覆盖 alias 原子切换/门禁失败不切换、禁止部分索引上线、
   VectorIndex Repository 领域和经济 9640 真实课纲漂移四类独立风险。
@@ -170,6 +238,14 @@ flowchart LR
   仍指向 `examtwin_9660`。有界 P1 知识请求返回 Unit、topic、objective 共 41 个节点，每个节点
   都有课纲定义引用；现有检索关联证据的热点治理仍由后续检索切片负责，不在本次候选重构中
   冒充已解决。
+- 9640 全量发布：精确向量计数 18,307，273 份资料均为 `indexed`，活跃 build 为
+  `published` 且 18,307/18,307；关联证据 34,959 条。本地 Qdrant/PostgreSQL/API 三方统计一致，
+  经济学 U1 真实 RAG 请求返回 HTTP 200（约 49.8 秒）。相关仓储/发布回归 `17 passed`，
+  Ruff format/check 和 basedpyright 通过。
+- 9660 检索与部署：后端 Ruff format/check、basedpyright、206 个非集成测试通过；
+  PostgreSQL/Qdrant/对象存储集成测试 17 passed；前端 18 项 Vitest、ESLint、OpenAPI 类型一致性
+  与生产构建通过。真实 live 黄金集 12 cases 的 Recall@5=1.0000、MRR=0.9167、
+  empty_rate=0、scope_violations=0；检索 trace 在 PostgreSQL 按科目有界保留。
 
 ## 关闭条件
 

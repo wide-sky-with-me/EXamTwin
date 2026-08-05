@@ -21,7 +21,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    app_name: str = "ExamTwin 9660"
+    app_name: str = "ExamTwin"
     app_env: str = "development"
     local_access_only: bool = True
     api_prefix: str = "/api/v1"
@@ -46,7 +46,8 @@ class Settings(BaseSettings):
     paper_split_model: str = "gpt-5.6-luna"
     paper_split_reasoning_effort: ReasoningEffort = "none"
     paper_split_timeout: int = Field(default=90, ge=30, le=300)
-    paper_split_max_chars: int = Field(default=90_000, ge=30_000, le=200_000)
+    paper_split_max_chars: int = Field(default=4_000, ge=2_500, le=60_000)
+    paper_split_concurrency: int = Field(default=2, ge=1, le=4)
     paper_vision_enabled: bool = True
     paper_vision_model: str = "gpt-5.6-terra"
     paper_vision_reasoning_effort: ReasoningEffort = "low"
@@ -54,6 +55,7 @@ class Settings(BaseSettings):
     paper_vision_max_attempts: int = Field(default=3, ge=1, le=5)
     paper_vision_retry_delay_seconds: float = Field(default=2, ge=0, le=60)
     paper_vision_min_confidence: float = Field(default=0.7, ge=0, le=1)
+    paper_vision_concurrency: int = Field(default=2, ge=1, le=4)
     image_generation_enabled: bool = False
     image_generation_base_url: str | None = None
     image_generation_api_key: SecretStr | None = None
@@ -111,6 +113,10 @@ class Settings(BaseSettings):
 
     similarity_top_k: int = Field(default=18, ge=1, le=100)
     rerank_top_n: int = Field(default=7, ge=1, le=50)
+    retrieval_hybrid_alpha: float = Field(default=0.55, ge=0, le=1)
+    retrieval_raw_fallback_count: int = Field(default=2, ge=0, le=5)
+    retrieval_trace_enabled: bool = True
+    retrieval_trace_max_rows_per_subject: int = Field(default=2_000, ge=100, le=100_000)
 
     @model_validator(mode="after")
     def validate_object_store_credentials(self) -> Settings:

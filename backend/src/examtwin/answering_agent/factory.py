@@ -15,6 +15,8 @@ from examtwin.answering_agent.react_runner import ReActHarnessRunner, WorkflowRu
 from examtwin.answering_agent.runtime import AnsweringAgentRuntime
 from examtwin.answering_agent.tools import (
     AnswerImageStore,
+    EconomicsCalculateTool,
+    EconomicsDiagramTool,
     ImageGenerationTool,
     KnowledgeSearchTool,
     MathCalculateTool,
@@ -98,6 +100,8 @@ def build_answering_runtime(
         ),
         MathCalculateTool(),
         ProbabilityCalculateTool(),
+        EconomicsCalculateTool(),
+        EconomicsDiagramTool(),
         MathPlotTool(),
         MathDiagramTool(),
     ]

@@ -13,7 +13,10 @@ from examtwin.services.paper_vision import (
 from pypdf import PdfWriter
 
 
-def test_vision_review_retries_and_restores_missing_subpart(tmp_path: Path) -> None:
+def test_vision_review_retries_and_restores_missing_subpart(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     source = tmp_path / "paper.pdf"
     writer = PdfWriter()
     writer.add_blank_page(width=595, height=842)
@@ -78,6 +81,18 @@ def test_vision_review_retries_and_restores_missing_subpart(tmp_path: Path) -> N
     assert "Answer ___" not in result.markdown
     assert result.repairs == ("Restored question 6(a) from the page image.",)
     assert result.confidence == 0.98
+    retry_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "event", None) == "paper_vision_retry"
+    ]
+    assert len(retry_records) == 2
+    assert retry_records[0].stage == "vision_review"
+    assert retry_records[0].page_start == 1
+    assert retry_records[0].page_end == 1
+    assert retry_records[0].attempt == 1
+    assert retry_records[0].max_attempts == 3
+    assert retry_records[0].error_type == "HTTPStatusError"
 
 
 def test_vision_review_does_not_retry_permanent_http_error(tmp_path: Path) -> None:

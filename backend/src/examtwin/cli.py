@@ -13,9 +13,11 @@ from examtwin.composition import (
     build_knowledge_pipeline,
     build_object_store,
     build_paper_worker,
+    build_rag_service,
     corpus_repository,
     dashboard_repository,
     knowledge_repository,
+    retrieval_trace_repository,
     vector_index_repository,
 )
 from examtwin.config import get_settings
@@ -26,13 +28,18 @@ from examtwin.persistence.migrations import upgrade_database
 from examtwin.persistence.session import utcnow
 from examtwin.services.ingestion import build_vector_index
 from examtwin.services.inventory import corpus_stats, scan_corpus
+from examtwin.services.retrieval_evaluation import (
+    evaluate_retrieval,
+    load_retrieval_dataset,
+    render_evaluation,
+)
 from examtwin.services.storage_lifecycle import migrate_local_objects, run_storage_gc_forever
 from examtwin.services.subject_context import subject_context
 from examtwin.services.subject_pack_audit import audit_subject_pack_pdf
 from examtwin.storage import ObjectMetadata
 from examtwin.subjects import get_subject_pack
 
-app = typer.Typer(no_args_is_help=True, help="ExamTwin 9660 data and API commands.")
+app = typer.Typer(no_args_is_help=True, help="ExamTwin evidence platform commands.")
 
 
 @app.callback()
@@ -180,13 +187,14 @@ def storage_gc_worker() -> None:
 
 @app.command()
 def inventory() -> None:
-    """Scan the local 9660 corpus and build a strict source manifest."""
+    """Scan the active subject corpus and build a strict source manifest."""
     settings = get_settings()
     upgrade_database(settings.database_url)
+    subject = subject_context(settings)
     result = scan_corpus(
         corpus_repository(settings),
-        settings.corpus_dir,
-        get_subject_pack(settings.subject_pack),
+        subject.corpus_dir,
+        subject.pack,
     )
     typer.echo(json.dumps(result, ensure_ascii=False, indent=2))
 
@@ -226,8 +234,16 @@ def curriculum_preview(output: Path | None = typer.Option(None, "--output")) -> 
 def stats() -> None:
     """Show corpus, pairing, graph, and review statistics."""
     settings = get_settings()
+    subject = subject_context(settings)
     typer.echo(
-        json.dumps(corpus_stats(dashboard_repository(settings)), ensure_ascii=False, indent=2)
+        json.dumps(
+            corpus_stats(
+                dashboard_repository(settings),
+                subject_code=subject.subject_code,
+            ),
+            ensure_ascii=False,
+            indent=2,
+        )
     )
 
 
@@ -278,15 +294,53 @@ def index_command(
 ) -> None:
     """Embed all converted Markdown and rebuild the Qdrant collection."""
     settings = get_settings()
+    subject = subject_context(settings)
     result = build_vector_index(
-        settings,
-        subject_context(settings),
+        subject.runtime_settings(settings),
+        subject,
         vector_index_repository(settings),
         knowledge_repository(settings),
         limit=limit,
         resume=resume,
     )
     typer.echo(result.model_dump_json(indent=2))
+
+
+@app.command("retrieval-evaluate")
+def retrieval_evaluate(
+    dataset: Path | None = typer.Option(None, exists=True, dir_okay=False),
+) -> None:
+    """Run a subject-owned golden retrieval set and fail when its quality gate regresses."""
+
+    settings = get_settings()
+    subject = subject_context(settings)
+    dataset_path = dataset or subject.package.source_dir / "retrieval-eval.json"
+    if not dataset_path.is_file():
+        raise typer.BadParameter(f"Retrieval evaluation dataset not found: {dataset_path}")
+    definition = load_retrieval_dataset(dataset_path)
+    if definition.subject_code != subject.subject_code:
+        raise typer.BadParameter(
+            "Retrieval evaluation subject does not match the active SubjectPack"
+        )
+    report = evaluate_retrieval(definition, build_rag_service(settings, subject).retrieve)
+    typer.echo(render_evaluation(report))
+    if not report["passed"]:
+        raise typer.Exit(code=1)
+
+
+@app.command("retrieval-traces")
+def retrieval_traces(
+    limit: int = typer.Option(20, min=1, max=200),
+) -> None:
+    """Show recent retrieval diagnostics for the active SubjectPack."""
+
+    settings = get_settings()
+    subject = subject_context(settings)
+    rows = retrieval_trace_repository(settings).recent(
+        subject_code=subject.subject_code,
+        limit=limit,
+    )
+    typer.echo(json.dumps(rows, ensure_ascii=False, indent=2, default=str))
 
 
 @app.command()
@@ -298,10 +352,11 @@ def bootstrap(
     """Initialize, inventory, convert a bounded core set, and build Qdrant."""
     settings = get_settings()
     upgrade_database(settings.database_url)
+    subject = subject_context(settings)
     scan_corpus(
         corpus_repository(settings),
-        settings.corpus_dir,
-        get_subject_pack(settings.subject_pack),
+        subject.corpus_dir,
+        subject.pack,
     )
     result = build_corpus_ingestor(settings).convert_batch(
         source_types=["syllabus", "question_paper", "mark_scheme"],
@@ -312,8 +367,8 @@ def bootstrap(
     knowledge_result = build_knowledge_pipeline(settings).run()
     typer.echo(json.dumps(knowledge_result, ensure_ascii=False, indent=2))
     index_result = build_vector_index(
-        settings,
-        subject_context(settings),
+        subject.runtime_settings(settings),
+        subject,
         vector_index_repository(settings),
         knowledge_repository(settings),
     )

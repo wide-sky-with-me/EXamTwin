@@ -254,6 +254,7 @@ class PaperVisionReviewer:
         last_error: Exception | None = None
         try:
             for attempt in range(1, self.settings.paper_vision_max_attempts + 1):
+                attempt_started = time.monotonic()
                 try:
                     response = client.post(
                         f"{self.settings.llm_provider_base_url}/chat/completions",
@@ -293,11 +294,21 @@ class PaperVisionReviewer:
                         break
                     delay = self.settings.paper_vision_retry_delay_seconds * (2 ** (attempt - 1))
                     logger.warning(
-                        "paper_vision retry=%s/%s delay=%.1fs failed=%s",
-                        attempt,
-                        self.settings.paper_vision_max_attempts,
-                        delay,
-                        type(error).__name__,
+                        "paper vision request failed; retry scheduled",
+                        extra={
+                            "event": "paper_vision_retry",
+                            "stage": "vision_review",
+                            "page_start": page_start,
+                            "page_end": page_end,
+                            "attempt": attempt,
+                            "max_attempts": self.settings.paper_vision_max_attempts,
+                            "retry_in_seconds": delay,
+                            "duration_ms": round(
+                                (time.monotonic() - attempt_started) * 1000,
+                                2,
+                            ),
+                            "error_type": type(error).__name__,
+                        },
                     )
                     if delay:
                         time.sleep(delay)

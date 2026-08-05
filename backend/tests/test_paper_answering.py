@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+import json
+import re
+import threading
+import time
+from types import SimpleNamespace
 from typing import Any
 
+import pytest
 from examtwin.answering_agent.contracts import QuestionImage
 from examtwin.config import Settings
 from examtwin.schemas import AskResponse, Citation
@@ -48,6 +54,140 @@ def test_long_paper_split_batches_preserve_the_tail_without_silent_truncation() 
     assert "Question 1" in batches[0]
     assert "Question 8" in batches[-1]
     assert all(len(batch) <= 3_000 for batch in batches)
+
+
+def test_split_batches_are_concurrent_and_resume_from_digest_checkpoints(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    markdown = "".join(
+        f"<!-- examtwin:physical-page={number} -->\n"
+        f"{number} Find the value of x. [2 marks]\n" + ("working space\n" * 280)
+        for number in range(1, 5)
+    )
+    settings = Settings(paper_split_max_chars=6_000, paper_split_concurrency=2)
+    active = 0
+    max_active = 0
+    failed_once = False
+    calls = 0
+    guard = threading.Lock()
+
+    class FakeLLM:
+        def complete(self, prompt: str) -> SimpleNamespace:
+            nonlocal active, calls, failed_once, max_active
+            with guard:
+                active += 1
+                calls += 1
+                max_active = max(max_active, active)
+            try:
+                time.sleep(0.03)
+                if "3 Find the value" in prompt and not failed_once:
+                    failed_once = True
+                    raise TimeoutError("one split batch timed out")
+                numbers = sorted(set(re.findall(r"(?m)^(\d+) Find the value", prompt)))
+                return SimpleNamespace(
+                    text=json.dumps(
+                        {
+                            "questions": [
+                                {
+                                    "number": number,
+                                    "question_markdown": (
+                                        f"{number} Find the value of x. [2 marks]"
+                                    ),
+                                    "source_pages": [int(number)],
+                                    "requires_visual_context": False,
+                                    "total_marks": 2,
+                                    "answer_requirements": [
+                                        {
+                                            "label": "whole",
+                                            "marks": 2,
+                                            "answer_kind": "numeric",
+                                            "units": [],
+                                            "required_tool": None,
+                                        }
+                                    ],
+                                    "knowledge_codes": [],
+                                }
+                                for number in numbers
+                            ]
+                        }
+                    )
+                )
+            finally:
+                with guard:
+                    active -= 1
+
+    monkeypatch.setattr(
+        "examtwin.services.paper_answering.build_llm",
+        lambda *_args, **_kwargs: FakeLLM(),
+    )
+    checkpoints: dict[tuple[int, str], list[dict[str, Any]]] = {}
+
+    def load(batch_index: int, digest: str) -> list[dict[str, Any]] | None:
+        return checkpoints.get((batch_index, digest))
+
+    def save(
+        batch_index: int,
+        _batch_count: int,
+        digest: str,
+        questions: list[dict[str, Any]],
+        _duration_ms: float,
+    ) -> None:
+        checkpoints[(batch_index, digest)] = questions
+
+    service = PaperAnswerService(
+        settings,
+        subject_context(settings),
+        catalog_loader=fake_catalog,
+    )
+    with pytest.raises(TimeoutError, match="one split batch"):
+        service.split_questions_checkpointed(
+            markdown,
+            unit_code="P2",
+            load_checkpoint=load,
+            save_checkpoint=save,
+        )
+
+    completed_before_retry = len(checkpoints)
+    calls_before_retry = calls
+    result = service.split_questions_checkpointed(
+        markdown,
+        unit_code="P2",
+        load_checkpoint=load,
+        save_checkpoint=save,
+    )
+
+    batch_count = len(_split_markdown_batches(markdown, max_chars=6_000))
+    assert max_active == 2
+    assert completed_before_retry > 0
+    assert calls - calls_before_retry == batch_count - completed_before_retry
+    assert [item["number"] for item in result] == ["1", "2", "3", "4"]
+
+
+def test_split_recovery_appendix_does_not_duplicate_source_page_provenance() -> None:
+    primary = format_physical_page_markdown(
+        [(1, "1 Find x. [2 marks]"), (2, "2 Find y. [2 marks]")]
+    )
+    recovery = format_physical_page_markdown([(1, "1 Find x."), (2, "2 Find y.")])
+    settings = Settings()
+    service = PaperAnswerService(
+        settings,
+        subject_context(settings),
+        splitter=lambda _markdown, _catalog: [
+            {"number": "1", "question_markdown": "1 Find x. [2 marks]"},
+            {"number": "2", "question_markdown": "2 Find y. [2 marks]"},
+        ],
+        catalog_loader=fake_catalog,
+    )
+
+    result = service.split_questions_checkpointed(
+        f"{primary}\n\n{recovery}",
+        source_markdown=primary,
+        unit_code="P2",
+        load_checkpoint=lambda _index, _digest: None,
+        save_checkpoint=lambda _index, _count, _digest, _items, _duration: None,
+    )
+
+    assert [item["source_pages"] for item in result] == [[1], [2]]
 
 
 class FakeRag:

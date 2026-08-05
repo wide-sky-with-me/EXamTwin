@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import html
 import json
+import logging
 import re
 import uuid
 from pathlib import Path
@@ -22,15 +23,23 @@ from examtwin.services.knowledge import (
 from examtwin.services.providers import build_embedding
 from examtwin.services.subject_context import SubjectContext
 from examtwin.services.vector_index_publication import QdrantIndexPublisher
+from examtwin.services.vector_index_reuse import embedding_identity, plan_vector_writes
+from examtwin.services.vector_retrieval import (
+    HYBRID_INDEX_SCHEMA_VERSION,
+    collection_supports_hybrid,
+    qdrant_vector_store,
+)
 from llama_index.core import Document, StorageContext, VectorStoreIndex
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core.schema import BaseNode, TextNode
-from llama_index.vector_stores.qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
 
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
 HTML_TABLE_RE = re.compile(r"(<table\b.*?</table>)", re.IGNORECASE | re.DOTALL)
 TABLE_EMBED_CHAR_LIMIT = 16_000
+ASSESSMENT_CHUNK_SIZE = 450
+ASSESSMENT_CHUNK_OVERLAP = 60
+logger = logging.getLogger(__name__)
 
 
 def _section_documents(
@@ -138,15 +147,27 @@ def _evidence_nodes(
     documents: list[Document],
     *,
     splitter: SentenceSplitter | None = None,
+    assessment_splitter: SentenceSplitter | None = None,
 ) -> list[BaseNode]:
     """Split prose normally while keeping each MinerU HTML table as one node."""
     splitter = splitter or SentenceSplitter(chunk_size=900, chunk_overlap=120)
+    assessment_splitter = assessment_splitter or SentenceSplitter(
+        chunk_size=ASSESSMENT_CHUNK_SIZE,
+        chunk_overlap=ASSESSMENT_CHUNK_OVERLAP,
+    )
     nodes: list[BaseNode] = []
     for document in documents:
+        document_splitter = (
+            assessment_splitter
+            if document.metadata.get("source_type") in {"question_paper", "mark_scheme"}
+            else splitter
+        )
         parts = HTML_TABLE_RE.split(document.text)
         if len(parts) == 1:
             document.metadata["block_kind"] = "prose"
-            nodes.extend(splitter.get_nodes_from_documents([document], show_progress=False))
+            nodes.extend(
+                document_splitter.get_nodes_from_documents([document], show_progress=False)
+            )
             continue
         for block_index, part in enumerate(parts):
             content = part.strip()
@@ -188,7 +209,7 @@ def _evidence_nodes(
                 metadata=metadata,
                 excluded_llm_metadata_keys=["document_id"],
             )
-            nodes.extend(splitter.get_nodes_from_documents([prose], show_progress=False))
+            nodes.extend(document_splitter.get_nodes_from_documents([prose], show_progress=False))
     return nodes
 
 
@@ -443,6 +464,9 @@ def build_vector_index(
     staging_collection = (
         str(resumable["staging_collection"]) if resumable else publisher.staging_name(run_id)
     )
+    hybrid_index = not client.collection_exists(staging_collection) or collection_supports_hybrid(
+        client, staging_collection
+    )
     now = utcnow()
     if resumable:
         repository.update_run(
@@ -496,17 +520,33 @@ def build_vector_index(
         if not documents:
             raise ValueError("Vector index input gate failed: no indexable documents")
 
-        splitter = SentenceSplitter(chunk_size=900, chunk_overlap=120)
-        evidence_nodes = _evidence_nodes(documents, splitter=splitter)
+        evidence_nodes = _evidence_nodes(documents)
         catalog = _index_catalog(knowledge_repository, subject_pack.subject_code)
         _annotate_evidence_nodes(evidence_nodes, catalog)
         nodes: list[BaseNode] = [*evidence_nodes, *_knowledge_point_nodes(catalog)]
-        for node in nodes:
-            node.metadata["index_build_id"] = run_id
+        index_schema_version = HYBRID_INDEX_SCHEMA_VERSION if hybrid_index else "dense-v0"
+        embed_identity = embedding_identity(
+            base_url=settings.siliconflow_base_url,
+            model=settings.embedding_model,
+        )
         input_hash = hashlib.sha256(
             json.dumps(
-                [(row["id"], row["checksum"], row["markdown_path"]) for row in rows],
+                {
+                    "documents": [
+                        (row["id"], row["checksum"], row["markdown_path"]) for row in rows
+                    ],
+                    "index_schema_version": index_schema_version,
+                    "embedding_identity": embed_identity,
+                    "chunk_policy": {
+                        "general_size": 900,
+                        "general_overlap": 120,
+                        "assessment_size": ASSESSMENT_CHUNK_SIZE,
+                        "assessment_overlap": ASSESSMENT_CHUNK_OVERLAP,
+                        "table_projection_limit": TABLE_EMBED_CHAR_LIMIT,
+                    },
+                },
                 ensure_ascii=False,
+                sort_keys=True,
                 separators=(",", ":"),
             ).encode("utf-8")
         ).hexdigest()
@@ -523,25 +563,39 @@ def build_vector_index(
             },
         )
 
-        resume_offset = 0
         if client.collection_exists(staging_collection):
             if not resume:
                 raise ValueError(
                     f"Refusing to overwrite existing staging collection: {staging_collection}"
                 )
-            resume_offset = int(client.get_collection(staging_collection).points_count or 0)
-            if resume_offset > len(nodes):
-                raise ValueError(
-                    "Cannot resume Qdrant staging collection: "
-                    f"{resume_offset} stored points exceed {len(nodes)} source nodes."
-                )
         model = embedding or build_embedding(settings)
-        vector_store = QdrantVectorStore(
-            client=client,
-            collection_name=staging_collection,
+        write_plan = plan_vector_writes(
+            client,
+            nodes,
+            staging_collection=staging_collection,
+            previous_collection=previous_collection,
+            build_id=run_id,
+            schema_version=index_schema_version,
+            embed_identity=embed_identity,
+        )
+        logger.info(
+            "vector_index_embedding_plan",
+            extra={
+                "subject_code": subject_pack.subject_code,
+                "build_id": run_id,
+                "points": len(nodes),
+                "resumed_points": write_plan.resumed_points,
+                "reused_embeddings": write_plan.reused_embeddings,
+                "embeddings_required": write_plan.embeddings_required,
+            },
+        )
+        vector_store = qdrant_vector_store(
+            client,
+            staging_collection,
+            hybrid=hybrid_index,
         )
         storage_context = StorageContext.from_defaults(vector_store=vector_store)
-        remaining_nodes = nodes[resume_offset:]
+        remaining_nodes = write_plan.pending_nodes
         if remaining_nodes:
             _preembed_oversized_tables(remaining_nodes, model)
             VectorStoreIndex(
@@ -596,9 +650,10 @@ def load_vector_index(settings: Settings, embedding: Any | None = None) -> Vecto
     client = QdrantClient(url=settings.qdrant_url)
     if not client.collection_exists(settings.qdrant_collection_alias):
         raise FileNotFoundError("Qdrant collection is not built. Run `uv run examtwin index`.")
-    vector_store = QdrantVectorStore(
-        client=client,
-        collection_name=settings.qdrant_collection_alias,
+    vector_store = qdrant_vector_store(
+        client,
+        settings.qdrant_collection_alias,
+        hybrid=collection_supports_hybrid(client, settings.qdrant_collection_alias),
     )
     return VectorStoreIndex.from_vector_store(
         vector_store,

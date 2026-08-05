@@ -1,7 +1,7 @@
-# ExamTwin 9660
+# ExamTwin
 
-OxfordAQA International AS/A-level Mathematics (9660) 的证据型知识库、整卷逐题
-RAG 作答与 mark scheme 自动初评工作台。
+面向多科目的证据型知识库、整卷逐题 RAG 作答与 mark scheme 自动初评工作台。默认部署包为
+OxfordAQA International AS/A-level Mathematics (9660)，科目边界由版本化 SubjectPack 声明。
 
 系统的基本约束是：
 
@@ -16,7 +16,7 @@ RAG 作答与 mark scheme 自动初评工作台。
 | 层 | 实现 |
 |---|---|
 | Python | `uv`、FastAPI；内部 provider-neutral Agent Harness，LlamaIndex/LiteLLM 作为适配器 |
-| 文档解析 | `llama-index-readers-mineru`，precision 模式，PDF 超过 200 页时分段且可续跑 |
+| 文档解析 | `llama-index-readers-mineru`，precision 模式；超大 PDF 物理分片，旧 PPT 经 LibreOffice 转 PDF 后可续跑 |
 | 解题/评分 | OpenAI-compatible API，默认 `gpt-5.6-sol`，解题为 medium reasoning |
 | 试卷视觉复核 | PyMuPDF 渲染页图，`gpt-5.6-terra` 对照 MinerU 逐页修复并保存检查点 |
 | 整卷拆题 | OpenAI-compatible API，默认 `gpt-5.6-luna`，独立 90 秒超时 |
@@ -96,8 +96,9 @@ uv run examtwin inventory
 uv run examtwin stats
 ```
 
-按类型调用 MinerU 转换。任务会缓存每份 Markdown；大于 200 页的 PDF 会按
-200 页分段缓存，因此失败后可以续跑：
+按类型调用 MinerU 转换。任务会缓存每份 Markdown；超过 200 页或安全上传字节上限的 PDF
+会先物理切成最多 200 页的小 PDF，再逐段上传并缓存，因此不会把超大原文件反复交给供应商。
+旧 `.ppt` 由镜像内的 LibreOffice 无界面转成临时 PDF，派生文件仅存在于任务临时目录：
 
 ```bash
 uv run examtwin convert --type syllabus
@@ -111,11 +112,22 @@ uv run examtwin convert --type question_paper --type mark_scheme
 uv run examtwin curriculum-preview --output /tmp/curriculum.json
 uv run examtwin knowledge-build --no-ai-difficulty
 uv run examtwin index
+uv run examtwin retrieval-evaluate
+uv run examtwin retrieval-traces --limit 20
 ```
 
 `index` 每次写入新的 staging collection，记录输入哈希与检查点，全部点数门禁通过后
 才把 `examtwin_9660_live` alias 原子切换到新版本。失败可使用 `--resume`继续，上一版仍可用；
 为防止小样本误覆盖线上知识库，`index --limit` 不允许发布。
+
+新索引同时保存稠密向量与确定性词法稀疏向量；`subject_code`、Unit、严格配对键、来源类型和
+权威等级在 Qdrant 召回前过滤，rerank 后始终保留少量未被知识卡片覆盖的原始证据。
+每个 SubjectPack 可以携带 `retrieval-eval.json`，`retrieval-evaluate` 对真实 live alias 计算
+Recall@K、MRR、空结果率和过滤越界数，未达到包内门禁时以非零状态退出。普通检索还会把有界
+trace 写入 PostgreSQL，便于按查询、过滤条件、索引 build 和候选阶段定位漏召回。
+索引节点使用稳定内容指纹；首次升级构建写入指纹，之后只复用同一 embedding 服务、模型和
+索引 schema 下内容未变化的稠密向量，变化节点才重新调用 embedding。中断恢复按节点 ID 补缺，不再把
+collection 点数误当成节点顺序偏移。
 
 `curriculum-preview` 从当前科目的真实课纲 Markdown 生成完整候选并运行结构、数量、父子关系
 和已发布节点漂移门禁，不写候选表也不发布图谱。`knowledge-build` 是显式、可审计的发布入口；
@@ -146,17 +158,19 @@ Package/SKILL 摘要。Manifest 不能加载任意 Python；确实需要学科�
 服务端已注册的 visual policy 或 curriculum normalizer。主题、学习目标、来源页、层级和
 初始特征仍由统一 `CurriculumExtractor` 从已转换课纲生成。
 
-已安装第二个真实科目包 `oxfordaqa-economics-9640`。它的课程解析契约可用，答题策略在
-完成学科审核前显式标记为 disabled，不会静默套用数学 Skill。可用已购买的官方 PDF 做零模型
-调用的结构漂移检查：
+已安装并启用第二个真实科目包 `oxfordaqa-economics-9640`。其已审核 Skill 要求同场次 Source
+Booklet、知识证据和原题图优先，并提供确定性的经济计算与标准经济图工具，不会套用数学 Skill。
+可用已购买的官方 PDF 做零模型调用的结构漂移检查：
 
 ```bash
 uv run examtwin subject-pack-audit --pack oxfordaqa-economics-9640
 ```
 
-当前 PDF 漂移检查覆盖 84/84 个官方课纲主题；同一通用提取器还从该 47 页课纲文本生成了 4 个
-Unit、84 个主题和 484 个学习目标且零未映射。这个证据证明主流程不依赖逐科知识常量；它不代表
-9640 已完成 MinerU 入库、正式建图和独立 RAG 索引发布。
+当前 PDF 漂移检查覆盖 84/84 个官方课纲主题；同一通用提取器从该 47 页课纲文本发布了 4 个
+Unit、84 个主题和 484 个学习目标且零未映射。经济学库存中的 273 份资料均已转换并发布到独立
+别名 `examtwin_9640_live`，当前索引包含 18,307 个向量节点；其中 34 组 Question Paper / Mark
+Scheme 已形成严格配对。仍有 36 份考试资料身份不完整、4 份 Question Paper 没有匹配的 Mark
+Scheme，状态总览会继续显式展示这些资料质量缺口。
 
 用于首次验通的小批量命令：
 
@@ -191,10 +205,14 @@ uv run examtwin bootstrap --convert-limit 6
 Web 端“试卷逐题作答”支持上传 UTF-8 Markdown 或不超过 25 MB 的 PDF。ASGI 层会在 multipart
 解析完成前按请求头和实际接收字节双重限制请求体，避免超大请求先占满内存或临时磁盘。上传接口保存文件和
 PostgreSQL 任务后立即返回；Docker Worker 按 5 页分段调用 MinerU，每段成功后保存 Markdown
-检查点和页数进度。PDF 页段会先由视觉模型对照原页图复核，恢复 MinerU 漏掉的题号、子题、
+检查点和页数进度。PDF 页段会进入独立、可持久恢复的 `vision_review` 阶段，默认以每个 Worker 两路并发由
+视觉模型对照原页图复核，恢复 MinerU 漏掉的题号、子题、
 公式、表格、图形描述和分值，并保存独立 `.vision.md/.vision.json` 检查点；供应商、JSON
-或低置信结果最多自动重试三次。视觉校正完成后，快速结构模型根据题号、子题、分值和翻页
-信息恢复顶层题目。结构抽取、视觉核对与数学解题使用不同模型和超时预算。每题建立一个
+或低置信结果最多自动重试三次。每次重试会以结构化日志记录任务、页段、次数、耗时和错误类型。
+视觉校正完成后，试卷按物理页标记拆成约 4,000 字符的单页/相邻页批次，默认两路并发调用快速结构模型。
+拆题模型只恢复题目结构，不重复携带整份知识目录；知识点映射仍由后续检索与答题 Agent 完成。
+每个拆题批次按模型、提示契约和输入摘要保存独立检查点；批次失败时，后续重试只调用未完成或摘要失配的批次，
+最后再按题号确定性合并。结构抽取、视觉核对与数学解题使用不同模型和超时预算。每题建立一个
 有界 Answering Agent run；Agent 能看到课程、unit、试卷配对、来源类型和权威等级的检索
 范围，并在最终作答前通过 `knowledge_search` 工具取得知识库证据。它可以继续读取完整原文、
 校验计算或调用学科绘图/通用图片工具，并返回：

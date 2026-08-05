@@ -428,7 +428,7 @@ def test_pdf_vision_review_is_checkpointed_across_split_retry(tmp_path: Path) ->
         assert worker.run_once() is True
         failed = jobs.get_job(created.job_id)
         assert failed.status == "failed"
-        assert failed.stage == "splitting"
+        assert failed.stage == "vision_review"
         assert calls == [(1, 5), (6, 7)]
         checkpoint_root = tmp_path / "paper-jobs" / created.job_id / "chunks"
         assert len(list(checkpoint_root.glob("*.vision.md"))) == 1
@@ -439,6 +439,63 @@ def test_pdf_vision_review_is_checkpointed_across_split_retry(tmp_path: Path) ->
         assert completed.status == "completed"
         assert calls == [(1, 5), (6, 7), (6, 7)]
         assert len(list(checkpoint_root.glob("*.vision.md"))) == 2
+    finally:
+        database.execute("DELETE FROM paper_jobs WHERE id=?", (created.job_id,))
+
+
+@pytest.mark.integration
+def test_pdf_vision_chunks_use_bounded_concurrency(tmp_path: Path) -> None:
+    database = _test_database()
+    settings = Settings(
+        object_store_local_root=tmp_path,
+        paper_chunk_pages=1,
+        paper_vision_enabled=True,
+        paper_vision_concurrency=2,
+    )
+    jobs = _job_service(database, settings)
+    runtime = _job_runtime(database, settings)
+    active = 0
+    max_active = 0
+    guard = threading.Lock()
+
+    def review_chunk(
+        _path: Path,
+        _markdown: str,
+        page_start: int,
+        page_end: int,
+    ) -> VisionReviewResult:
+        nonlocal active, max_active
+        with guard:
+            active += 1
+            max_active = max(max_active, active)
+        try:
+            time.sleep(0.04)
+            return VisionReviewResult(
+                markdown=format_physical_page_markdown(
+                    [(page_start, f"{page_start} Find x. [2 marks]")]
+                ),
+                repairs=(),
+                confidence=0.99,
+                model="vision-test",
+            )
+        finally:
+            with guard:
+                active -= 1
+
+    created = jobs.create_job("paper.pdf", _pdf_bytes(4), unit_code="P2")
+    worker = PaperWorker(
+        settings,
+        subject_context(settings),
+        jobs=runtime,
+        answer_service=FakeAnswerService(),  # type: ignore[arg-type]
+        chunk_parser=lambda _path, start, end: f"Pages {start}-{end} content",
+        vision_reviewer=review_chunk,
+    )
+    try:
+        assert worker.run_once() is True
+        completed = jobs.get_job(created.job_id)
+        assert completed.status == "completed"
+        assert max_active == 2
     finally:
         database.execute("DELETE FROM paper_jobs WHERE id=?", (created.job_id,))
 

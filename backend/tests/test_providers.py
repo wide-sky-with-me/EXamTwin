@@ -1,7 +1,11 @@
 from typing import Any
 
 from examtwin.config import Settings
-from examtwin.services.providers import SiliconFlowReranker, build_llm
+from examtwin.services.providers import (
+    SiliconFlowReranker,
+    _embedding_batch_with_fallback,
+    build_llm,
+)
 from llama_index.core.schema import NodeWithScore, TextNode
 
 
@@ -84,3 +88,23 @@ def test_reranker_limits_table_projection_without_mutating_full_table(
     assert node.node.get_content() == table
     assert reranked[0].node.get_content() == table
     assert reranked[0].score == 0.91
+
+
+def test_embedding_batch_replays_transient_siliconflow_parameter_error() -> None:
+    calls = 0
+
+    def fetch(texts: list[str]) -> list[list[float]]:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("code 20015: The parameter is invalid")
+        return [[float(len(text))] for text in texts]
+
+    result = _embedding_batch_with_fallback(
+        fetch,
+        ["first", "second"],
+        pause=lambda _seconds: None,
+    )
+
+    assert result == [[5.0], [6.0]]
+    assert calls == 2
