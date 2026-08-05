@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from examtwin.services.subject_pack_audit import audit_subject_pack_pdf
 from examtwin.subjects import get_subject_pack
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
+@pytest.mark.local_assets
 def test_economics_subject_pack_matches_real_official_specification() -> None:
     subject_pack = get_subject_pack("oxfordaqa-economics-9640")
     result = audit_subject_pack_pdf(

@@ -138,6 +138,7 @@ def test_split_batches_are_concurrent_and_resume_from_digest_checkpoints(
         settings,
         subject_context(settings),
         catalog_loader=fake_catalog,
+        rag=object(),
     )
     with pytest.raises(TimeoutError, match="one split batch"):
         service.split_questions_checkpointed(
@@ -177,6 +178,7 @@ def test_split_recovery_appendix_does_not_duplicate_source_page_provenance() -> 
             {"number": "2", "question_markdown": "2 Find y. [2 marks]"},
         ],
         catalog_loader=fake_catalog,
+        rag=object(),
     )
 
     result = service.split_questions_checkpointed(

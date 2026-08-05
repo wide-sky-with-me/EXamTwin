@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
+import pytest
 from examtwin.services.curriculum import (
     MINERU_MARKDOWN_PROJECTION,
     PDF_TEXT_PROJECTION,
@@ -17,6 +18,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 MATH_SYLLABUS_MARKDOWN = PROJECT_ROOT / "var/corpus/md/388f07f872568687e668a2b811858453e57c0aeb.md"
 
 
+@pytest.mark.local_assets
 def test_real_9660_markdown_builds_complete_curriculum_without_seed_constants() -> None:
     subject_pack = get_subject_pack("oxfordaqa-mathematics-9660")
     markdown = MATH_SYLLABUS_MARKDOWN.read_text(encoding="utf-8")
@@ -47,6 +49,7 @@ def test_real_9660_markdown_builds_complete_curriculum_without_seed_constants() 
     assert candidate.objectives[0].code == "P1.1.O01"
 
 
+@pytest.mark.local_assets
 def test_same_extractor_builds_economics_candidate_from_real_specification_text() -> None:
     subject_pack = get_subject_pack("oxfordaqa-economics-9640")
     specification = PROJECT_ROOT / subject_pack.specification_ref

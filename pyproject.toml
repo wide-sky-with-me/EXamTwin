@@ -52,7 +52,10 @@ packages = ["backend/src/examtwin"]
 [tool.pytest.ini_options]
 testpaths = ["backend/tests"]
 asyncio_mode = "auto"
-markers = ["integration: requires the project Docker infrastructure"]
+markers = [
+  "integration: requires the project Docker infrastructure",
+  "local_assets: requires purchased or generated corpus files excluded from Git",
+]
 
 [tool.ruff]
 line-length = 100

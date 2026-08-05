@@ -121,6 +121,7 @@ def test_factory_uses_paper_vision_model_without_changing_main_model(
         settings,
         retriever=_nodes,
         citation_factory=_citation,
+        final_answer_provider=object(),
     )
 
     assert vision_settings == [settings]
