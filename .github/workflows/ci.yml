@@ -79,7 +79,6 @@ jobs:
       EXAMTWIN_TEST_DATABASE_URL: postgresql://examtwin:examtwin_test@127.0.0.1:5432/examtwin
       EXAMTWIN_TEST_S3_ENDPOINT: http://127.0.0.1:8333
       EXAMTWIN_TEST_S3_SECRET_KEY: examtwin_test_secret
-      OBJECT_STORE_LOCAL_ROOT: ${{ runner.temp }}/examtwin-var
       QDRANT_URL: http://127.0.0.1:6333
     steps:
       - uses: actions/checkout@v6
@@ -107,4 +106,7 @@ jobs:
           docker logs examtwin-seaweedfs
           exit 1
       - run: uv sync --frozen --group dev
-      - run: uv run pytest -m integration -q
+      - name: Run integration tests
+        env:
+          OBJECT_STORE_LOCAL_ROOT: ${{ runner.temp }}/examtwin-var
+        run: uv run pytest -m integration -q
