@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 from examtwin.answering_agent.contracts import ToolReplayPayload
 from examtwin.config import Settings
-from examtwin.persistence.paper_job_repository import LostLeaseError
+from examtwin.persistence.paper_job_repository import LostLeaseError, PaperJobRepository
 from examtwin.schemas import (
     AnswerDiagram,
     DiagramElement,
@@ -17,6 +17,7 @@ from examtwin.schemas import (
     PaperQuestionAnswer,
 )
 from examtwin.services.agent_run_ledger import PaperAgentRunLedger
+from examtwin.services.paper_jobs import PaperJobService
 from examtwin.services.paper_vision import (
     VisionReviewResult,
     format_physical_page_markdown,
@@ -30,6 +31,7 @@ from backend.tests.paper_job_support import (
     _job_service,
     _pdf_bytes,
     _test_database,
+    accept_question_paper,
 )
 
 
@@ -38,10 +40,26 @@ def test_agent_tool_ledger_replays_a_completed_safe_call_across_attempts(
     tmp_path: Path,
 ) -> None:
     database = _test_database()
-    settings = Settings(object_store_local_root=tmp_path)
-    jobs = _job_service(database, settings)
+    settings = Settings(
+        object_store_local_root=tmp_path,
+        subject_pack="oxfordaqa-economics-9640",
+        database_url=database.database_url,
+    )
+    context = subject_context(settings).with_retrieval_snapshot(
+        version_ids=("kb-v1", "kb-v2"),
+        collections=("test-collection",),
+        graph_version_id="graph-v3",
+    )
+    jobs = PaperJobService(
+        settings,
+        context,
+        repository=PaperJobRepository(
+            database.sessions,
+            lease_seconds=settings.paper_lease_seconds,
+        ),
+    )
     runtime = _job_runtime(database, settings)
-    created = jobs.create_job("paper.md", b"# Question 1\nCalculate 2+2.", unit_code="P1")
+    created = jobs.create_job("paper.md", b"# Question 1\nCalculate 2+2.", unit_code="U1")
     claimed = runtime.claim_next()
     assert claimed is not None
     _, token = claimed
@@ -68,8 +86,21 @@ def test_agent_tool_ledger_replays_a_completed_safe_call_across_attempts(
         "model_name": "test-model",
         "max_iterations": 4,
         "max_tool_calls": 2,
+        "knowledge_base_version_ids": ("kb-v1", "kb-v2"),
+        "graph_version_id": "graph-v3",
     }
     first.start_run(**run_metadata)
+    stored_run = database.fetch_one(
+        """
+        SELECT knowledge_base_version_ids_json, graph_version_id
+        FROM paper_agent_runs
+        WHERE job_id=? AND question_position=0 AND run_attempt=?
+        """,
+        (created.job_id, first_attempt),
+    )
+    assert stored_run is not None
+    assert stored_run["knowledge_base_version_ids_json"] == '["kb-v1","kb-v2"]'
+    assert stored_run["graph_version_id"] == "graph-v3"
     first.tool_started(
         call_key="call-key",
         tool_name="math_calculate",
@@ -310,6 +341,7 @@ def test_pdf_retry_reuses_completed_chunks(tmp_path: Path) -> None:
         subject_context(settings),
         jobs=runtime,
         answer_service=FakeAnswerService(),  # type: ignore[arg-type]
+        document_classifier=accept_question_paper,
         chunk_parser=parse_chunk,
     )
     try:
@@ -421,6 +453,7 @@ def test_pdf_vision_review_is_checkpointed_across_split_retry(tmp_path: Path) ->
         subject_context(settings),
         jobs=runtime,
         answer_service=FakeAnswerService(),  # type: ignore[arg-type]
+        document_classifier=accept_question_paper,
         chunk_parser=parse_chunk,
         vision_reviewer=review_chunk,
     )
@@ -488,6 +521,7 @@ def test_pdf_vision_chunks_use_bounded_concurrency(tmp_path: Path) -> None:
         subject_context(settings),
         jobs=runtime,
         answer_service=FakeAnswerService(),  # type: ignore[arg-type]
+        document_classifier=accept_question_paper,
         chunk_parser=lambda _path, start, end: f"Pages {start}-{end} content",
         vision_reviewer=review_chunk,
     )
@@ -560,6 +594,7 @@ def test_only_active_question_workers_are_marked_answering(tmp_path: Path) -> No
         subject_context(settings),
         jobs=runtime,
         answer_service=BlockingAnswerService(),  # type: ignore[arg-type]
+        document_classifier=accept_question_paper,
     )
     thread = threading.Thread(target=worker.run_once)
     thread.start()
@@ -626,6 +661,7 @@ def test_failed_question_is_automatically_retried(tmp_path: Path) -> None:
         subject_context(settings),
         jobs=runtime,
         answer_service=answer_service,  # type: ignore[arg-type]
+        document_classifier=accept_question_paper,
     )
     try:
         assert worker.run_once() is True

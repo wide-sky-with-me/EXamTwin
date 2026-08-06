@@ -60,14 +60,14 @@ def _difficulty_summary(point: dict[str, Any]) -> dict[str, Any]:
     method = str(features.get("difficulty_method") or "weighted-normalized-difficulty-v1")
     evidence_level = str(point["evidence_level"])
     confidence = float(point["difficulty_confidence"])
-    if method == "syllabus-ai-feature-estimate-v1":
-        basis = "AI 根据官方课纲评定分项特征后，由统一函数归一化的冷启动估计"
+    if method == "model-evidence-direct-v1":
+        basis = "AI 结合官方课纲与授权教材原文，在同一 Unit 内比较后直接给出的冷启动评级"
     elif features.get("facility_rate") is not None:
         basis = "已纳入官方历史正确率"
     elif evidence_level in {"A", "B"}:
         basis = "依据官方课程或考试证据"
     else:
-        basis = "依据大纲复杂度、先修深度、认知要求和预计解题步骤进行冷启动估计"
+        basis = "依据历史难度观测进行估计"
     if evidence_level == "D":
         caveat = "，尚无官方题目统计校准"
     else:

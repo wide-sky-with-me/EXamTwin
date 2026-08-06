@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from llama_index.core.vector_stores import (
+    FilterCondition,
     FilterOperator,
     MetadataFilter,
     MetadataFilters,
@@ -24,6 +25,7 @@ FILTER_PAYLOAD_FIELDS = (
     "pair_key",
     "source_type",
     "authority_tier",
+    "source_role",
     "index_build_id",
     "index_schema_version",
     "embedding_identity",
@@ -72,12 +74,21 @@ def retrieval_filters(
     pair_key: str | None = None,
     source_types: Sequence[str] = (),
     authority_tiers: Sequence[str] = (),
+    source_roles: Sequence[str] = (),
 ) -> MetadataFilters:
     filters: list[MetadataFilter | MetadataFilters] = [
         MetadataFilter(key="subject_code", value=subject_code)
     ]
     if unit_code:
-        filters.append(MetadataFilter(key="unit_code", value=unit_code))
+        filters.append(
+            MetadataFilters(
+                filters=[
+                    MetadataFilter(key="unit_code", value=unit_code),
+                    MetadataFilter(key="unit_code", value=""),
+                ],
+                condition=FilterCondition.OR,
+            )
+        )
     if pair_key:
         filters.append(MetadataFilter(key="pair_key", value=pair_key))
     if source_types:
@@ -93,6 +104,14 @@ def retrieval_filters(
             MetadataFilter(
                 key="authority_tier",
                 value=list(dict.fromkeys(authority_tiers)),
+                operator=FilterOperator.IN,
+            )
+        )
+    if source_roles:
+        filters.append(
+            MetadataFilter(
+                key="source_role",
+                value=list(dict.fromkeys(source_roles)),
                 operator=FilterOperator.IN,
             )
         )

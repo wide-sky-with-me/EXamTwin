@@ -26,6 +26,85 @@ def _page_section(markdown: str, page: int) -> str | None:
     return None
 
 
+def _question_section(markdown: str, question_number: str) -> str | None:
+    match = re.match(r"\s*0*(\d+)", question_number)
+    if match is None:
+        return None
+    normalized = str(int(match.group(1)))
+    question_table = re.compile(
+        r"<td>question</td>.*?</tr>\s*<tr><td(?:\s+[^>]*)?>0*(\d+)</td>",
+        re.IGNORECASE,
+    )
+    heading = re.compile(
+        rf"^#{{1,6}}\s+(?:question\s+)?0*{re.escape(normalized)}(?:\D|$)",
+        re.IGNORECASE,
+    )
+    lines = markdown.splitlines()
+    starts = []
+    for index, line in enumerate(lines):
+        table_match = question_table.search(line)
+        if (table_match and str(int(table_match.group(1))) == normalized) or heading.search(
+            line
+        ) is not None:
+            starts.append(index)
+    if not starts:
+        return None
+    start = starts[0]
+    maximum = re.compile(
+        rf"\bmaximum\s+for\s+question\s+0*{re.escape(normalized)}\b",
+        re.IGNORECASE,
+    )
+    any_question_row = question_table
+    end = len(lines)
+    for index in range(start + 1, len(lines)):
+        line = lines[index]
+        if maximum.search(line):
+            end = index + 1
+            break
+        if "<td>question</td>" in line.lower():
+            question_match = any_question_row.search(line)
+            if question_match and str(int(question_match.group(1))) != normalized:
+                end = index
+                break
+    return "\n".join(lines[start:end]).strip()
+
+
+def _referenced_extract_sections(markdown: str, query: str) -> str | None:
+    labels = tuple(dict.fromkeys(re.findall(r"\bEXTRACT\s+([A-Z])\b", query.upper())))
+    if not labels:
+        return None
+    lines = markdown.splitlines()
+    extract = re.compile(
+        r"^\s*(?:#{1,6}\s*)?extract\s+([A-Z])\s*:",
+        re.IGNORECASE,
+    )
+    sections: list[str] = []
+    for label in labels:
+        starts = [
+            index
+            for index, line in enumerate(lines)
+            if (match := extract.match(line)) is not None and match.group(1).upper() == label
+        ]
+        if not starts:
+            continue
+        start = starts[-1]
+        end = len(lines)
+        for index in range(start + 1, len(lines)):
+            match = extract.match(lines[index])
+            if match is not None and match.group(1).upper() != label:
+                end = index
+                break
+            if re.match(
+                r"^\s*(?:#{1,6}\s*)?end\s+of\s+extracts\b",
+                lines[index],
+                re.IGNORECASE,
+            ):
+                end = index
+                break
+        sections.append("\n".join(lines[start:end]).strip())
+    return "\n\n".join(sections) if sections else None
+
+
 def _heading_section(markdown: str, query: str) -> str:
     lines = markdown.splitlines()
     terms = {
@@ -71,6 +150,7 @@ def source_context(
     *,
     page: int | None = None,
     query: str = "",
+    question_number: str | None = None,
 ) -> SourceContextResponse:
     row = documents.get_converted(document_id)
     if not row:
@@ -86,6 +166,10 @@ def source_context(
         raise LookupError("参考资料原文缓存不存在") from error
     markdown = markdown_path.read_text(encoding="utf-8")
     content = _page_section(markdown, page) if page is not None else None
+    if content is None and question_number:
+        content = _question_section(markdown, question_number)
+    if content is None:
+        content = _referenced_extract_sections(markdown, query)
     if content is None:
         content = _heading_section(markdown, query)
     truncated = len(content) > MAX_CONTEXT_CHARS

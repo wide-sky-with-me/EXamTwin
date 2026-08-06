@@ -128,7 +128,7 @@ def test_vision_review_does_not_retry_permanent_http_error(tmp_path: Path) -> No
     assert calls == 1
 
 
-def test_vision_review_retries_incomplete_page_set_and_marks_blank_page(
+def test_vision_review_sends_multi_page_chunks_as_single_page_requests(
     tmp_path: Path,
 ) -> None:
     source = tmp_path / "three-pages.pdf"
@@ -138,20 +138,24 @@ def test_vision_review_retries_incomplete_page_set_and_marks_blank_page(
     with source.open("wb") as output:
         writer.write(output)
 
-    calls = 0
+    requested_pages: list[int] = []
+    image_counts: list[int] = []
 
-    def handler(_request: httpx.Request) -> httpx.Response:
-        nonlocal calls
-        calls += 1
-        pages = [
-            {"page_number": 1, "markdown": "1 (a) Find x. [2 marks]"},
-            {"page_number": 3, "markdown": "1 (b) Hence find y. [3 marks]"},
-        ]
-        if calls == 2:
-            pages.insert(1, {"page_number": 2, "markdown": ""})
+    def handler(request: httpx.Request) -> httpx.Response:
+        request_body = json.loads(request.content)
+        blocks = request_body["messages"][0]["content"]
+        prompt = blocks[0]["text"]
+        page_number = next(page for page in range(1, 4) if f"pages {page}-{page}" in prompt)
+        requested_pages.append(page_number)
+        image_counts.append(sum(block.get("type") == "image_url" for block in blocks))
+        bodies = {
+            1: "1 (a) Find x. [2 marks]",
+            2: "",
+            3: "1 (b) Hence find y. [3 marks]",
+        }
         content = json.dumps(
             {
-                "pages": pages,
+                "pages": [{"page_number": page_number, "markdown": bodies[page_number]}],
                 "repairs": [],
                 "confidence": 0.99,
             }
@@ -161,20 +165,18 @@ def test_vision_review_retries_incomplete_page_set_and_marks_blank_page(
             json={"choices": [{"message": {"content": content}}]},
         )
 
-    settings = Settings(
-        openai_compat_api_key="test-key",
-        paper_vision_max_attempts=2,
-        paper_vision_retry_delay_seconds=0,
-    )
+    settings = Settings(openai_compat_api_key="test-key")
+    markdown = "MinerU chunk with enough content to review."
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
         result = PaperVisionReviewer(settings, client=client).review_chunk(
             source,
-            "MinerU chunk with enough content to review.",
+            markdown,
             1,
             3,
         )
 
-    assert calls == 2
+    assert requested_pages == [1, 2, 3]
+    assert image_counts == [1, 1, 1]
     assert parse_physical_page_markdown(result.markdown) == [
         (1, "1 (a) Find x. [2 marks]"),
         (2, ""),

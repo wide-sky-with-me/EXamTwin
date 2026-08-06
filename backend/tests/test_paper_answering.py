@@ -11,7 +11,11 @@ import pytest
 from examtwin.answering_agent.contracts import QuestionImage
 from examtwin.config import Settings
 from examtwin.schemas import AskResponse, Citation
-from examtwin.services.paper_answering import PaperAnswerService, _split_markdown_batches
+from examtwin.services.paper_answering import (
+    PaperAnswerService,
+    _merge_split_questions,
+    _split_markdown_batches,
+)
 from examtwin.services.paper_parsing import (
     question_requires_visual_context,
     reconcile_question_source_pages,
@@ -192,6 +196,163 @@ def test_split_recovery_appendix_does_not_duplicate_source_page_provenance() -> 
     assert [item["source_pages"] for item in result] == [[1], [2]]
 
 
+def test_split_merge_collapses_recovery_number_variants_before_source_reconciliation() -> None:
+    primary = [
+        {
+            "number": "01",
+            "question_markdown": "Which option describes the price mechanism?",
+        },
+        {
+            "number": "17",
+            "question_markdown": (
+                "(a) Calculate the income index. (b) Calculate the median payment. [4 marks]"
+            ),
+        },
+    ]
+    recovery = [
+        {
+            "number": "1",
+            "question_markdown": "Which option describes the price mechanism? [1 mark]",
+        },
+        {"number": "17.1", "question_markdown": "Calculate the income index."},
+        {"number": "17.2", "question_markdown": "Calculate the median payment."},
+    ]
+    source_markdown = format_physical_page_markdown(
+        [
+            (1, "01 Which option describes the price mechanism? [1 mark]"),
+            (
+                2,
+                "17 (a) Calculate the income index. "
+                "(b) Calculate the median payment. [4 marks]\nEND OF QUESTIONS",
+            ),
+        ]
+    )
+
+    merged = _merge_split_questions([*primary, *recovery])
+    reconciled = reconcile_question_source_pages(source_markdown, merged)
+
+    assert [item["number"] for item in reconciled] == ["01", "17"]
+    assert [item["source_pages"] for item in reconciled] == [[1], [2]]
+    assert "(b) Calculate the median payment." in reconciled[1]["question_markdown"]
+
+
+class FakeQuestionRepairModel:
+    model_name = "question-repair-test"
+
+    def __init__(self, groups: list[dict[str, Any]]) -> None:
+        self.groups = groups
+        self.calls = 0
+
+    def complete(
+        self,
+        _messages: Any,
+        response_model: Any,
+        *,
+        timeout: float,
+    ) -> Any:
+        assert timeout > 0
+        self.calls += 1
+        return response_model.model_validate({"groups": self.groups})
+
+
+def test_split_uses_structured_repair_only_after_source_reconciliation_fails() -> None:
+    source_markdown = format_physical_page_markdown(
+        [
+            (1, "1 Evaluate the alpha integral. [1 mark]"),
+            (2, "2 Calculate the Latvian median flood payment. [1 mark]"),
+            (3, "3 Draw an equilibrium supply diagram. [1 mark]\nEND OF QUESTIONS"),
+        ]
+    )
+    candidates = [
+        {"number": "1", "question_markdown": "Evaluate the alpha integral. [1 mark]"},
+        {"number": "3", "question_markdown": "Draw an equilibrium supply diagram. [1 mark]"},
+        {
+            "number": "2",
+            "question_markdown": "Calculate the Latvian median flood payment. [1 mark]",
+        },
+    ]
+    model = FakeQuestionRepairModel(
+        [
+            {"number": "1", "candidate_indexes": [0]},
+            {"number": "2", "candidate_indexes": [2]},
+            {"number": "3", "candidate_indexes": [1]},
+        ]
+    )
+    service = PaperAnswerService(
+        Settings(),
+        subject_context(Settings()),
+        splitter=lambda _markdown, _catalog: candidates,
+        catalog_loader=fake_catalog,
+        rag=object(),
+        structured_model=model,
+    )
+
+    result = service.split_questions(source_markdown, unit_code="P2")
+
+    assert model.calls == 1
+    assert [item["number"] for item in result] == ["1", "2", "3"]
+    assert [item["source_pages"] for item in result] == [[1], [2], [3]]
+
+
+def test_split_does_not_call_structured_repair_for_valid_source_order() -> None:
+    source_markdown = format_physical_page_markdown(
+        [(1, "1 First question text."), (2, "2 Second question text.")]
+    )
+    candidates = [
+        {"number": "1", "question_markdown": "First question text."},
+        {"number": "2", "question_markdown": "Second question text."},
+    ]
+    model = FakeQuestionRepairModel([])
+    service = PaperAnswerService(
+        Settings(),
+        subject_context(Settings()),
+        splitter=lambda _markdown, _catalog: candidates,
+        catalog_loader=fake_catalog,
+        rag=object(),
+        structured_model=model,
+    )
+
+    result = service.split_questions(source_markdown, unit_code="P2")
+
+    assert model.calls == 0
+    assert [item["source_pages"] for item in result] == [[1], [2]]
+
+
+def test_split_rejects_structured_repair_that_drops_a_candidate() -> None:
+    source_markdown = format_physical_page_markdown(
+        [
+            (1, "1 Evaluate the alpha integral."),
+            (2, "2 Calculate the Latvian median flood payment."),
+            (3, "3 Draw an equilibrium supply diagram."),
+        ]
+    )
+    candidates = [
+        {"number": "1", "question_markdown": "Evaluate the alpha integral."},
+        {"number": "3", "question_markdown": "Draw an equilibrium supply diagram."},
+        {
+            "number": "2",
+            "question_markdown": "Calculate the Latvian median flood payment.",
+        },
+    ]
+    model = FakeQuestionRepairModel(
+        [
+            {"number": "1", "candidate_indexes": [0]},
+            {"number": "3", "candidate_indexes": [1]},
+        ]
+    )
+    service = PaperAnswerService(
+        Settings(),
+        subject_context(Settings()),
+        splitter=lambda _markdown, _catalog: candidates,
+        catalog_loader=fake_catalog,
+        rag=object(),
+        structured_model=model,
+    )
+
+    with pytest.raises(ValueError, match="恰好使用一次"):
+        service.split_questions(source_markdown, unit_code="P2")
+
+
 class FakeRag:
     def __init__(self) -> None:
         self.question_images: tuple[Any, ...] = ()
@@ -326,6 +487,64 @@ def test_visual_context_classification_skips_text_probability_but_keeps_graphs()
     assert question_requires_visual_context(
         "Figure 5 shows two curves and a finite shaded region. Find its area."
     )
+
+
+def test_source_pages_match_markdown_heading_number_on_own_line() -> None:
+    markdown = format_physical_page_markdown(
+        [
+            (
+                5,
+                "Context material before the questions.\n\n"
+                "### 06\n\nExplain why routine work is at risk.\n\n"
+                "### 07\n\n**Extract E** says technology affects wages.\n\n"
+                "### 08\n\n**Extract F** asks whether governments should intervene.",
+            ),
+        ]
+    )
+    questions = [
+        {
+            "number": "06",
+            "question_markdown": "Explain why routine work is at risk.",
+            "source_pages": [99],
+        },
+        {
+            "number": "07",
+            "question_markdown": "Explain how technology affects wages.",
+            "source_pages": [99],
+        },
+        {
+            "number": "08",
+            "question_markdown": "Evaluate whether governments should intervene.",
+            "source_pages": [99],
+        },
+    ]
+
+    reconciled = reconcile_question_source_pages(markdown, questions)
+
+    assert [item["source_pages"] for item in reconciled] == [[5], [5], [5]]
+
+
+def test_source_pages_include_referenced_extract_before_question_page() -> None:
+    markdown = format_physical_page_markdown(
+        [
+            (2, "## Extract A: Customer switching data\n\nNationwide: gains 150, losses 40."),
+            (
+                3,
+                "### 01\n\nUsing **Extract A**, calculate the ratio.\n\nEND OF QUESTIONS",
+            ),
+        ]
+    )
+    questions = [
+        {
+            "number": "01",
+            "question_markdown": "Using Extract A, calculate the ratio.",
+            "source_pages": [99],
+        }
+    ]
+
+    reconciled = reconcile_question_source_pages(markdown, questions)
+
+    assert reconciled[0]["source_pages"] == [2, 3]
 
 
 def test_source_pages_are_derived_from_physical_order_across_chunks() -> None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import AsyncIterator
 from contextlib import suppress
 
@@ -22,11 +23,17 @@ from examtwin.answering_agent.tools.image_generate import AnswerImageStore
 from examtwin.api.dependencies import (
     get_answer_image_store,
     get_paper_jobs,
+    get_subject_context,
     get_task_events,
 )
 from examtwin.api.errors import upstream_http_error
+from examtwin.composition import build_paper_job_service
+from examtwin.config import Settings, get_settings
+from examtwin.persistence.session import create_session_factory
+from examtwin.persistence.workspace_repository import WorkspaceRepository
 from examtwin.schemas.papers import PaperJobCreated, PaperJobResponse
 from examtwin.services.paper_jobs import PaperJobService
+from examtwin.services.subject_context import SubjectContext
 from examtwin.services.task_events import PostgresTaskEvents, TaskEvent
 
 router = APIRouter()
@@ -60,16 +67,44 @@ async def _wait_for_task_event_or_disconnect(
 async def answer_paper(
     file: UploadFile = File(...),
     unit_code: str | None = Form(default=None),
-    jobs: PaperJobService = Depends(get_paper_jobs),
+    knowledge_base_version_ids: str | None = Form(default=None),
+    include_supplementary: bool = Form(default=False),
+    settings: Settings = Depends(get_settings),
+    subject: SubjectContext = Depends(get_subject_context),
 ) -> PaperJobCreated:
     try:
+        subject.require_paper_capability()
+        requested: list[str] = []
+        if knowledge_base_version_ids:
+            parsed = json.loads(knowledge_base_version_ids)
+            if not isinstance(parsed, list) or not all(isinstance(item, str) for item in parsed):
+                raise ValueError("knowledge_base_version_ids 必须是字符串数组")
+            requested = parsed
+        repository = WorkspaceRepository(create_session_factory(settings.database_url))
+        snapshot = (
+            repository.retrieval_snapshot_for_versions(subject.id, requested)
+            if requested
+            else repository.active_retrieval_snapshot(
+                subject.id,
+                include_supplementary=include_supplementary,
+            )
+        )
+        collections = tuple(str(item) for item in snapshot["collections"])
+        if not collections:
+            raise ValueError("整卷作答前必须先构建并发布知识库版本")
+        selected_subject = subject.with_retrieval_snapshot(
+            version_ids=tuple(str(item) for item in snapshot["version_ids"]),
+            collections=collections,
+            graph_version_id=snapshot.get("graph_version_id"),
+        )
+        jobs = build_paper_job_service(settings, selected_subject)
         return await run_in_threadpool(
             jobs.create_job_from_stream,
             file.filename or "uploaded-paper.md",
             file.file,
             unit_code=unit_code,
         )
-    except ValueError as error:
+    except (LookupError, ValueError, json.JSONDecodeError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     except Exception as error:
         raise upstream_http_error(

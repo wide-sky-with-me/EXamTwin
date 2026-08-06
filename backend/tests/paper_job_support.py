@@ -18,12 +18,22 @@ from examtwin.schemas import (
     PaperJobResponse,
     PaperQuestionAnswer,
 )
+from examtwin.services.paper_classification import PaperDocumentClassification
 from examtwin.services.paper_job_runtime import PaperJobRuntime
 from examtwin.services.paper_jobs import PaperJobService
 from examtwin.services.paper_sources import PaperSourceStore
 from examtwin.services.subject_context import subject_context
 from pypdf import PdfWriter
 from sqlalchemy import text
+
+
+def accept_question_paper(_markdown: str) -> PaperDocumentClassification:
+    return PaperDocumentClassification(
+        document_type="question_paper",
+        confidence=0.99,
+        evidence=["candidate-facing questions"],
+        rationale="Test fixture represents a question paper.",
+    )
 
 
 class FakePaperJobs:
@@ -199,7 +209,11 @@ def _test_database() -> PostgresHarness:
 def _job_service(database: PostgresHarness, settings: Settings) -> PaperJobService:
     return PaperJobService(
         settings,
-        subject_context(settings),
+        subject_context(settings).with_retrieval_snapshot(
+            version_ids=("test-kb-v1",),
+            collections=("test-collection",),
+            graph_version_id=None,
+        ),
         repository=PaperJobRepository(
             database.sessions,
             lease_seconds=settings.paper_lease_seconds,

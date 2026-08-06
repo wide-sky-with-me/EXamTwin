@@ -1,4 +1,5 @@
 import {
+  ChevronDown,
   Eye,
   FileText,
   LoaderCircle,
@@ -244,6 +245,17 @@ export function PaperAnswering({
     }
   }
 
+  function resetPaper() {
+    window.localStorage.removeItem(jobStorageKey);
+    setFile(null);
+    setUnit("");
+    setJobId(null);
+    setJob(null);
+    setSelectedIndex(0);
+    setStreamState("idle");
+    setError(null);
+  }
+
   const selected = job?.questions[selectedIndex] ?? null;
   const selectedAgentSteps = selected
     ? selected.agent_steps.filter((step) => step.run_attempt === selected.attempts)
@@ -265,10 +277,15 @@ export function PaperAnswering({
     <section>
       <div className="page-heading compact">
         <div>
-          <h1>上传试卷，逐题给出证据化解答</h1>
-          <p>自动识别顶层题目；每题独立检索、作答，并展示知识点难度和参考证据。</p>
+          <h1>{job ? "逐题查看证据化解答" : "上传试卷，逐题给出证据化解答"}</h1>
+          <p>
+            {job
+              ? "优先核对原题与答案；作答过程、知识点和引用可按需展开。"
+              : "自动识别顶层题目；每题独立检索、作答，并展示知识点难度和参考证据。"}
+          </p>
         </div>
       </div>
+      {(!job || !terminal) && (
       <form className="panel paper-upload" onSubmit={submit}>
         <label
           className={`drop-zone ${file ? "has-file" : ""}${dragging ? " is-dragging" : ""}`}
@@ -320,20 +337,27 @@ export function PaperAnswering({
           }
         />
       </form>
+      )}
       {job && (
         <article className={`panel paper-progress ${job.status}`}>
           <div>
             <span>{stageLabels[job.stage] ?? job.stage}</span>
             <strong>
-              {job.stage === "parsing" && job.total_pages
-                ? `${job.parsed_pages} / ${job.total_pages} 页`
-                : job.stage === "vision_review"
-                  ? `${job.parsed_pages} 页已解析 · 正在核对原卷图像`
-                : job.stage === "answering"
-                  ? `${job.completed_questions + job.failed_questions} / ${job.total_questions} 题`
-                  : job.status === "queued"
-                    ? "任务已保存，可离开页面"
-                    : job.status}
+              {job.status === "completed"
+                ? `${job.completed_questions} 题答案已生成`
+                : job.status === "partial_failed"
+                  ? `${job.completed_questions} 题完成 · ${job.failed_questions} 题需重试`
+                  : job.status === "failed"
+                    ? "处理未完成，请查看错误信息"
+                    : job.stage === "parsing" && job.total_pages
+                      ? `${job.parsed_pages} / ${job.total_pages} 页`
+                      : job.stage === "vision_review"
+                        ? `${job.parsed_pages} 页已解析 · 正在核对原卷图像`
+                        : job.stage === "answering"
+                          ? `${job.completed_questions + job.failed_questions} / ${job.total_questions} 题`
+                          : job.status === "queued"
+                            ? "任务已保存，可离开页面"
+                            : stageLabels[job.stage] ?? job.stage}
             </strong>
           </div>
           <div
@@ -396,6 +420,12 @@ export function PaperAnswering({
             <strong>{job.completed_questions}</strong><span>完成</span>
             <strong className={job.failed_questions ? "failed" : ""}>{job.failed_questions}</strong><span>失败</span>
             <em>{job.filename}</em>
+            {terminal && (
+              <button className="secondary" onClick={resetPaper} type="button">
+                <UploadCloud size={15} />
+                {job.status === "failed" ? "上传另一份试卷" : "作答另一份试卷"}
+              </button>
+            )}
           </div>
           <div className="paper-workspace">
             <div className="question-nav">
@@ -407,6 +437,8 @@ export function PaperAnswering({
                   className={selectedIndex === index ? "active" : ""}
                   key={`${item.position}-${item.number}`}
                   onClick={() => setSelectedIndex(index)}
+                  aria-pressed={selectedIndex === index}
+                  type="button"
                 >
                   <b>Q{item.number}</b>
                   <span>
@@ -426,9 +458,19 @@ export function PaperAnswering({
                 <>
                   <div className="result-meta">
                     <span className={selected.grounded ? "grounded" : "ungrounded"}>
-                      Q{selected.number} · {selected.status === "completed" ? (selected.grounded ? "Grounded" : "Insufficient") : selected.status}
+                      Q{selected.number} ·{" "}
+                      {selected.status === "completed"
+                        ? selected.grounded
+                          ? "证据充分"
+                          : "证据不足"
+                        : selected.status === "pending"
+                          ? "等待作答"
+                          : selected.status === "answering"
+                            ? "正在作答"
+                            : "处理失败"}
                     </span>
                     <div>
+                      <span className="confidence-label">答案可信度</span>
                       <Confidence value={selected.confidence} />
                       {selectedCanRetry && (
                         <button
@@ -449,7 +491,7 @@ export function PaperAnswering({
                     <div className="question-block-header">
                       <div>
                         <span>原题</span>
-                        <strong id="current-question-title">Question {selected.number}</strong>
+                        <h2 id="current-question-title">Question {selected.number}</h2>
                       </div>
                       <small>
                         完整题干 · 公式与图表排版
@@ -511,41 +553,11 @@ export function PaperAnswering({
                     />,
                     document.body,
                   )}
-                  {selectedAgentSteps.length > 0 && (
-                    <div className="agent-step-panel" aria-live="polite">
-                      <div>
-                        <strong>答题 Agent 进度</strong>
-                        <span>第 {selected.attempts} 次尝试</span>
-                      </div>
-                      <ol>
-                        {selectedAgentSteps.map((step, index) => {
-                          const recovered = step.status === "failed"
-                            && Boolean(step.tool_name)
-                            && selectedAgentSteps.slice(index + 1).some(
-                              (later) => later.tool_name === step.tool_name
-                                && later.status === "completed",
-                            );
-                          return (
-                            <li
-                              className={recovered ? "recovered" : step.status}
-                              key={`${step.run_attempt}-${step.sequence}`}
-                            >
-                              <i />
-                              <span>
-                                {step.message}
-                                {recovered ? "，后续已自动恢复" : ""}
-                              </span>
-                            </li>
-                          );
-                        })}
-                      </ol>
-                    </div>
-                  )}
                   {selected.status === "pending" || selected.status === "answering" ? (
                     <div className="answer-block pending-answer"><LoaderCircle className="spin" size={18} />等待后台完成本题</div>
                   ) : selected.error ? <ErrorBanner message={selected.error} /> : (
-                    <div className="answer-block">
-                      <span>AI 分步解答</span>
+                    <section className="answer-block" aria-labelledby="current-answer-title">
+                      <h2 id="current-answer-title">证据化解答</h2>
                       <div className="markdown">
                         <CitationMarkdown
                           citations={selected.citations}
@@ -554,7 +566,7 @@ export function PaperAnswering({
                           {selected.answer_markdown}
                         </CitationMarkdown>
                       </div>
-                    </div>
+                    </section>
                   )}
                   {(selected.diagrams ?? []).length > 0 && (
                     <div className="answer-diagrams">
@@ -577,21 +589,74 @@ export function PaperAnswering({
                       ))}
                     </div>
                   )}
-                  <h3>关联知识点与难度</h3>
-                  <div className="paper-knowledge">
-                    {selected.knowledge_points.length === 0 && <p>未能可靠映射知识点。</p>}
-                    {selected.knowledge_points.map((point, index) => (
-                      <KnowledgeEvidenceCard point={point} index={index} key={point.code} />
-                    ))}
-                  </div>
-                  <h3>本题答案引用</h3>
-                  <div className="citations">
-                    {selected.citations.length === 0 && <p>没有检索到可展示的引用。</p>}
-                    <CitationReferenceList
-                      citations={selected.citations}
-                      query={selected.question_markdown.slice(0, 300)}
-                    />
-                  </div>
+                  {selectedAgentSteps.length > 0 && (
+                    <details className="agent-step-panel">
+                      <summary>
+                        <div>
+                          <strong>作答过程</strong>
+                          <span>第 {selected.attempts} 次尝试 · 展开查看检索与解题记录</span>
+                        </div>
+                        <ChevronDown aria-hidden="true" size={16} />
+                      </summary>
+                      <ol>
+                        {selectedAgentSteps.map((step, index) => {
+                          const recovered = step.status === "failed"
+                            && Boolean(step.tool_name)
+                            && selectedAgentSteps.slice(index + 1).some(
+                              (later) => later.tool_name === step.tool_name
+                                && later.status === "completed",
+                            );
+                          return (
+                            <li
+                              className={recovered ? "recovered" : step.status}
+                              key={`${step.run_attempt}-${step.sequence}`}
+                            >
+                              <i />
+                              <span>
+                                {step.message}
+                                {recovered ? "，后续已自动恢复" : ""}
+                              </span>
+                            </li>
+                          );
+                        })}
+                      </ol>
+                    </details>
+                  )}
+                  <details className="paper-evidence-section">
+                    <summary>
+                      <h3>关联知识点与难度</h3>
+                      <span>
+                        {selected.knowledge_points.length
+                          ? `${selected.knowledge_points.length} 个知识点`
+                          : "未可靠映射"}
+                      </span>
+                      <ChevronDown aria-hidden="true" size={17} />
+                    </summary>
+                    <div className="paper-knowledge">
+                      {selected.knowledge_points.length === 0 && <p>未能可靠映射知识点。</p>}
+                      {selected.knowledge_points.map((point, index) => (
+                        <KnowledgeEvidenceCard point={point} index={index} key={point.code} />
+                      ))}
+                    </div>
+                  </details>
+                  <details className="paper-evidence-section">
+                    <summary>
+                      <h3>本题答案引用</h3>
+                      <span>
+                        {selected.citations.length
+                          ? `${selected.citations.length} 条引用`
+                          : "暂无引用"}
+                      </span>
+                      <ChevronDown aria-hidden="true" size={17} />
+                    </summary>
+                    <div className="citations">
+                      {selected.citations.length === 0 && <p>没有检索到可展示的引用。</p>}
+                      <CitationReferenceList
+                        citations={selected.citations}
+                        query={selected.question_markdown.slice(0, 300)}
+                      />
+                    </div>
+                  </details>
                 </>
               )}
             </article>

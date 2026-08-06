@@ -77,6 +77,66 @@ def test_source_context_keeps_a_large_mineru_table_whole(tmp_path: Path) -> None
     assert result.content_markdown.count("<tr>") == 2500
 
 
+def test_source_context_selects_all_parts_of_an_exact_mark_scheme_question(
+    tmp_path: Path,
+) -> None:
+    markdown_path = tmp_path / "corpus" / "md" / "mark-scheme.md"
+    markdown_path.parent.mkdir(parents=True)
+    markdown_path.write_text(
+        "# Mark scheme\n\n"
+        "<table><tr><td>Question</td></tr><tr><td>17</td><td>Previous</td></tr></table>\n\n"
+        "MAXIMUM FOR QUESTION 17: 3 MARKS\n\n"
+        "<table><tr><td>Question</td></tr><tr><td>18</td><td>Part 1</td></tr></table>\n\n"
+        "## Indicative content\n\nFirst-part guidance.\n\n"
+        "<table><tr><td>Question</td></tr><tr><td>18</td><td>Part 2</td></tr></table>\n\n"
+        "## Indicative content\n\nSecond-part guidance.\n\n"
+        "MAXIMUM FOR QUESTION 18: 12 MARKS\n\n"
+        "<table><tr><td>Question</td></tr><tr><td>19</td><td>Next</td></tr></table>\n",
+        encoding="utf-8",
+    )
+
+    result = source_context(
+        FakeDocumentReader(markdown_path),
+        Settings(object_store_local_root=tmp_path),
+        "doc-1",
+        query="health expenditure",
+        question_number="18",
+    )
+
+    assert "First-part guidance." in result.content_markdown
+    assert "Second-part guidance." in result.content_markdown
+    assert "Previous" not in result.content_markdown
+    assert "Next" not in result.content_markdown
+
+
+def test_source_context_selects_the_referenced_extract_instead_of_a_similar_one(
+    tmp_path: Path,
+) -> None:
+    markdown_path = tmp_path / "corpus" / "md" / "insert.md"
+    markdown_path.parent.mkdir(parents=True)
+    markdown_path.write_text(
+        "# Source booklet\n\n"
+        "Extract A: Health expenditure and life expectancy\n\n"
+        "Mexico: 1227 and 70. Germany: 6939 and 81.\n\n"
+        "## Extract B: Paying for health care\n\n"
+        "Insurance and government funding.\n\n"
+        "## Extract C: The demand and supply of health care\n\n"
+        "Health expenditure may affect demand, supply and productivity.\n",
+        encoding="utf-8",
+    )
+
+    result = source_context(
+        FakeDocumentReader(markdown_path),
+        Settings(object_store_local_root=tmp_path),
+        "doc-1",
+        query="Use the data in Extract A to assess how health expenditure affects life expectancy.",
+    )
+
+    assert "Mexico: 1227 and 70." in result.content_markdown
+    assert "Insurance and government funding." not in result.content_markdown
+    assert "productivity" not in result.content_markdown
+
+
 def test_source_context_maps_legacy_host_absolute_path_to_current_cache(
     tmp_path: Path,
 ) -> None:

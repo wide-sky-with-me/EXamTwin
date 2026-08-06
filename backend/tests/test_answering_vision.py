@@ -80,7 +80,7 @@ def test_answering_policy_exposes_only_task_relevant_conditional_tools() -> None
         MATHEMATICS_9660,
         AnswerTask(
             subject_code="9660",
-            question="Sketch y=x^2 on the axes.",
+            question="Sketch y=x^2 on the axes using Extract A.",
             pair_key="oxfordaqa:9660:2025:june:p1",
             question_images=(QuestionImage(page_number=1, content=b"\xff\xd8\xff\xd9"),),
         ),
@@ -91,6 +91,16 @@ def test_answering_policy_exposes_only_task_relevant_conditional_tools() -> None
     assert "math_plot" in selected
     assert "math_diagram" not in selected
     assert "image_generate" not in selected
+
+    without_insert_reference = select_answering_tool_names(
+        MATHEMATICS_9660,
+        AnswerTask(
+            subject_code="9660",
+            question="Solve x^2 = 4.",
+            pair_key="oxfordaqa:9660:2025:june:p1",
+        ),
+    )
+    assert "paired_exam_lookup" not in without_insert_reference
 
 
 def test_factory_uses_paper_vision_model_without_changing_main_model(

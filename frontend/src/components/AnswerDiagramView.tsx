@@ -9,6 +9,7 @@ import { useId, useLayoutEffect, useRef, useState } from "react";
 import rehypeKatex from "rehype-katex";
 import ReactMarkdown from "react-markdown";
 import remarkMath from "remark-math";
+import { InlineMarkdown } from "./Markdown";
 import { canonicalizeMarkdownMath } from "../lib/markdown-math";
 import { backendResourceUrl } from "../lib/api";
 import { useModalFocus } from "../lib/use-modal-focus";
@@ -337,7 +338,7 @@ export function AnswerDiagramView({
     >
       <div className="answer-diagram-header">
         <div>
-          <strong id={titleId}>{diagram.title}</strong>
+          <strong id={titleId}><InlineMarkdown>{diagram.title}</InlineMarkdown></strong>
           <span>
             {diagram.source
               ? `原图校准矢量叠绘 · 原卷第 ${diagram.source.page_number} 页`
@@ -424,7 +425,7 @@ export function AnswerDiagramView({
           ))}
         </ul>
       )}
-      {diagram.caption && <figcaption>{diagram.caption}</figcaption>}
+      {diagram.caption && <figcaption><InlineMarkdown>{diagram.caption}</InlineMarkdown></figcaption>}
     </figure>
   );
 }

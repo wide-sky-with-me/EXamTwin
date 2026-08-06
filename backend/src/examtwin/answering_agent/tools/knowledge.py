@@ -41,7 +41,6 @@ class KnowledgeSearchTool:
                 query,
                 subject_code=context.task.subject_code,
                 unit_code=context.task.unit_code,
-                pair_key=context.task.pair_key,
                 source_types=list(context.task.source_types),
                 authority_tiers=list(context.task.authority_tiers),
                 top_k=safe_top_k,
@@ -122,10 +121,10 @@ class KnowledgeSearchTool:
             async_fn=knowledge_search,
             name=self.name,
             description=(
-                "Search curriculum knowledge-point cards backed by syllabus, textbook and "
-                "approved examination evidence. Each [KP code] is a real curriculum objective; "
-                "source chunks are labelled separately and are never knowledge points. "
-                "Call this before giving a grounded answer; use returned [S#] markers "
-                "in the final answer."
+                "Search curriculum knowledge-point cards backed only by approved syllabus, "
+                "licensed textbook, and supplementary knowledge sources. Assessment and "
+                "grading documents are never returned. Each [KP code] is a real curriculum "
+                "objective; source chunks are labelled separately. Call this before giving a "
+                "grounded answer and use returned [S#] markers in the final answer."
             ),
         )

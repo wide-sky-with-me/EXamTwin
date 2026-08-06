@@ -38,6 +38,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/capability-profiles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Capability Profiles */
+        get: operations["capability_profiles_api_v1_capability_profiles_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/corpus/convert": {
         parameters: {
             query?: never;
@@ -123,6 +140,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/grading/papers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Grading Papers */
+        get: operations["grading_papers_api_v1_grading_papers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/grading/papers/{paper_job_id}/assessments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Paper Assessments */
+        get: operations["paper_assessments_api_v1_grading_papers__paper_job_id__assessments_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/grading/papers/{paper_job_id}/questions/{position}/assess": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Assess Paper Question */
+        post: operations["assess_paper_question_api_v1_grading_papers__paper_job_id__questions__position__assess_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/grading/reviews": {
         parameters: {
             query?: never;
@@ -157,6 +225,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/grading/rubrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Rubrics */
+        get: operations["list_rubrics_api_v1_grading_rubrics_get"];
+        put?: never;
+        /** Create Rubric */
+        post: operations["create_rubric_api_v1_grading_rubrics_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/grading/rubrics/{rubric_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Rubric Detail */
+        get: operations["rubric_detail_api_v1_grading_rubrics__rubric_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/grading/rubrics/{rubric_id}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Confirm Rubric */
+        post: operations["confirm_rubric_api_v1_grading_rubrics__rubric_id__confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/grading/rubrics/{rubric_id}/review-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Review All Rubric */
+        post: operations["review_all_rubric_api_v1_grading_rubrics__rubric_id__review_all_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/health": {
         parameters: {
             query?: never;
@@ -174,7 +311,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/knowledge/difficulty": {
+    "/api/v1/knowledge-bases/{knowledge_base_id}/build": {
         parameters: {
             query?: never;
             header?: never;
@@ -183,8 +320,127 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Difficulty */
-        post: operations["difficulty_api_v1_knowledge_difficulty_post"];
+        /** Build Knowledge Base */
+        post: operations["build_knowledge_base_api_v1_knowledge_bases__knowledge_base_id__build_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/knowledge-graphs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Graph Versions */
+        get: operations["graph_versions_api_v1_knowledge_graphs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/knowledge-graphs/build": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Build Graph */
+        post: operations["build_graph_api_v1_knowledge_graphs_build_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/knowledge-graphs/{version_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Graph Version */
+        get: operations["graph_version_api_v1_knowledge_graphs__version_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/knowledge-graphs/{version_id}/edges/{edge_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Review Graph Edge */
+        patch: operations["review_graph_edge_api_v1_knowledge_graphs__version_id__edges__edge_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/knowledge-graphs/{version_id}/nodes/{node_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Review Graph Node */
+        patch: operations["review_graph_node_api_v1_knowledge_graphs__version_id__nodes__node_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/knowledge-graphs/{version_id}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publish Graph */
+        post: operations["publish_graph_api_v1_knowledge_graphs__version_id__publish_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/knowledge-graphs/{version_id}/review-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Review All */
+        post: operations["review_all_api_v1_knowledge_graphs__version_id__review_all_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -395,6 +651,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/subject-workspaces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Subject Workspace */
+        post: operations["create_subject_workspace_api_v1_subject_workspaces_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/subject-workspaces/{workspace_id}/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Workspace Documents */
+        get: operations["workspace_documents_api_v1_subject_workspaces__workspace_id__documents_get"];
+        put?: never;
+        /** Upload Workspace Document */
+        post: operations["upload_workspace_document_api_v1_subject_workspaces__workspace_id__documents_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/subjects": {
         parameters: {
             query?: never;
@@ -539,6 +830,13 @@ export interface components {
         AskRequest: {
             /** Authority Tiers */
             authority_tiers?: string[];
+            /**
+             * Include Supplementary
+             * @default false
+             */
+            include_supplementary: boolean;
+            /** Knowledge Base Version Ids */
+            knowledge_base_version_ids?: string[];
             /** Pair Key */
             pair_key?: string | null;
             /** Question */
@@ -562,10 +860,14 @@ export interface components {
             confidence: number;
             /** Diagrams */
             diagrams: components["schemas"]["AnswerDiagram"][];
+            /** Graph Version Id */
+            graph_version_id: string | null;
             /** Grounded */
             grounded: boolean;
             /** Images */
             images: components["schemas"]["AnswerImage"][];
+            /** Knowledge Base Version Ids */
+            knowledge_base_version_ids: string[];
             /** Warnings */
             warnings: string[];
         };
@@ -573,8 +875,34 @@ export interface components {
         Body_answer_paper_api_v1_papers_answer_post: {
             /** File */
             file: string;
+            /**
+             * Include Supplementary
+             * @default false
+             */
+            include_supplementary: boolean;
+            /** Knowledge Base Version Ids */
+            knowledge_base_version_ids?: string | null;
             /** Unit Code */
             unit_code?: string | null;
+        };
+        /** Body_upload_workspace_document_api_v1_subject_workspaces__workspace_id__documents_post */
+        Body_upload_workspace_document_api_v1_subject_workspaces__workspace_id__documents_post: {
+            /** File */
+            file: string;
+            /** Knowledge Base Id */
+            knowledge_base_id?: string | null;
+            /**
+             * License Confirmed
+             * @default false
+             */
+            license_confirmed: boolean;
+            /** Source Type */
+            source_type: string;
+        };
+        /** BuildGraphRequest */
+        BuildGraphRequest: {
+            /** Knowledge Base Version Id */
+            knowledge_base_version_id: string;
         };
         /** Citation */
         Citation: {
@@ -627,6 +955,31 @@ export interface components {
              * @default 2
              */
             workers: number;
+        };
+        /** CreateRubricRequest */
+        CreateRubricRequest: {
+            /** Paper Job Id */
+            paper_job_id: string;
+            /** Source Document Id */
+            source_document_id: string;
+        };
+        /** CreateSubjectRequest */
+        CreateSubjectRequest: {
+            /** Board Name */
+            board_name: string;
+            /** Capability Profile Id */
+            capability_profile_id?: string | null;
+            /** Id */
+            id: string;
+            /**
+             * Language
+             * @default en
+             */
+            language: string;
+            /** Subject Code */
+            subject_code: string;
+            /** Title */
+            title: string;
         };
         /** DiagramElement */
         DiagramElement: {
@@ -710,56 +1063,6 @@ export interface components {
              */
             tone: "default" | "primary" | "secondary" | "tertiary" | "muted";
         };
-        /** DifficultyFeatures */
-        DifficultyFeatures: {
-            /**
-             * Cognitive Demand
-             * @default 0.5
-             */
-            cognitive_demand: number;
-            /**
-             * Evidence Confidence
-             * @default 0.35
-             */
-            evidence_confidence: number;
-            /** Examiner Severity */
-            examiner_severity: number | null;
-            /** Facility Rate */
-            facility_rate: number | null;
-            /**
-             * Prerequisite Depth
-             * @default 0
-             */
-            prerequisite_depth: number;
-            /**
-             * Solution Steps
-             * @default 3
-             */
-            solution_steps: number;
-            /**
-             * Syllabus Complexity
-             * @default 0.5
-             */
-            syllabus_complexity: number;
-        };
-        /** DifficultyResult */
-        DifficultyResult: {
-            /** Confidence */
-            confidence: number;
-            /** Contributions */
-            contributions: {
-                [key: string]: number;
-            };
-            /**
-             * Label
-             * @enum {string}
-             */
-            label: "easy" | "medium" | "hard";
-            /** Raw Score */
-            raw_score: number;
-            /** Score */
-            score: number;
-        };
         /** ExpectedExpression */
         ExpectedExpression: {
             /** Expected */
@@ -769,12 +1072,19 @@ export interface components {
             /** Variable */
             variable?: string | null;
         };
+        /** GradePaperQuestionRequest */
+        GradePaperQuestionRequest: {
+            /** Rubric Set Id */
+            rubric_set_id: string;
+        };
         /** GradeRequest */
         GradeRequest: {
             /** Answer Markdown */
             answer_markdown: string;
             /** Expected Expressions */
             expected_expressions?: components["schemas"]["ExpectedExpression"][];
+            /** Knowledge Codes */
+            knowledge_codes?: string[];
             /** Mark Scheme Markdown */
             mark_scheme_markdown?: string | null;
             /** Max Marks */
@@ -794,6 +1104,8 @@ export interface components {
             citations: components["schemas"]["Citation"][];
             /** Confidence */
             confidence: number;
+            /** Improvement Suggestions */
+            improvement_suggestions: string[];
             /**
              * Manual Review Required
              * @default true
@@ -818,6 +1130,163 @@ export interface components {
             total_awarded: number;
             /** Warnings */
             warnings: string[];
+        };
+        /** GradingPaperSummary */
+        GradingPaperSummary: {
+            /** Completed Questions */
+            completed_questions: number;
+            /** Failed Questions */
+            failed_questions: number;
+            /** Filename */
+            filename: string;
+            /** Job Id */
+            job_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "completed" | "partial_failed";
+            /** Total Questions */
+            total_questions: number;
+            /** Unit Code */
+            unit_code: string | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** GraphEdgeResponse */
+        GraphEdgeResponse: {
+            /** Confidence */
+            confidence: number;
+            /** Evidence */
+            evidence: components["schemas"]["GraphEvidence"][];
+            /** Id */
+            id: string;
+            /** Relation Type */
+            relation_type: string;
+            /** Review Status */
+            review_status: string;
+            /** Source Key */
+            source_key: string;
+            /** Target Key */
+            target_key: string;
+        };
+        /** GraphEvidence */
+        GraphEvidence: {
+            /** Block Id */
+            block_id: string | null;
+            /** Document Id */
+            document_id: string | null;
+            /** Page */
+            page: number | null;
+            /**
+             * Quote
+             * @default
+             */
+            quote: string;
+            /** Section */
+            section: string | null;
+        };
+        /** GraphNodeResponse */
+        GraphNodeResponse: {
+            /** Aliases */
+            aliases: string[];
+            /** Code */
+            code: string;
+            /** Confidence */
+            confidence: number;
+            /** Description */
+            description: string;
+            /** Evidence */
+            evidence: components["schemas"]["GraphEvidence"][];
+            /** Id */
+            id: string;
+            /** Metadata */
+            metadata: {
+                [key: string]: unknown;
+            };
+            /** Node Type */
+            node_type: string;
+            /** Parent Key */
+            parent_key: string | null;
+            /** Review Status */
+            review_status: string;
+            /** Stable Key */
+            stable_key: string;
+            /** Title */
+            title: string;
+            /**
+             * Unit Code
+             * @default
+             */
+            unit_code: string;
+        };
+        /** GraphVersionResponse */
+        GraphVersionResponse: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Edges */
+            edges: components["schemas"]["GraphEdgeResponse"][];
+            /** Id */
+            id: string;
+            /** Knowledge Base Version Id */
+            knowledge_base_version_id: string | null;
+            /** Model Name */
+            model_name: string | null;
+            /** Nodes */
+            nodes: components["schemas"]["GraphNodeResponse"][];
+            /** Prompt Version */
+            prompt_version: string;
+            /** Published At */
+            published_at: string | null;
+            /** Source Hash */
+            source_hash: string;
+            /** Status */
+            status: string;
+            /** Subject Id */
+            subject_id: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Version Number */
+            version_number: number;
+        };
+        /** GraphVersionSummary */
+        GraphVersionSummary: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Id */
+            id: string;
+            /** Knowledge Base Version Id */
+            knowledge_base_version_id: string | null;
+            /** Model Name */
+            model_name: string | null;
+            /** Published At */
+            published_at: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "draft" | "published" | "failed";
+            /** Subject Id */
+            subject_id: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Version Number */
+            version_number: number;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -907,6 +1376,44 @@ export interface components {
             skipped: number;
             /** Succeeded */
             succeeded: number;
+        };
+        /** KnowledgeBaseBuildResponse */
+        KnowledgeBaseBuildResponse: {
+            /** Errors */
+            errors: string[];
+            /** Failed */
+            failed: number;
+            /** Processed */
+            processed: number;
+            /** Succeeded */
+            succeeded: number;
+            version: components["schemas"]["KnowledgeBaseVersionResponse"];
+        };
+        /** KnowledgeBaseVersionResponse */
+        KnowledgeBaseVersionResponse: {
+            /** Alias Name */
+            alias_name: string;
+            /** Collection Name */
+            collection_name: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Id */
+            id: string;
+            /** Knowledge Base Id */
+            knowledge_base_id: string;
+            /** Parser Version */
+            parser_version: string;
+            /** Published At */
+            published_at: string | null;
+            /** Status */
+            status: string;
+            /** Vector Build Id */
+            vector_build_id: string | null;
+            /** Version Number */
+            version_number: number;
         };
         /** KnowledgeDifficultySummary */
         KnowledgeDifficultySummary: {
@@ -1023,6 +1530,28 @@ export interface components {
             source_ref: string;
             /** Title */
             title: string;
+        };
+        /** PaperAssessmentResponse */
+        PaperAssessmentResponse: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Id */
+            id: string;
+            /** Paper Job Id */
+            paper_job_id: string;
+            /** Question Position */
+            question_position: number;
+            result: components["schemas"]["GradeResponse"];
+            /** Rubric Set Id */
+            rubric_set_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending_review" | "confirmed" | "overridden";
         };
         /**
          * PaperDiagramSource
@@ -1150,8 +1679,12 @@ export interface components {
             failed_questions: number;
             /** Filename */
             filename: string;
+            /** Graph Version Id */
+            graph_version_id: string | null;
             /** Job Id */
             job_id: string;
+            /** Knowledge Base Version Ids */
+            knowledge_base_version_ids: string[];
             /** Parsed Pages */
             parsed_pages: number;
             /** Questions */
@@ -1221,6 +1754,22 @@ export interface components {
             /** Subjects */
             subjects: components["schemas"]["SubjectStatusResponse"][];
         };
+        /** ReviewAllRequest */
+        ReviewAllRequest: {
+            /**
+             * Review Status
+             * @enum {string}
+             */
+            review_status: "accepted" | "rejected";
+        };
+        /** ReviewAllRubricRequest */
+        ReviewAllRubricRequest: {
+            /**
+             * Review Status
+             * @enum {string}
+             */
+            review_status: "accepted" | "rejected";
+        };
         /** ReviewDecisionResponse */
         ReviewDecisionResponse: {
             /** Assessment Id */
@@ -1234,6 +1783,34 @@ export interface components {
              * @enum {string}
              */
             status: "confirmed" | "overridden";
+        };
+        /** ReviewGraphEdgeRequest */
+        ReviewGraphEdgeRequest: {
+            /** Relation Type */
+            relation_type?: ("contains" | "prerequisite_of" | "applies_to" | "equivalent_to" | "related_to") | null;
+            /**
+             * Review Status
+             * @enum {string}
+             */
+            review_status: "accepted" | "rejected";
+        };
+        /** ReviewGraphNodeRequest */
+        ReviewGraphNodeRequest: {
+            /** Aliases */
+            aliases?: string[] | null;
+            /** Description */
+            description?: string | null;
+            /** Node Type */
+            node_type?: ("concept" | "subconcept" | "formula" | "term") | null;
+            /** Parent Key */
+            parent_key?: string | null;
+            /**
+             * Review Status
+             * @enum {string}
+             */
+            review_status: "accepted" | "rejected";
+            /** Title */
+            title?: string | null;
         };
         /** ReviewQueueItem */
         ReviewQueueItem: {
@@ -1285,6 +1862,12 @@ export interface components {
             criterion_id: string;
             /** Description */
             description: string;
+            /** Error Types */
+            error_types: ("conceptual" | "procedural" | "calculation" | "notation" | "unit" | "diagram" | "omission")[];
+            /** Improvement Suggestion */
+            improvement_suggestion: string | null;
+            /** Knowledge Codes */
+            knowledge_codes: string[];
             /** Mark Type */
             mark_type: string | null;
             /** Max Marks */
@@ -1295,6 +1878,131 @@ export interface components {
             source_ref: string | null;
             /** Student Evidence */
             student_evidence: string | null;
+        };
+        /** RubricCriterionResponse */
+        RubricCriterionResponse: {
+            /** Accuracy Requirement */
+            accuracy_requirement: string | null;
+            /** Alternatives */
+            alternatives: string[];
+            /** Confidence */
+            confidence: number;
+            /** Criterion Id */
+            criterion_id: string;
+            /** Dependencies */
+            dependencies: string[];
+            /** Description */
+            description: string;
+            /** Follow Through Policy */
+            follow_through_policy: string | null;
+            /** Id */
+            id: string;
+            /** Mark Type */
+            mark_type: string | null;
+            /** Max Marks */
+            max_marks: number;
+            /** Question Number */
+            question_number: string;
+            /**
+             * Review Status
+             * @enum {string}
+             */
+            review_status: "pending" | "accepted" | "rejected";
+            /**
+             * Scoring Mode
+             * @enum {string}
+             */
+            scoring_mode: "point_based" | "levels_based";
+            /** Source Excerpt */
+            source_excerpt: string;
+            /** Source Page */
+            source_page: number | null;
+            /** Subpart */
+            subpart: string;
+            /** Units */
+            units: string[];
+        };
+        /** RubricSetResponse */
+        RubricSetResponse: {
+            /** Confirmed At */
+            confirmed_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Criteria */
+            criteria: components["schemas"]["RubricCriterionResponse"][];
+            /** Id */
+            id: string;
+            /** Identity */
+            identity: {
+                [key: string]: string;
+            };
+            /** Paper Job Id */
+            paper_job_id: string;
+            /** Parser Model */
+            parser_model: string | null;
+            /** Parser Version */
+            parser_version: string;
+            /** Source Document Id */
+            source_document_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "draft" | "confirmed";
+            /** Subject Id */
+            subject_id: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Version Number */
+            version_number: number;
+            /** Warnings */
+            warnings: string[];
+        };
+        /** RubricSetSummary */
+        RubricSetSummary: {
+            /** Confirmed At */
+            confirmed_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Id */
+            id: string;
+            /** Identity */
+            identity: {
+                [key: string]: string;
+            };
+            /** Paper Job Id */
+            paper_job_id: string;
+            /** Parser Model */
+            parser_model: string | null;
+            /** Parser Version */
+            parser_version: string;
+            /** Source Document Id */
+            source_document_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "draft" | "confirmed";
+            /** Subject Id */
+            subject_id: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Version Number */
+            version_number: number;
+            /** Warnings */
+            warnings: string[];
         };
         /** SourceContextResponse */
         SourceContextResponse: {
@@ -1311,6 +2019,31 @@ export interface components {
              * @default false
              */
             truncated: boolean;
+        };
+        /** SourceDocumentResponse */
+        SourceDocumentResponse: {
+            /** Authority Tier */
+            authority_tier: string;
+            /** Checksum */
+            checksum: string;
+            /** Error */
+            error: string | null;
+            /** Filename */
+            filename: string;
+            /** Id */
+            id: string;
+            /** Knowledge Base Id */
+            knowledge_base_id: string | null;
+            /** License Confirmed */
+            license_confirmed: boolean;
+            /** Page Count */
+            page_count: number | null;
+            /** Source Role */
+            source_role: string;
+            /** Source Type */
+            source_type: string;
+            /** Status */
+            status: string;
         };
         /** StatsResponse */
         StatsResponse: {
@@ -1344,18 +2077,52 @@ export interface components {
             /** Strict Pairs */
             strict_pairs: number;
         };
+        /** SubjectKnowledgeBaseResponse */
+        SubjectKnowledgeBaseResponse: {
+            /** Active Version Id */
+            active_version_id: string | null;
+            /** Active Version Number */
+            active_version_number: number | null;
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Name */
+            name: string;
+            /**
+             * Status
+             * @default empty
+             */
+            status: string;
+            /**
+             * Vector Points
+             * @default 0
+             */
+            vector_points: number;
+        };
         /** SubjectPackResponse */
         SubjectPackResponse: {
+            /** Active Graph Version Id */
+            active_graph_version_id: string | null;
             /** Answering Disabled Reason */
             answering_disabled_reason: string | null;
             /** Answering Enabled */
             answering_enabled: boolean;
             /** Board Name */
             board_name: string;
+            /** Capability Profile Id */
+            capability_profile_id: string | null;
             /** Digest */
             digest: string;
+            /**
+             * Generic Qa Enabled
+             * @default true
+             */
+            generic_qa_enabled: boolean;
             /** Id */
             id: string;
+            /** Knowledge Bases */
+            knowledge_bases: components["schemas"]["SubjectKnowledgeBaseResponse"][];
             /** Subject Code */
             subject_code: string;
             /** Title */
@@ -1367,16 +2134,27 @@ export interface components {
         };
         /** SubjectStatusResponse */
         SubjectStatusResponse: {
+            /** Active Graph Version Id */
+            active_graph_version_id: string | null;
             /** Answering Disabled Reason */
             answering_disabled_reason: string | null;
             /** Answering Enabled */
             answering_enabled: boolean;
             /** Board Name */
             board_name: string;
+            /** Capability Profile Id */
+            capability_profile_id: string | null;
             /** Digest */
             digest: string;
+            /**
+             * Generic Qa Enabled
+             * @default true
+             */
+            generic_qa_enabled: boolean;
             /** Id */
             id: string;
+            /** Knowledge Bases */
+            knowledge_bases: components["schemas"]["SubjectKnowledgeBaseResponse"][];
             stats: components["schemas"]["StatsResponse"] | null;
             /** Subject Code */
             subject_code: string;
@@ -1510,6 +2288,28 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    capability_profiles_api_v1_capability_profiles_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    }[];
                 };
             };
         };
@@ -1700,6 +2500,114 @@ export interface operations {
             };
         };
     };
+    grading_papers_api_v1_grading_papers_get: {
+        parameters: {
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GradingPaperSummary"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    paper_assessments_api_v1_grading_papers__paper_job_id__assessments_get: {
+        parameters: {
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path: {
+                paper_job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaperAssessmentResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    assess_paper_question_api_v1_grading_papers__paper_job_id__questions__position__assess_post: {
+        parameters: {
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path: {
+                paper_job_id: string;
+                position: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GradePaperQuestionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GradeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     reviews_api_v1_grading_reviews_get: {
         parameters: {
             query?: {
@@ -1772,6 +2680,186 @@ export interface operations {
             };
         };
     };
+    list_rubrics_api_v1_grading_rubrics_get: {
+        parameters: {
+            query: {
+                paper_job_id: string;
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RubricSetSummary"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_rubric_api_v1_grading_rubrics_post: {
+        parameters: {
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateRubricRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RubricSetResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rubric_detail_api_v1_grading_rubrics__rubric_id__get: {
+        parameters: {
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path: {
+                rubric_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RubricSetResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    confirm_rubric_api_v1_grading_rubrics__rubric_id__confirm_post: {
+        parameters: {
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path: {
+                rubric_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RubricSetResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    review_all_rubric_api_v1_grading_rubrics__rubric_id__review_all_post: {
+        parameters: {
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path: {
+                rubric_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewAllRubricRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RubricSetResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     health_api_v1_health_get: {
         parameters: {
             query?: never;
@@ -1792,16 +2880,88 @@ export interface operations {
             };
         };
     };
-    difficulty_api_v1_knowledge_difficulty_post: {
+    build_knowledge_base_api_v1_knowledge_bases__knowledge_base_id__build_post: {
         parameters: {
-            query?: never;
-            header?: never;
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path: {
+                knowledge_base_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeBaseBuildResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    graph_versions_api_v1_knowledge_graphs_get: {
+        parameters: {
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GraphVersionSummary"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    build_graph_api_v1_knowledge_graphs_build_post: {
+        parameters: {
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["DifficultyFeatures"];
+                "application/json": components["schemas"]["BuildGraphRequest"];
             };
         };
         responses: {
@@ -1811,7 +2971,196 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["DifficultyResult"];
+                    "application/json": components["schemas"]["GraphVersionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    graph_version_api_v1_knowledge_graphs__version_id__get: {
+        parameters: {
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GraphVersionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    review_graph_edge_api_v1_knowledge_graphs__version_id__edges__edge_id__patch: {
+        parameters: {
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path: {
+                version_id: string;
+                edge_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewGraphEdgeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GraphEdgeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    review_graph_node_api_v1_knowledge_graphs__version_id__nodes__node_id__patch: {
+        parameters: {
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path: {
+                version_id: string;
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewGraphNodeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GraphNodeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    publish_graph_api_v1_knowledge_graphs__version_id__publish_post: {
+        parameters: {
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GraphVersionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    review_all_api_v1_knowledge_graphs__version_id__review_all_post: {
+        parameters: {
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewAllRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GraphVersionResponse"];
                 };
             };
             /** @description Validation Error */
@@ -2230,6 +3579,113 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SubjectPackResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_subject_workspace_api_v1_subject_workspaces_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSubjectRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubjectPackResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    workspace_documents_api_v1_subject_workspaces__workspace_id__documents_get: {
+        parameters: {
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceDocumentResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_workspace_document_api_v1_subject_workspaces__workspace_id__documents_post: {
+        parameters: {
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_workspace_document_api_v1_subject_workspaces__workspace_id__documents_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceDocumentResponse"];
                 };
             };
             /** @description Validation Error */

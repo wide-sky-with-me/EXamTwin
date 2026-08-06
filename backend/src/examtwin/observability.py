@@ -73,6 +73,7 @@ def configure_logging(*, level: str = "INFO") -> None:
         uvicorn_logger = logging.getLogger(name)
         uvicorn_logger.handlers.clear()
         uvicorn_logger.propagate = True
+    logging.getLogger("pypdf").setLevel(logging.ERROR)
 
 
 def safe_exception_extra(error: BaseException) -> dict[str, str]:

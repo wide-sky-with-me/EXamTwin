@@ -28,6 +28,7 @@ from examtwin.persistence.migrations import upgrade_database
 from examtwin.persistence.session import utcnow
 from examtwin.services.ingestion import build_vector_index
 from examtwin.services.inventory import corpus_stats, scan_corpus
+from examtwin.services.providers import run_provider_smoke
 from examtwin.services.retrieval_evaluation import (
     evaluate_retrieval,
     load_retrieval_dataset,
@@ -200,19 +201,11 @@ def inventory() -> None:
 
 
 @app.command("knowledge-build")
-def knowledge_build(
-    ai_difficulty: bool = typer.Option(
-        False,
-        "--ai-difficulty/--no-ai-difficulty",
-        help="Explicitly call the configured LLM for D-level syllabus feature estimates.",
-    ),
-) -> None:
-    """Validate and publish the active SubjectPack knowledge graph."""
+def knowledge_build() -> None:
+    """Validate, evidence-rate, and publish the active SubjectPack knowledge graph."""
     settings = get_settings()
     upgrade_database(settings.database_url)
-    result = build_knowledge_pipeline(settings).run(
-        use_ai_difficulty=ai_difficulty,
-    )
+    result = build_knowledge_pipeline(settings).run()
     typer.echo(json.dumps(result, ensure_ascii=False, indent=2))
 
 
@@ -343,6 +336,26 @@ def retrieval_traces(
     typer.echo(json.dumps(rows, ensure_ascii=False, indent=2, default=str))
 
 
+@app.command("provider-smoke")
+def provider_smoke(
+    provider: str = typer.Option(
+        "all",
+        help="Billable live check: all, llm, embedding, rerank, or a comma-separated subset.",
+    ),
+) -> None:
+    """Call configured model providers and verify their real response contracts."""
+
+    selected = {item.strip().lower() for item in provider.split(",") if item.strip()}
+    if not selected or "all" in selected:
+        selected = {"llm", "embedding", "rerank"}
+    try:
+        result = run_provider_smoke(get_settings(), selected)
+    except (RuntimeError, ValueError) as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=1) from error
+    typer.echo(json.dumps(result, ensure_ascii=False, indent=2))
+
+
 @app.command()
 def bootstrap(
     convert_limit: int = typer.Option(
@@ -364,8 +377,6 @@ def bootstrap(
         workers=2,
     )
     typer.echo(result.model_dump_json(indent=2))
-    knowledge_result = build_knowledge_pipeline(settings).run()
-    typer.echo(json.dumps(knowledge_result, ensure_ascii=False, indent=2))
     index_result = build_vector_index(
         subject.runtime_settings(settings),
         subject,

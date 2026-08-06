@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import json
+from contextlib import AbstractContextManager
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 from examtwin.answering_agent.contracts import AnswerTask
 from examtwin.answering_agent.prompts import compose_system_prompt
 from examtwin.config import Settings
+from examtwin.persistence.models import KnowledgeBaseModel
+from examtwin.persistence.workspace_repository import WorkspaceRepository
 from examtwin.services.subject_context import subject_context
 from examtwin.subject_packages import (
     DEFAULT_SUBJECT_PACKS_ROOT,
@@ -53,6 +57,101 @@ def test_subject_context_switches_runtime_bindings_without_mutating_global_setti
     assert runtime.subject_pack == "oxfordaqa-economics-9640"
     assert runtime.qdrant_collection_alias == "examtwin_9640_live"
     assert settings.subject_pack != runtime.subject_pack
+
+
+def test_managed_subject_without_published_version_keeps_collection_and_alias_distinct(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from examtwin.services import subject_context as subject_context_module
+
+    class WorkspaceRepository:
+        def __init__(self, _sessions: object) -> None:
+            pass
+
+        def resolve_subject(self, _selector: str) -> dict[str, object]:
+            return {
+                "id": "oxfordaqa-mathematics-9660",
+                "subject_code": "9660",
+                "title": "OxfordAQA International AS/A-level Mathematics (9660)",
+                "board_name": "OxfordAQA International Qualifications",
+                "capability_profile_id": "oxfordaqa-mathematics-9660",
+                "active_graph_version_id": None,
+                "knowledge_bases": [],
+            }
+
+    monkeypatch.setattr(subject_context_module, "WorkspaceRepository", WorkspaceRepository)
+    context = subject_context_module.subject_context(Settings(), "9660")
+
+    assert context.vector_collection == "examtwin_9660"
+    assert context.vector_alias == "examtwin_9660_live"
+    build_context = context.with_index_target(
+        version_id="version-1",
+        alias_name="examtwin_oxfordaqa_mathematics_9660_core_live",
+    )
+    runtime = build_context.runtime_settings(Settings())
+    assert runtime.qdrant_collection == "examtwin_oxfordaqa_mathematics_9660_core"
+    assert runtime.qdrant_collection_alias == "examtwin_oxfordaqa_mathematics_9660_core_live"
+
+    from examtwin.api import system as system_api
+
+    class MetadataWorkspaceRepository:
+        def __init__(self, _sessions: object) -> None:
+            pass
+
+        def resolve_subject(self, _selector: str) -> dict[str, object]:
+            return {
+                "knowledge_bases": [
+                    {
+                        "id": "core",
+                        "name": "Core Knowledge Base",
+                        "kind": "core",
+                        "active_version_id": "version-1",
+                        "active_version": {
+                            "version_number": 3,
+                            "status": "published",
+                            "vector_points": 5101,
+                        },
+                    }
+                ]
+            }
+
+    monkeypatch.setattr(system_api, "WorkspaceRepository", MetadataWorkspaceRepository)
+    response = system_api._subject_response(context, Settings())
+    assert response.knowledge_bases[0].vector_points == 5101
+
+
+def test_installed_subject_sync_creates_default_knowledge_bases() -> None:
+    created: list[object] = []
+
+    class FakeSession:
+        def execute(self, _statement: object) -> None:
+            pass
+
+        def get(self, _model: type[object], _key: str) -> None:
+            return None
+
+        def add(self, value: object) -> None:
+            created.append(value)
+
+    class SessionContext(AbstractContextManager[FakeSession]):
+        def __enter__(self) -> FakeSession:
+            return FakeSession()
+
+        def __exit__(self, *_args: object) -> None:
+            pass
+
+    class FakeSessionFactory:
+        def begin(self) -> SessionContext:
+            return SessionContext()
+
+    repository = WorkspaceRepository(cast(Any, FakeSessionFactory()))
+    repository.synchronize_installed_subjects([get_subject_package("oxfordaqa-mathematics-9660")])
+
+    bases = [item for item in created if isinstance(item, KnowledgeBaseModel)]
+    assert [(base.kind, base.name) for base in bases] == [
+        ("core", "Core Knowledge Base"),
+        ("supplementary", "Supplementary Knowledge Base"),
+    ]
 
 
 def test_subject_package_rejects_skill_path_escape(tmp_path: Path) -> None:

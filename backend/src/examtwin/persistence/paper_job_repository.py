@@ -45,6 +45,25 @@ class PaperJobRepository:
             row = session.get(PaperJobModel, job_id)
         return None if row is None else _row_dict(row)
 
+    def recent_for_subject(
+        self,
+        subject_code: str,
+        *,
+        limit: int = 30,
+    ) -> list[dict[str, Any]]:
+        statement = (
+            select(PaperJobModel)
+            .where(
+                PaperJobModel.subject_code == subject_code,
+                PaperJobModel.status.in_(("completed", "partial_failed")),
+            )
+            .order_by(PaperJobModel.updated_at.desc())
+            .limit(limit)
+        )
+        with self.sessions() as session:
+            rows = list(session.scalars(statement))
+        return [_row_dict(row) for row in rows]
+
     def source_record(self, job_id: str) -> dict[str, Any] | None:
         statement = select(
             PaperJobModel.filename,
@@ -491,6 +510,10 @@ class PaperJobRepository:
                         "model_name": statement.excluded.model_name,
                         "max_iterations": statement.excluded.max_iterations,
                         "max_tool_calls": statement.excluded.max_tool_calls,
+                        "knowledge_base_version_ids_json": (
+                            statement.excluded.knowledge_base_version_ids_json
+                        ),
+                        "graph_version_id": statement.excluded.graph_version_id,
                         "status": "running",
                         "completed_at": None,
                     },

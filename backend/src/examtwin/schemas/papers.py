@@ -105,6 +105,8 @@ class PaperJobResponse(SerializedResponse):
     subject_pack_id: str
     subject_code: str
     unit_code: str | None
+    knowledge_base_version_ids: list[str] = Field(default_factory=list)
+    graph_version_id: str | None = None
     status: Literal[
         "queued",
         "parsing",

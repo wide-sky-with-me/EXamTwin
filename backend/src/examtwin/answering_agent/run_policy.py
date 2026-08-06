@@ -10,7 +10,7 @@ TOOL_LABELS = {
     "question_vision": "核对原题页图",
     "knowledge_search": "检索知识库",
     "source_read": "读取参考原文",
-    "paired_exam_lookup": "读取同卷评分证据",
+    "paired_exam_lookup": "读取同卷材料",
     "math_calculate": "执行数学计算",
     "probability_calculate": "核验概率计算",
     "economics_calculate": "核验经济量化计算",

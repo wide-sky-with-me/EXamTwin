@@ -24,6 +24,9 @@ MONTH_MAP = {
     "june": "JUN",
     "summer": "JUN",
     "夏": "JUN",
+    "nov": "NOV",
+    "november": "NOV",
+    "autumn": "NOV",
 }
 
 
@@ -42,7 +45,13 @@ def classify_source(path: Path) -> str:
         return "markdown"
     if "specification" in filename or "考试大纲" in text:
         return "syllabus"
-    if re.search(r"(?:^|[^a-z])ms(?:[^a-z]|$)", filename) or "mark scheme" in filename:
+    if "章节分类练习" in text:
+        return "topic_practice"
+    if (
+        re.search(r"(?:^|[^a-z])ms(?:[^a-z]|$)", filename)
+        or "mark scheme" in filename
+        or "markscheme" in filename
+    ):
         return "mark_scheme"
     if "examiner" in filename or "report on exam" in filename or re.search(r"(^| )er ", filename):
         return "examiner_report"
@@ -56,8 +65,6 @@ def classify_source(path: Path) -> str:
         return "textbook"
     if "复习笔记" in text:
         return "revision_note"
-    if "章节分类练习" in text:
-        return "topic_practice"
     if path.suffix.lower() in {".ppt", ".pptx"}:
         return "slide"
     return "other"
@@ -77,22 +84,25 @@ def authority_tier(
 
 
 def _parse_year(text: str) -> int | None:
-    compact = re.search(r"20(1[7-9]|2[0-9])(0[15-6])", text)
+    compact = re.search(r"20(1[7-9]|2[0-9])(?:0[156]|11)", text)
     if compact:
         return int(compact.group(0)[:4])
-    four_digit = re.search(r"\b(20(?:1[7-9]|2[0-9]))\b", text)
+    four_digit = re.search(r"(?<!\d)(20(?:1[7-9]|2[0-9]))(?!\d)", text)
     if four_digit:
         return int(four_digit.group(1))
-    two_digit = re.search(r"\b(?:jan|january|may|jun|june)[- ]?([12][7-9]|2[0-9])\b", text)
+    two_digit = re.search(
+        r"(?:jan|january|may|jun|june|nov|november)[- ]?([12][7-9]|2[0-9])(?!\d)",
+        text,
+    )
     if two_digit:
         return 2000 + int(two_digit.group(1))
     return None
 
 
 def _parse_session(text: str) -> str | None:
-    compact = re.search(r"20(?:1[7-9]|2[0-9])(0[15-6])", text)
+    compact = re.search(r"20(?:1[7-9]|2[0-9])(0[156]|11)", text)
     if compact:
-        return "JAN" if compact.group(1) == "01" else "JUN"
+        return {"01": "JAN", "05": "JUN", "06": "JUN", "11": "NOV"}[compact.group(1)]
     for token, session in MONTH_MAP.items():
         if token in text:
             return session
@@ -107,8 +117,17 @@ def parse_exam_identity(
     text = str(path).lower()
     year = _parse_year(text)
     session = _parse_session(text)
-    unit = subject_pack.parse_unit(path.name)
-    exam_source = source_type in {"question_paper", "mark_scheme", "examiner_report", "insert"}
+    unit = subject_pack.parse_unit(text)
+    vendor_code = re.search(r"\baqa[-_ ]?(\d{4,5})(?!\d)", path.name.lower())
+    foreign_subject = bool(
+        vendor_code and not vendor_code.group(1).startswith(subject_pack.subject_code)
+    )
+    specimen = "样卷" in text or "specimen" in text
+    exam_source = (
+        source_type in {"question_paper", "mark_scheme", "examiner_report", "insert"}
+        and not foreign_subject
+        and not specimen
+    )
     pair_key = None
     missing: list[str] = []
     if exam_source:

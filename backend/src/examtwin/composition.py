@@ -5,13 +5,17 @@ from examtwin.persistence.assessment_repository import AssessmentRepository
 from examtwin.persistence.corpus_repository import CorpusRepository
 from examtwin.persistence.dashboard_repository import DashboardRepository
 from examtwin.persistence.difficulty_repository import DifficultyRepository
+from examtwin.persistence.document_block_repository import DocumentBlockRepository
+from examtwin.persistence.graph_repository import GraphRepository
 from examtwin.persistence.knowledge_build_repository import KnowledgeBuildRepository
 from examtwin.persistence.knowledge_repository import KnowledgeRepository
 from examtwin.persistence.object_catalog_repository import ObjectCatalogRepository
 from examtwin.persistence.paper_job_repository import PaperJobRepository
 from examtwin.persistence.retrieval_trace_repository import RetrievalTraceRepository
+from examtwin.persistence.rubric_repository import RubricRepository
 from examtwin.persistence.session import create_session_factory
 from examtwin.persistence.vector_index_repository import VectorIndexRepository
+from examtwin.persistence.workspace_repository import WorkspaceRepository
 from examtwin.services.corpus_ingestion import CorpusIngestor
 from examtwin.services.grading import GradingService
 from examtwin.services.knowledge_pipeline import KnowledgeBuildPipeline
@@ -21,6 +25,7 @@ from examtwin.services.paper_jobs import PaperJobService
 from examtwin.services.paper_sources import PaperSourceStore
 from examtwin.services.paper_worker import PaperWorker
 from examtwin.services.rag import RagService
+from examtwin.services.rubrics import RubricService
 from examtwin.services.subject_context import SubjectContext, subject_context
 from examtwin.services.task_events import PostgresPaperJobWakeup
 from examtwin.storage import ManagedObjectStore, build_storage_backend
@@ -92,6 +97,8 @@ def build_knowledge_pipeline(
         context,
         KnowledgeBuildRepository(sessions),
         KnowledgeRepository(sessions),
+        WorkspaceRepository(sessions),
+        DocumentBlockRepository(sessions),
     )
 
 
@@ -111,6 +118,8 @@ def build_rag_service(
             sessions,
             max_rows_per_subject=runtime_settings.retrieval_trace_max_rows_per_subject,
         ),
+        DocumentBlockRepository(sessions),
+        GraphRepository(sessions),
         object_store=build_object_store(settings),
     )
 
@@ -126,6 +135,27 @@ def build_grading_service(
         AssessmentRepository(sessions),
         context.runtime_settings(settings),
         context,
+    )
+
+
+def build_rubric_service(
+    settings: Settings,
+    subject: SubjectContext | None = None,
+) -> RubricService:
+    sessions = create_session_factory(settings.database_url)
+    context = subject or subject_context(settings)
+    runtime_settings = context.runtime_settings(settings)
+    documents = CorpusRepository(sessions)
+    assessments = AssessmentRepository(sessions)
+    grading = GradingService(documents, assessments, runtime_settings, context)
+    return RubricService(
+        runtime_settings,
+        context,
+        documents,
+        PaperJobRepository(sessions, lease_seconds=settings.paper_lease_seconds),
+        RubricRepository(sessions),
+        assessments,
+        grading,
     )
 
 
@@ -167,6 +197,8 @@ def build_paper_worker(settings: Settings) -> PaperWorker:
             knowledge,
             documents,
             retrieval_traces,
+            DocumentBlockRepository(sessions),
+            GraphRepository(sessions),
             object_store=object_store,
         )
         return PaperAnswerService(

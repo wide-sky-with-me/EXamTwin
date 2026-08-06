@@ -47,8 +47,9 @@ def compose_system_prompt(
         "None."
         if not task.pair_key or not paired_exam_available
         else (
-            "An exact year/session/unit pair is known. You MUST call `paired_exam_lookup` and use "
-            "its official marking evidence when available; never substitute a nearby session."
+            "An exact year/session/unit pair is known. You MUST call `paired_exam_lookup` "
+            "and use its official source-booklet evidence when available; never substitute "
+            "a nearby session."
         )
     )
     runtime_data = f"""

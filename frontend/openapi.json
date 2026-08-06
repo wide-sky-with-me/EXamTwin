@@ -231,6 +231,18 @@
             "title": "Authority Tiers",
             "type": "array"
           },
+          "include_supplementary": {
+            "default": false,
+            "title": "Include Supplementary",
+            "type": "boolean"
+          },
+          "knowledge_base_version_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Knowledge Base Version Ids",
+            "type": "array"
+          },
           "pair_key": {
             "anyOf": [
               {
@@ -315,6 +327,17 @@
             "title": "Diagrams",
             "type": "array"
           },
+          "graph_version_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Graph Version Id"
+          },
           "grounded": {
             "title": "Grounded",
             "type": "boolean"
@@ -324,6 +347,13 @@
               "$ref": "#/components/schemas/AnswerImage"
             },
             "title": "Images",
+            "type": "array"
+          },
+          "knowledge_base_version_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Knowledge Base Version Ids",
             "type": "array"
           },
           "warnings": {
@@ -341,6 +371,8 @@
           "images",
           "confidence",
           "grounded",
+          "knowledge_base_version_ids",
+          "graph_version_id",
           "warnings"
         ],
         "title": "AskResponse",
@@ -352,6 +384,22 @@
             "contentMediaType": "application/octet-stream",
             "title": "File",
             "type": "string"
+          },
+          "include_supplementary": {
+            "default": false,
+            "title": "Include Supplementary",
+            "type": "boolean"
+          },
+          "knowledge_base_version_ids": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Knowledge Base Version Ids"
           },
           "unit_code": {
             "anyOf": [
@@ -369,6 +417,54 @@
           "file"
         ],
         "title": "Body_answer_paper_api_v1_papers_answer_post",
+        "type": "object"
+      },
+      "Body_upload_workspace_document_api_v1_subject_workspaces__workspace_id__documents_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          },
+          "knowledge_base_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Knowledge Base Id"
+          },
+          "license_confirmed": {
+            "default": false,
+            "title": "License Confirmed",
+            "type": "boolean"
+          },
+          "source_type": {
+            "title": "Source Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file",
+          "source_type"
+        ],
+        "title": "Body_upload_workspace_document_api_v1_subject_workspaces__workspace_id__documents_post",
+        "type": "object"
+      },
+      "BuildGraphRequest": {
+        "properties": {
+          "knowledge_base_version_id": {
+            "title": "Knowledge Base Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "knowledge_base_version_id"
+        ],
+        "title": "BuildGraphRequest",
         "type": "object"
       },
       "Citation": {
@@ -586,6 +682,79 @@
           }
         },
         "title": "ConvertRequest",
+        "type": "object"
+      },
+      "CreateRubricRequest": {
+        "properties": {
+          "paper_job_id": {
+            "title": "Paper Job Id",
+            "type": "string"
+          },
+          "source_document_id": {
+            "title": "Source Document Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "paper_job_id",
+          "source_document_id"
+        ],
+        "title": "CreateRubricRequest",
+        "type": "object"
+      },
+      "CreateSubjectRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "board_name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Board Name",
+            "type": "string"
+          },
+          "capability_profile_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capability Profile Id"
+          },
+          "id": {
+            "maxLength": 63,
+            "minLength": 2,
+            "title": "Id",
+            "type": "string"
+          },
+          "language": {
+            "default": "en",
+            "maxLength": 16,
+            "minLength": 2,
+            "title": "Language",
+            "type": "string"
+          },
+          "subject_code": {
+            "maxLength": 32,
+            "minLength": 2,
+            "title": "Subject Code",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "subject_code",
+          "title",
+          "board_name"
+        ],
+        "title": "CreateSubjectRequest",
         "type": "object"
       },
       "DiagramElement": {
@@ -864,112 +1033,6 @@
         "title": "DiagramLegendItem",
         "type": "object"
       },
-      "DifficultyFeatures": {
-        "properties": {
-          "cognitive_demand": {
-            "default": 0.5,
-            "maximum": 1.0,
-            "minimum": 0.0,
-            "title": "Cognitive Demand",
-            "type": "number"
-          },
-          "evidence_confidence": {
-            "default": 0.35,
-            "maximum": 1.0,
-            "minimum": 0.0,
-            "title": "Evidence Confidence",
-            "type": "number"
-          },
-          "examiner_severity": {
-            "anyOf": [
-              {
-                "maximum": 1.0,
-                "minimum": 0.0,
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Examiner Severity"
-          },
-          "facility_rate": {
-            "anyOf": [
-              {
-                "maximum": 1.0,
-                "minimum": 0.0,
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Facility Rate"
-          },
-          "prerequisite_depth": {
-            "default": 0,
-            "minimum": 0.0,
-            "title": "Prerequisite Depth",
-            "type": "integer"
-          },
-          "solution_steps": {
-            "default": 3,
-            "minimum": 1.0,
-            "title": "Solution Steps",
-            "type": "integer"
-          },
-          "syllabus_complexity": {
-            "default": 0.5,
-            "maximum": 1.0,
-            "minimum": 0.0,
-            "title": "Syllabus Complexity",
-            "type": "number"
-          }
-        },
-        "title": "DifficultyFeatures",
-        "type": "object"
-      },
-      "DifficultyResult": {
-        "properties": {
-          "confidence": {
-            "title": "Confidence",
-            "type": "number"
-          },
-          "contributions": {
-            "additionalProperties": {
-              "type": "number"
-            },
-            "title": "Contributions",
-            "type": "object"
-          },
-          "label": {
-            "enum": [
-              "easy",
-              "medium",
-              "hard"
-            ],
-            "title": "Label",
-            "type": "string"
-          },
-          "raw_score": {
-            "title": "Raw Score",
-            "type": "number"
-          },
-          "score": {
-            "title": "Score",
-            "type": "number"
-          }
-        },
-        "required": [
-          "score",
-          "label",
-          "confidence",
-          "raw_score",
-          "contributions"
-        ],
-        "title": "DifficultyResult",
-        "type": "object"
-      },
       "ExpectedExpression": {
         "properties": {
           "expected": {
@@ -999,6 +1062,19 @@
         "title": "ExpectedExpression",
         "type": "object"
       },
+      "GradePaperQuestionRequest": {
+        "properties": {
+          "rubric_set_id": {
+            "title": "Rubric Set Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rubric_set_id"
+        ],
+        "title": "GradePaperQuestionRequest",
+        "type": "object"
+      },
       "GradeRequest": {
         "properties": {
           "answer_markdown": {
@@ -1011,6 +1087,13 @@
               "$ref": "#/components/schemas/ExpectedExpression"
             },
             "title": "Expected Expressions",
+            "type": "array"
+          },
+          "knowledge_codes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Knowledge Codes",
             "type": "array"
           },
           "mark_scheme_markdown": {
@@ -1093,6 +1176,13 @@
             "title": "Confidence",
             "type": "number"
           },
+          "improvement_suggestions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Improvement Suggestions",
+            "type": "array"
+          },
           "manual_review_required": {
             "default": true,
             "title": "Manual Review Required",
@@ -1164,9 +1254,451 @@
           "symbolic_checks",
           "citations",
           "warnings",
+          "improvement_suggestions",
           "manual_review_required"
         ],
         "title": "GradeResponse",
+        "type": "object"
+      },
+      "GradingPaperSummary": {
+        "properties": {
+          "completed_questions": {
+            "title": "Completed Questions",
+            "type": "integer"
+          },
+          "failed_questions": {
+            "title": "Failed Questions",
+            "type": "integer"
+          },
+          "filename": {
+            "title": "Filename",
+            "type": "string"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "completed",
+              "partial_failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "total_questions": {
+            "title": "Total Questions",
+            "type": "integer"
+          },
+          "unit_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Code"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "filename",
+          "unit_code",
+          "status",
+          "total_questions",
+          "completed_questions",
+          "failed_questions",
+          "updated_at"
+        ],
+        "title": "GradingPaperSummary",
+        "type": "object"
+      },
+      "GraphEdgeResponse": {
+        "properties": {
+          "confidence": {
+            "title": "Confidence",
+            "type": "number"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/GraphEvidence"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "relation_type": {
+            "title": "Relation Type",
+            "type": "string"
+          },
+          "review_status": {
+            "title": "Review Status",
+            "type": "string"
+          },
+          "source_key": {
+            "title": "Source Key",
+            "type": "string"
+          },
+          "target_key": {
+            "title": "Target Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "source_key",
+          "target_key",
+          "relation_type",
+          "evidence",
+          "confidence",
+          "review_status"
+        ],
+        "title": "GraphEdgeResponse",
+        "type": "object"
+      },
+      "GraphEvidence": {
+        "properties": {
+          "block_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Block Id"
+          },
+          "document_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Id"
+          },
+          "page": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page"
+          },
+          "quote": {
+            "default": "",
+            "title": "Quote",
+            "type": "string"
+          },
+          "section": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Section"
+          }
+        },
+        "required": [
+          "block_id",
+          "document_id",
+          "page",
+          "section",
+          "quote"
+        ],
+        "title": "GraphEvidence",
+        "type": "object"
+      },
+      "GraphNodeResponse": {
+        "properties": {
+          "aliases": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Aliases",
+            "type": "array"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "confidence": {
+            "title": "Confidence",
+            "type": "number"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/GraphEvidence"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "node_type": {
+            "title": "Node Type",
+            "type": "string"
+          },
+          "parent_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Key"
+          },
+          "review_status": {
+            "title": "Review Status",
+            "type": "string"
+          },
+          "stable_key": {
+            "title": "Stable Key",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "unit_code": {
+            "default": "",
+            "title": "Unit Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "stable_key",
+          "code",
+          "title",
+          "description",
+          "node_type",
+          "aliases",
+          "parent_key",
+          "unit_code",
+          "evidence",
+          "confidence",
+          "review_status",
+          "metadata"
+        ],
+        "title": "GraphNodeResponse",
+        "type": "object"
+      },
+      "GraphVersionResponse": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/GraphEdgeResponse"
+            },
+            "title": "Edges",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "knowledge_base_version_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Knowledge Base Version Id"
+          },
+          "model_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Name"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/GraphNodeResponse"
+            },
+            "title": "Nodes",
+            "type": "array"
+          },
+          "prompt_version": {
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published At"
+          },
+          "source_hash": {
+            "title": "Source Hash",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "subject_id": {
+            "title": "Subject Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version_number": {
+            "title": "Version Number",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "subject_id",
+          "knowledge_base_version_id",
+          "version_number",
+          "status",
+          "source_hash",
+          "model_name",
+          "prompt_version",
+          "created_at",
+          "updated_at",
+          "published_at",
+          "nodes",
+          "edges"
+        ],
+        "title": "GraphVersionResponse",
+        "type": "object"
+      },
+      "GraphVersionSummary": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "knowledge_base_version_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Knowledge Base Version Id"
+          },
+          "model_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Name"
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published At"
+          },
+          "status": {
+            "enum": [
+              "draft",
+              "published",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "subject_id": {
+            "title": "Subject Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version_number": {
+            "title": "Version Number",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "subject_id",
+          "knowledge_base_version_id",
+          "version_number",
+          "status",
+          "model_name",
+          "created_at",
+          "updated_at",
+          "published_at"
+        ],
+        "title": "GraphVersionSummary",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -1384,6 +1916,122 @@
           "errors"
         ],
         "title": "JobResult",
+        "type": "object"
+      },
+      "KnowledgeBaseBuildResponse": {
+        "properties": {
+          "errors": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "processed": {
+            "title": "Processed",
+            "type": "integer"
+          },
+          "succeeded": {
+            "title": "Succeeded",
+            "type": "integer"
+          },
+          "version": {
+            "$ref": "#/components/schemas/KnowledgeBaseVersionResponse"
+          }
+        },
+        "required": [
+          "version",
+          "processed",
+          "succeeded",
+          "failed",
+          "errors"
+        ],
+        "title": "KnowledgeBaseBuildResponse",
+        "type": "object"
+      },
+      "KnowledgeBaseVersionResponse": {
+        "properties": {
+          "alias_name": {
+            "title": "Alias Name",
+            "type": "string"
+          },
+          "collection_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Collection Name"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "knowledge_base_id": {
+            "title": "Knowledge Base Id",
+            "type": "string"
+          },
+          "parser_version": {
+            "title": "Parser Version",
+            "type": "string"
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published At"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "vector_build_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vector Build Id"
+          },
+          "version_number": {
+            "title": "Version Number",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "knowledge_base_id",
+          "version_number",
+          "status",
+          "alias_name",
+          "collection_name",
+          "vector_build_id",
+          "parser_version",
+          "created_at",
+          "published_at"
+        ],
+        "title": "KnowledgeBaseVersionResponse",
         "type": "object"
       },
       "KnowledgeDifficultySummary": {
@@ -1686,6 +2334,54 @@
           "source_ref"
         ],
         "title": "KnowledgeRelationSummary",
+        "type": "object"
+      },
+      "PaperAssessmentResponse": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "paper_job_id": {
+            "title": "Paper Job Id",
+            "type": "string"
+          },
+          "question_position": {
+            "title": "Question Position",
+            "type": "integer"
+          },
+          "result": {
+            "$ref": "#/components/schemas/GradeResponse"
+          },
+          "rubric_set_id": {
+            "title": "Rubric Set Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending_review",
+              "confirmed",
+              "overridden"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "paper_job_id",
+          "question_position",
+          "rubric_set_id",
+          "status",
+          "result",
+          "created_at"
+        ],
+        "title": "PaperAssessmentResponse",
         "type": "object"
       },
       "PaperDiagramSource": {
@@ -2001,9 +2697,27 @@
             "title": "Filename",
             "type": "string"
           },
+          "graph_version_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Graph Version Id"
+          },
           "job_id": {
             "title": "Job Id",
             "type": "string"
+          },
+          "knowledge_base_version_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Knowledge Base Version Ids",
+            "type": "array"
           },
           "parsed_pages": {
             "title": "Parsed Pages",
@@ -2080,6 +2794,8 @@
           "subject_pack_id",
           "subject_code",
           "unit_code",
+          "knowledge_base_version_ids",
+          "graph_version_id",
           "status",
           "stage",
           "total_pages",
@@ -2211,6 +2927,40 @@
         "title": "PlatformStatusResponse",
         "type": "object"
       },
+      "ReviewAllRequest": {
+        "properties": {
+          "review_status": {
+            "enum": [
+              "accepted",
+              "rejected"
+            ],
+            "title": "Review Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "review_status"
+        ],
+        "title": "ReviewAllRequest",
+        "type": "object"
+      },
+      "ReviewAllRubricRequest": {
+        "properties": {
+          "review_status": {
+            "enum": [
+              "accepted",
+              "rejected"
+            ],
+            "title": "Review Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "review_status"
+        ],
+        "title": "ReviewAllRubricRequest",
+        "type": "object"
+      },
       "ReviewDecisionResponse": {
         "properties": {
           "assessment_id": {
@@ -2241,6 +2991,126 @@
           "reviewed_by"
         ],
         "title": "ReviewDecisionResponse",
+        "type": "object"
+      },
+      "ReviewGraphEdgeRequest": {
+        "properties": {
+          "relation_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "contains",
+                  "prerequisite_of",
+                  "applies_to",
+                  "equivalent_to",
+                  "related_to"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Relation Type"
+          },
+          "review_status": {
+            "enum": [
+              "accepted",
+              "rejected"
+            ],
+            "title": "Review Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "review_status"
+        ],
+        "title": "ReviewGraphEdgeRequest",
+        "type": "object"
+      },
+      "ReviewGraphNodeRequest": {
+        "properties": {
+          "aliases": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Aliases"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 1200,
+                "minLength": 2,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "node_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "concept",
+                  "subconcept",
+                  "formula",
+                  "term"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node Type"
+          },
+          "parent_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Key"
+          },
+          "review_status": {
+            "enum": [
+              "accepted",
+              "rejected"
+            ],
+            "title": "Review Status",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 180,
+                "minLength": 2,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "review_status"
+        ],
+        "title": "ReviewGraphNodeRequest",
         "type": "object"
       },
       "ReviewQueueItem": {
@@ -2370,6 +3240,40 @@
             "title": "Description",
             "type": "string"
           },
+          "error_types": {
+            "items": {
+              "enum": [
+                "conceptual",
+                "procedural",
+                "calculation",
+                "notation",
+                "unit",
+                "diagram",
+                "omission"
+              ],
+              "type": "string"
+            },
+            "title": "Error Types",
+            "type": "array"
+          },
+          "improvement_suggestion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Improvement Suggestion"
+          },
+          "knowledge_codes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Knowledge Codes",
+            "type": "array"
+          },
           "mark_type": {
             "anyOf": [
               {
@@ -2421,9 +3325,359 @@
           "student_evidence",
           "rationale",
           "confidence",
-          "source_ref"
+          "source_ref",
+          "knowledge_codes",
+          "error_types",
+          "improvement_suggestion"
         ],
         "title": "RubricAward",
+        "type": "object"
+      },
+      "RubricCriterionResponse": {
+        "properties": {
+          "accuracy_requirement": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accuracy Requirement"
+          },
+          "alternatives": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Alternatives",
+            "type": "array"
+          },
+          "confidence": {
+            "title": "Confidence",
+            "type": "number"
+          },
+          "criterion_id": {
+            "title": "Criterion Id",
+            "type": "string"
+          },
+          "dependencies": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Dependencies",
+            "type": "array"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "follow_through_policy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Follow Through Policy"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "mark_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mark Type"
+          },
+          "max_marks": {
+            "title": "Max Marks",
+            "type": "number"
+          },
+          "question_number": {
+            "title": "Question Number",
+            "type": "string"
+          },
+          "review_status": {
+            "enum": [
+              "pending",
+              "accepted",
+              "rejected"
+            ],
+            "title": "Review Status",
+            "type": "string"
+          },
+          "scoring_mode": {
+            "enum": [
+              "point_based",
+              "levels_based"
+            ],
+            "title": "Scoring Mode",
+            "type": "string"
+          },
+          "source_excerpt": {
+            "title": "Source Excerpt",
+            "type": "string"
+          },
+          "source_page": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Page"
+          },
+          "subpart": {
+            "title": "Subpart",
+            "type": "string"
+          },
+          "units": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Units",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "question_number",
+          "subpart",
+          "criterion_id",
+          "scoring_mode",
+          "mark_type",
+          "max_marks",
+          "description",
+          "dependencies",
+          "alternatives",
+          "accuracy_requirement",
+          "units",
+          "follow_through_policy",
+          "source_page",
+          "source_excerpt",
+          "confidence",
+          "review_status"
+        ],
+        "title": "RubricCriterionResponse",
+        "type": "object"
+      },
+      "RubricSetResponse": {
+        "properties": {
+          "confirmed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmed At"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "criteria": {
+            "items": {
+              "$ref": "#/components/schemas/RubricCriterionResponse"
+            },
+            "title": "Criteria",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "identity": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Identity",
+            "type": "object"
+          },
+          "paper_job_id": {
+            "title": "Paper Job Id",
+            "type": "string"
+          },
+          "parser_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parser Model"
+          },
+          "parser_version": {
+            "title": "Parser Version",
+            "type": "string"
+          },
+          "source_document_id": {
+            "title": "Source Document Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "draft",
+              "confirmed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "subject_id": {
+            "title": "Subject Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version_number": {
+            "title": "Version Number",
+            "type": "integer"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "subject_id",
+          "paper_job_id",
+          "source_document_id",
+          "version_number",
+          "status",
+          "identity",
+          "parser_model",
+          "parser_version",
+          "warnings",
+          "created_at",
+          "updated_at",
+          "confirmed_at",
+          "criteria"
+        ],
+        "title": "RubricSetResponse",
+        "type": "object"
+      },
+      "RubricSetSummary": {
+        "properties": {
+          "confirmed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmed At"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "identity": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Identity",
+            "type": "object"
+          },
+          "paper_job_id": {
+            "title": "Paper Job Id",
+            "type": "string"
+          },
+          "parser_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parser Model"
+          },
+          "parser_version": {
+            "title": "Parser Version",
+            "type": "string"
+          },
+          "source_document_id": {
+            "title": "Source Document Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "draft",
+              "confirmed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "subject_id": {
+            "title": "Subject Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version_number": {
+            "title": "Version Number",
+            "type": "integer"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "subject_id",
+          "paper_job_id",
+          "source_document_id",
+          "version_number",
+          "status",
+          "identity",
+          "parser_model",
+          "parser_version",
+          "warnings",
+          "created_at",
+          "updated_at",
+          "confirmed_at"
+        ],
+        "title": "RubricSetSummary",
         "type": "object"
       },
       "SourceContextResponse": {
@@ -2465,6 +3719,90 @@
           "truncated"
         ],
         "title": "SourceContextResponse",
+        "type": "object"
+      },
+      "SourceDocumentResponse": {
+        "properties": {
+          "authority_tier": {
+            "title": "Authority Tier",
+            "type": "string"
+          },
+          "checksum": {
+            "title": "Checksum",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "filename": {
+            "title": "Filename",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "knowledge_base_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Knowledge Base Id"
+          },
+          "license_confirmed": {
+            "title": "License Confirmed",
+            "type": "boolean"
+          },
+          "page_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Count"
+          },
+          "source_role": {
+            "title": "Source Role",
+            "type": "string"
+          },
+          "source_type": {
+            "title": "Source Type",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "filename",
+          "source_type",
+          "source_role",
+          "authority_tier",
+          "knowledge_base_id",
+          "license_confirmed",
+          "status",
+          "checksum",
+          "page_count",
+          "error"
+        ],
+        "title": "SourceDocumentResponse",
         "type": "object"
       },
       "StatsResponse": {
@@ -2537,8 +3875,78 @@
         "title": "StatsResponse",
         "type": "object"
       },
+      "SubjectKnowledgeBaseResponse": {
+        "properties": {
+          "active_version_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Version Id"
+          },
+          "active_version_number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Version Number"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "status": {
+            "default": "empty",
+            "title": "Status",
+            "type": "string"
+          },
+          "vector_points": {
+            "default": 0,
+            "title": "Vector Points",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "active_version_id",
+          "active_version_number",
+          "status",
+          "vector_points"
+        ],
+        "title": "SubjectKnowledgeBaseResponse",
+        "type": "object"
+      },
       "SubjectPackResponse": {
         "properties": {
+          "active_graph_version_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Graph Version Id"
+          },
           "answering_disabled_reason": {
             "anyOf": [
               {
@@ -2558,13 +3966,36 @@
             "title": "Board Name",
             "type": "string"
           },
+          "capability_profile_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capability Profile Id"
+          },
           "digest": {
             "title": "Digest",
             "type": "string"
           },
+          "generic_qa_enabled": {
+            "default": true,
+            "title": "Generic Qa Enabled",
+            "type": "boolean"
+          },
           "id": {
             "title": "Id",
             "type": "string"
+          },
+          "knowledge_bases": {
+            "items": {
+              "$ref": "#/components/schemas/SubjectKnowledgeBaseResponse"
+            },
+            "title": "Knowledge Bases",
+            "type": "array"
           },
           "subject_code": {
             "title": "Subject Code",
@@ -2593,8 +4024,12 @@
           "subject_code",
           "title",
           "board_name",
+          "capability_profile_id",
+          "generic_qa_enabled",
           "answering_enabled",
           "answering_disabled_reason",
+          "active_graph_version_id",
+          "knowledge_bases",
           "units"
         ],
         "title": "SubjectPackResponse",
@@ -2602,6 +4037,17 @@
       },
       "SubjectStatusResponse": {
         "properties": {
+          "active_graph_version_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Graph Version Id"
+          },
           "answering_disabled_reason": {
             "anyOf": [
               {
@@ -2621,13 +4067,36 @@
             "title": "Board Name",
             "type": "string"
           },
+          "capability_profile_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capability Profile Id"
+          },
           "digest": {
             "title": "Digest",
             "type": "string"
           },
+          "generic_qa_enabled": {
+            "default": true,
+            "title": "Generic Qa Enabled",
+            "type": "boolean"
+          },
           "id": {
             "title": "Id",
             "type": "string"
+          },
+          "knowledge_bases": {
+            "items": {
+              "$ref": "#/components/schemas/SubjectKnowledgeBaseResponse"
+            },
+            "title": "Knowledge Bases",
+            "type": "array"
           },
           "stats": {
             "anyOf": [
@@ -2678,8 +4147,12 @@
           "subject_code",
           "title",
           "board_name",
+          "capability_profile_id",
+          "generic_qa_enabled",
           "answering_enabled",
           "answering_disabled_reason",
+          "active_graph_version_id",
+          "knowledge_bases",
           "units",
           "vector_alias",
           "vector_index_ready",
@@ -2935,6 +4408,29 @@
           }
         },
         "summary": "Answer Image Asset"
+      }
+    },
+    "/api/v1/capability-profiles": {
+      "get": {
+        "operationId": "capability_profiles_api_v1_capability_profiles_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "title": "Response Capability Profiles Api V1 Capability Profiles Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Capability Profiles"
       }
     },
     "/api/v1/corpus/convert": {
@@ -3336,6 +4832,237 @@
         "summary": "Assess"
       }
     },
+    "/api/v1/grading/papers": {
+      "get": {
+        "operationId": "grading_papers_api_v1_grading_papers_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/GradingPaperSummary"
+                  },
+                  "title": "Response Grading Papers Api V1 Grading Papers Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Grading Papers"
+      }
+    },
+    "/api/v1/grading/papers/{paper_job_id}/assessments": {
+      "get": {
+        "operationId": "paper_assessments_api_v1_grading_papers__paper_job_id__assessments_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "paper_job_id",
+            "required": true,
+            "schema": {
+              "title": "Paper Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PaperAssessmentResponse"
+                  },
+                  "title": "Response Paper Assessments Api V1 Grading Papers  Paper Job Id  Assessments Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Paper Assessments"
+      }
+    },
+    "/api/v1/grading/papers/{paper_job_id}/questions/{position}/assess": {
+      "post": {
+        "operationId": "assess_paper_question_api_v1_grading_papers__paper_job_id__questions__position__assess_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "paper_job_id",
+            "required": true,
+            "schema": {
+              "title": "Paper Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "position",
+            "required": true,
+            "schema": {
+              "title": "Position",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GradePaperQuestionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GradeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Assess Paper Question"
+      }
+    },
     "/api/v1/grading/reviews": {
       "get": {
         "operationId": "reviews_api_v1_grading_reviews_get",
@@ -3483,6 +5210,374 @@
         "summary": "Review"
       }
     },
+    "/api/v1/grading/rubrics": {
+      "get": {
+        "operationId": "list_rubrics_api_v1_grading_rubrics_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "paper_job_id",
+            "required": true,
+            "schema": {
+              "title": "Paper Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RubricSetSummary"
+                  },
+                  "title": "Response List Rubrics Api V1 Grading Rubrics Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Rubrics"
+      },
+      "post": {
+        "operationId": "create_rubric_api_v1_grading_rubrics_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRubricRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RubricSetResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Rubric"
+      }
+    },
+    "/api/v1/grading/rubrics/{rubric_id}": {
+      "get": {
+        "operationId": "rubric_detail_api_v1_grading_rubrics__rubric_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rubric_id",
+            "required": true,
+            "schema": {
+              "title": "Rubric Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RubricSetResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rubric Detail"
+      }
+    },
+    "/api/v1/grading/rubrics/{rubric_id}/confirm": {
+      "post": {
+        "operationId": "confirm_rubric_api_v1_grading_rubrics__rubric_id__confirm_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rubric_id",
+            "required": true,
+            "schema": {
+              "title": "Rubric Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RubricSetResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Confirm Rubric"
+      }
+    },
+    "/api/v1/grading/rubrics/{rubric_id}/review-all": {
+      "post": {
+        "operationId": "review_all_rubric_api_v1_grading_rubrics__rubric_id__review_all_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rubric_id",
+            "required": true,
+            "schema": {
+              "title": "Rubric Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewAllRubricRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RubricSetResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Review All Rubric"
+      }
+    },
     "/api/v1/health": {
       "get": {
         "operationId": "health_api_v1_health_get",
@@ -3501,25 +5596,58 @@
         "summary": "Health"
       }
     },
-    "/api/v1/knowledge/difficulty": {
+    "/api/v1/knowledge-bases/{knowledge_base_id}/build": {
       "post": {
-        "operationId": "difficulty_api_v1_knowledge_difficulty_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DifficultyFeatures"
-              }
+        "operationId": "build_knowledge_base_api_v1_knowledge_bases__knowledge_base_id__build_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "knowledge_base_id",
+            "required": true,
+            "schema": {
+              "title": "Knowledge Base Id",
+              "type": "string"
             }
           },
-          "required": true
-        },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DifficultyResult"
+                  "$ref": "#/components/schemas/KnowledgeBaseBuildResponse"
                 }
               }
             },
@@ -3536,7 +5664,548 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Difficulty"
+        "summary": "Build Knowledge Base"
+      }
+    },
+    "/api/v1/knowledge-graphs": {
+      "get": {
+        "operationId": "graph_versions_api_v1_knowledge_graphs_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/GraphVersionSummary"
+                  },
+                  "title": "Response Graph Versions Api V1 Knowledge Graphs Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Graph Versions"
+      }
+    },
+    "/api/v1/knowledge-graphs/build": {
+      "post": {
+        "operationId": "build_graph_api_v1_knowledge_graphs_build_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BuildGraphRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GraphVersionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Build Graph"
+      }
+    },
+    "/api/v1/knowledge-graphs/{version_id}": {
+      "get": {
+        "operationId": "graph_version_api_v1_knowledge_graphs__version_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "title": "Version Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GraphVersionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Graph Version"
+      }
+    },
+    "/api/v1/knowledge-graphs/{version_id}/edges/{edge_id}": {
+      "patch": {
+        "operationId": "review_graph_edge_api_v1_knowledge_graphs__version_id__edges__edge_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "title": "Version Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "edge_id",
+            "required": true,
+            "schema": {
+              "title": "Edge Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewGraphEdgeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GraphEdgeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Review Graph Edge"
+      }
+    },
+    "/api/v1/knowledge-graphs/{version_id}/nodes/{node_id}": {
+      "patch": {
+        "operationId": "review_graph_node_api_v1_knowledge_graphs__version_id__nodes__node_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "title": "Version Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "node_id",
+            "required": true,
+            "schema": {
+              "title": "Node Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewGraphNodeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GraphNodeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Review Graph Node"
+      }
+    },
+    "/api/v1/knowledge-graphs/{version_id}/publish": {
+      "post": {
+        "operationId": "publish_graph_api_v1_knowledge_graphs__version_id__publish_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "title": "Version Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GraphVersionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Publish Graph"
+      }
+    },
+    "/api/v1/knowledge-graphs/{version_id}/review-all": {
+      "post": {
+        "operationId": "review_all_api_v1_knowledge_graphs__version_id__review_all_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "title": "Version Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewAllRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GraphVersionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Review All"
       }
     },
     "/api/v1/knowledge/points": {
@@ -4427,6 +7096,198 @@
           }
         },
         "summary": "Subject Metadata"
+      }
+    },
+    "/api/v1/subject-workspaces": {
+      "post": {
+        "operationId": "create_subject_workspace_api_v1_subject_workspaces_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSubjectRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubjectPackResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Subject Workspace"
+      }
+    },
+    "/api/v1/subject-workspaces/{workspace_id}/documents": {
+      "get": {
+        "operationId": "workspace_documents_api_v1_subject_workspaces__workspace_id__documents_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SourceDocumentResponse"
+                  },
+                  "title": "Response Workspace Documents Api V1 Subject Workspaces  Workspace Id  Documents Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Workspace Documents"
+      },
+      "post": {
+        "operationId": "upload_workspace_document_api_v1_subject_workspaces__workspace_id__documents_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_workspace_document_api_v1_subject_workspaces__workspace_id__documents_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceDocumentResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upload Workspace Document"
       }
     },
     "/api/v1/subjects": {

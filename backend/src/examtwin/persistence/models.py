@@ -20,15 +20,134 @@ class Base(DeclarativeBase):
     pass
 
 
+class SubjectModel(Base):
+    __tablename__ = "subjects"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    subject_code: Mapped[str] = mapped_column(Text, unique=True)
+    title: Mapped[str] = mapped_column(Text)
+    board_name: Mapped[str] = mapped_column(Text)
+    language: Mapped[str] = mapped_column(Text, default="en")
+    capability_profile_id: Mapped[str | None] = mapped_column(Text)
+    active_graph_version_id: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class KnowledgeBaseModel(Base):
+    __tablename__ = "knowledge_bases"
+    __table_args__ = (UniqueConstraint("subject_id", "kind"),)
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    subject_id: Mapped[str] = mapped_column(Text, ForeignKey("subjects.id", ondelete="CASCADE"))
+    name: Mapped[str] = mapped_column(Text)
+    kind: Mapped[str] = mapped_column(Text)
+    active_version_id: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class KnowledgeBaseVersionModel(Base):
+    __tablename__ = "knowledge_base_versions"
+    __table_args__ = (UniqueConstraint("knowledge_base_id", "version_number"),)
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    knowledge_base_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("knowledge_bases.id", ondelete="CASCADE")
+    )
+    version_number: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(Text, default="draft")
+    alias_name: Mapped[str] = mapped_column(Text)
+    collection_name: Mapped[str | None] = mapped_column(Text)
+    vector_build_id: Mapped[str | None] = mapped_column(Text)
+    source_snapshot_json: Mapped[str] = mapped_column(Text, default="[]")
+    parser_version: Mapped[str] = mapped_column(Text, default="hierarchical-v1")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class GraphVersionModel(Base):
+    __tablename__ = "graph_versions"
+    __table_args__ = (UniqueConstraint("subject_id", "version_number"),)
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    subject_id: Mapped[str] = mapped_column(Text, ForeignKey("subjects.id", ondelete="CASCADE"))
+    knowledge_base_version_id: Mapped[str | None] = mapped_column(
+        Text, ForeignKey("knowledge_base_versions.id", ondelete="SET NULL")
+    )
+    version_number: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(Text, default="draft")
+    source_hash: Mapped[str] = mapped_column(Text)
+    model_name: Mapped[str | None] = mapped_column(Text)
+    prompt_version: Mapped[str] = mapped_column(Text, default="concept-extraction-v1")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class GraphNodeModel(Base):
+    __tablename__ = "graph_nodes"
+    __table_args__ = (UniqueConstraint("graph_version_id", "stable_key"),)
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    graph_version_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("graph_versions.id", ondelete="CASCADE")
+    )
+    stable_key: Mapped[str] = mapped_column(Text)
+    code: Mapped[str] = mapped_column(Text)
+    title: Mapped[str] = mapped_column(Text)
+    description: Mapped[str] = mapped_column(Text, default="")
+    node_type: Mapped[str] = mapped_column(Text)
+    aliases_json: Mapped[str] = mapped_column(Text, default="[]")
+    parent_key: Mapped[str | None] = mapped_column(Text)
+    unit_code: Mapped[str] = mapped_column(Text, default="")
+    evidence_json: Mapped[str] = mapped_column(Text, default="[]")
+    confidence: Mapped[float] = mapped_column(Float, default=0)
+    review_status: Mapped[str] = mapped_column(Text, default="pending")
+    metadata_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class GraphEdgeModel(Base):
+    __tablename__ = "graph_edges"
+    __table_args__ = (
+        UniqueConstraint("graph_version_id", "source_key", "target_key", "relation_type"),
+    )
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    graph_version_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("graph_versions.id", ondelete="CASCADE")
+    )
+    source_key: Mapped[str] = mapped_column(Text)
+    target_key: Mapped[str] = mapped_column(Text)
+    relation_type: Mapped[str] = mapped_column(Text)
+    evidence_json: Mapped[str] = mapped_column(Text, default="[]")
+    confidence: Mapped[float] = mapped_column(Float, default=0)
+    review_status: Mapped[str] = mapped_column(Text, default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class SourceDocumentModel(Base):
     __tablename__ = "source_documents"
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     subject_code: Mapped[str] = mapped_column(Text)
+    subject_id: Mapped[str | None] = mapped_column(
+        Text, ForeignKey("subjects.id", ondelete="CASCADE")
+    )
+    knowledge_base_id: Mapped[str | None] = mapped_column(
+        Text, ForeignKey("knowledge_bases.id", ondelete="SET NULL")
+    )
     path: Mapped[str] = mapped_column(Text, unique=True)
     filename: Mapped[str] = mapped_column(Text, default="")
     source_type: Mapped[str] = mapped_column(Text)
     authority_tier: Mapped[str] = mapped_column(Text, default="supplementary")
+    source_role: Mapped[str] = mapped_column(Text, default="excluded")
+    license_confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
     checksum: Mapped[str] = mapped_column(Text, default="")
     pair_key: Mapped[str | None] = mapped_column(Text)
     unit_code: Mapped[str | None] = mapped_column(Text)
@@ -74,6 +193,33 @@ class SourceDocumentVersionModel(Base):
     )
     checksum: Mapped[str] = mapped_column(Text)
     size_bytes: Mapped[int] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class DocumentBlockModel(Base):
+    __tablename__ = "document_blocks"
+    __table_args__ = (Index("idx_document_blocks_build_document", "build_id", "document_id"),)
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    document_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("source_documents.id", ondelete="CASCADE")
+    )
+    knowledge_base_version_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("knowledge_base_versions.id", ondelete="CASCADE")
+    )
+    build_id: Mapped[str] = mapped_column(Text)
+    parent_block_id: Mapped[str | None] = mapped_column(Text)
+    previous_block_id: Mapped[str | None] = mapped_column(Text)
+    next_block_id: Mapped[str | None] = mapped_column(Text)
+    page: Mapped[int | None] = mapped_column(Integer)
+    section: Mapped[str | None] = mapped_column(Text)
+    section_path_json: Mapped[str] = mapped_column(Text, default="[]")
+    block_kind: Mapped[str] = mapped_column(Text)
+    source_role: Mapped[str] = mapped_column(Text)
+    content: Mapped[str] = mapped_column(Text)
+    content_hash: Mapped[str] = mapped_column(Text)
+    knowledge_codes_json: Mapped[str] = mapped_column(Text, default="[]")
+    metadata_json: Mapped[str] = mapped_column(Text, default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
@@ -152,6 +298,10 @@ class KnowledgePointModel(Base):
     subject_code: Mapped[str] = mapped_column(Text)
     code: Mapped[str] = mapped_column(Text)
     title: Mapped[str] = mapped_column(Text, default="")
+    description: Mapped[str] = mapped_column(Text, default="")
+    aliases_json: Mapped[str] = mapped_column(Text, default="[]")
+    graph_version_id: Mapped[str | None] = mapped_column(Text)
+    review_status: Mapped[str] = mapped_column(Text, default="accepted")
     unit_code: Mapped[str] = mapped_column(Text, default="")
     strand: Mapped[str] = mapped_column(Text, default="")
     parent_id: Mapped[str | None] = mapped_column(Text, ForeignKey("knowledge_points.id"))
@@ -231,6 +381,9 @@ class VectorIndexBuildRunModel(Base):
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     subject_code: Mapped[str] = mapped_column(Text)
+    knowledge_base_version_id: Mapped[str | None] = mapped_column(
+        Text, ForeignKey("knowledge_base_versions.id", ondelete="SET NULL")
+    )
     alias_name: Mapped[str] = mapped_column(Text)
     staging_collection: Mapped[str] = mapped_column(Text)
     previous_collection: Mapped[str | None] = mapped_column(Text)
@@ -265,6 +418,9 @@ class PaperJobModel(Base):
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     subject_pack_id: Mapped[str] = mapped_column(Text)
     subject_code: Mapped[str] = mapped_column(Text)
+    knowledge_base_version_ids_json: Mapped[str] = mapped_column(Text, default="[]")
+    knowledge_collection_names_json: Mapped[str] = mapped_column(Text, default="[]")
+    graph_version_id: Mapped[str | None] = mapped_column(Text)
     filename: Mapped[str] = mapped_column(Text)
     suffix: Mapped[str] = mapped_column(Text)
     unit_code: Mapped[str | None] = mapped_column(Text)
@@ -365,6 +521,8 @@ class PaperAgentRunModel(Base):
     skill_digest: Mapped[str] = mapped_column(Text)
     prompt_digest: Mapped[str] = mapped_column(Text)
     model_name: Mapped[str] = mapped_column(Text)
+    knowledge_base_version_ids_json: Mapped[str] = mapped_column(Text, default="[]")
+    graph_version_id: Mapped[str | None] = mapped_column(Text)
     max_iterations: Mapped[int] = mapped_column(Integer)
     max_tool_calls: Mapped[int] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(Text)
@@ -414,6 +572,9 @@ class KnowledgeRelationModel(Base):
     source_id: Mapped[str] = mapped_column(Text, ForeignKey("knowledge_points.id"))
     target_id: Mapped[str] = mapped_column(Text, ForeignKey("knowledge_points.id"))
     relation_type: Mapped[str] = mapped_column(Text)
+    graph_version_id: Mapped[str | None] = mapped_column(Text)
+    evidence_json: Mapped[str] = mapped_column(Text, default="[]")
+    review_status: Mapped[str] = mapped_column(Text, default="accepted")
     confidence: Mapped[float] = mapped_column(Float)
     source_ref: Mapped[str] = mapped_column(Text)
 
@@ -467,6 +628,13 @@ class AssessmentModel(Base):
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     subject_code: Mapped[str] = mapped_column(Text)
+    paper_job_id: Mapped[str | None] = mapped_column(
+        Text, ForeignKey("paper_jobs.id", ondelete="SET NULL")
+    )
+    question_position: Mapped[int | None] = mapped_column(Integer)
+    rubric_set_id: Mapped[str | None] = mapped_column(Text)
+    knowledge_base_version_ids_json: Mapped[str] = mapped_column(Text, default="[]")
+    graph_version_id: Mapped[str | None] = mapped_column(Text)
     question_ref: Mapped[str | None] = mapped_column(Text)
     answer_markdown: Mapped[str] = mapped_column(Text)
     total_awarded: Mapped[float] = mapped_column(Float)
@@ -488,3 +656,68 @@ class ReviewModel(Base):
     override_mark: Mapped[float | None] = mapped_column(Float)
     note: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class RubricSetModel(Base):
+    __tablename__ = "rubric_sets"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    subject_id: Mapped[str] = mapped_column(Text, ForeignKey("subjects.id", ondelete="CASCADE"))
+    paper_job_id: Mapped[str] = mapped_column(Text, ForeignKey("paper_jobs.id", ondelete="CASCADE"))
+    source_document_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("source_documents.id", ondelete="RESTRICT")
+    )
+    version_number: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(Text, default="draft")
+    identity_json: Mapped[str] = mapped_column(Text, default="{}")
+    parser_model: Mapped[str | None] = mapped_column(Text)
+    parser_version: Mapped[str] = mapped_column(Text, default="rubric-extraction-v1")
+    warnings_json: Mapped[str] = mapped_column(Text, default="[]")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class RubricCriterionModel(Base):
+    __tablename__ = "rubric_criteria"
+    __table_args__ = (UniqueConstraint("rubric_set_id", "question_number", "criterion_id"),)
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    rubric_set_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("rubric_sets.id", ondelete="CASCADE")
+    )
+    question_number: Mapped[str] = mapped_column(Text)
+    subpart: Mapped[str] = mapped_column(Text, default="whole")
+    criterion_id: Mapped[str] = mapped_column(Text)
+    scoring_mode: Mapped[str] = mapped_column(Text)
+    mark_type: Mapped[str | None] = mapped_column(Text)
+    max_marks: Mapped[float] = mapped_column(Float)
+    description: Mapped[str] = mapped_column(Text)
+    dependencies_json: Mapped[str] = mapped_column(Text, default="[]")
+    alternatives_json: Mapped[str] = mapped_column(Text, default="[]")
+    accuracy_requirement: Mapped[str | None] = mapped_column(Text)
+    units_json: Mapped[str] = mapped_column(Text, default="[]")
+    follow_through_policy: Mapped[str | None] = mapped_column(Text)
+    source_page: Mapped[int | None] = mapped_column(Integer)
+    source_excerpt: Mapped[str] = mapped_column(Text, default="")
+    confidence: Mapped[float] = mapped_column(Float)
+    review_status: Mapped[str] = mapped_column(Text, default="pending")
+
+
+class AssessmentRunModel(Base):
+    __tablename__ = "assessment_runs"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    subject_id: Mapped[str] = mapped_column(Text, ForeignKey("subjects.id", ondelete="CASCADE"))
+    paper_job_id: Mapped[str] = mapped_column(Text, ForeignKey("paper_jobs.id", ondelete="CASCADE"))
+    rubric_set_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("rubric_sets.id", ondelete="RESTRICT")
+    )
+    status: Mapped[str] = mapped_column(Text)
+    total_questions: Mapped[int] = mapped_column(Integer)
+    completed_questions: Mapped[int] = mapped_column(Integer, default=0)
+    failed_questions: Mapped[int] = mapped_column(Integer, default=0)
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

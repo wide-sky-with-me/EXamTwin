@@ -47,6 +47,7 @@ def test_hybrid_qdrant_search_prefilters_before_dense_and_lexical_fusion() -> No
     store.add(
         [
             _node("Use the binomial critical region.", subject="9660", unit="P1"),
+            _node("Use the binomial critical region.", subject="9660", unit=""),
             _node("Unrelated calculus wording.", subject="9660", unit="P2"),
             _node("Use the binomial critical region.", subject="9640", unit="U1"),
         ]
@@ -70,8 +71,8 @@ def test_hybrid_qdrant_search_prefilters_before_dense_and_lexical_fusion() -> No
     )
 
     assert result.nodes is not None
-    assert [node.metadata["subject_code"] for node in result.nodes] == ["9660"]
-    assert [node.metadata["unit_code"] for node in result.nodes] == ["P1"]
+    assert {node.metadata["subject_code"] for node in result.nodes} == {"9660"}
+    assert {node.metadata["unit_code"] for node in result.nodes} == {"", "P1"}
 
 
 def test_lexical_sparse_encoder_is_deterministic_and_phrase_sensitive() -> None:

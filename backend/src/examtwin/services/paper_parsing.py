@@ -78,7 +78,7 @@ def _question_anchor_matches(number: str, body: str) -> list[re.Match[str]]:
     escaped = re.escape(number)
     pattern = re.compile(
         rf"(?im)^[ \t]*(?:[#>*-]+\s*)?(?:question\s+)?0*{escaped}"
-        r"(?=\s*(?:[.:\)]|\([a-zivx]+\)|[A-Za-z]))"
+        r"(?=[ \t]*(?:$|[.:\)]|\([a-zivx]+\)|[A-Za-z]))"
     )
     return list(pattern.finditer(body))
 
@@ -99,6 +99,29 @@ _ADMINISTRATIVE_PAGE_RE = re.compile(
     r")",
     re.IGNORECASE,
 )
+_EXTRACT_REFERENCE_RE = re.compile(r"\bextract\s+([A-Z])\b", re.IGNORECASE)
+
+
+def _referenced_extract_start_page(
+    question: str,
+    pages: list[tuple[int, str]],
+    question_page_index: int,
+) -> int | None:
+    labels = {label.upper() for label in _EXTRACT_REFERENCE_RE.findall(question)}
+    if not labels:
+        return None
+    headings = tuple(
+        re.compile(rf"(?im)^[ \t]*(?:[#>*-]+\s*)?extract\s+{re.escape(label)}\b")
+        for label in labels
+    )
+    return next(
+        (
+            page_index
+            for page_index, (_page_number, body) in enumerate(pages[: question_page_index + 1])
+            if any(heading.search(body) for heading in headings)
+        ),
+        None,
+    )
 
 
 def _question_page_overlap(question: str, body: str) -> float:
@@ -116,6 +139,14 @@ def _question_source_page_is_relevant(question: str, body: str) -> bool:
     # Genuine question pages may also contain examiner boilerplate. Reject an
     # administrative-looking page only when it has no material question overlap.
     return _question_page_overlap(question, body) >= 0.2
+
+
+class QuestionSourcePageResolutionError(ValueError):
+    """Raised when extracted question order cannot be reconciled with trusted page markers."""
+
+    def __init__(self, unresolved_numbers: list[str]) -> None:
+        self.unresolved_numbers = tuple(unresolved_numbers)
+        super().__init__("无法从物理页标记确定题目来源页：" + ", ".join(self.unresolved_numbers))
 
 
 def reconcile_question_source_pages(
@@ -182,7 +213,7 @@ def reconcile_question_source_pages(
         if anchor is None
     ]
     if unresolved:
-        raise ValueError("无法从物理页标记确定题目来源页：" + ", ".join(unresolved))
+        raise QuestionSourcePageResolutionError(unresolved)
 
     end_of_questions_page = next(
         (
@@ -214,6 +245,15 @@ def reconcile_question_source_pages(
                 prefix = pages[next_page_index][1][:next_offset]
                 if _meaningful_page_text(prefix):
                     page_indexes.append(next_page_index)
+        extract_start_page = _referenced_extract_start_page(
+            str(item.get("question_markdown", "")),
+            pages,
+            start_page_index,
+        )
+        if extract_start_page is not None:
+            page_indexes = sorted(
+                set(page_indexes) | set(range(extract_start_page, start_page_index + 1))
+            )
         source_pages = [
             pages[page_index][0]
             for page_index in page_indexes

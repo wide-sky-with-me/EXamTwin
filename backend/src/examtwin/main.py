@@ -14,7 +14,10 @@ from examtwin.composition import build_object_store
 from examtwin.config import get_settings
 from examtwin.observability import configure_logging
 from examtwin.persistence.migrations import upgrade_database
+from examtwin.persistence.session import create_session_factory
+from examtwin.persistence.workspace_repository import WorkspaceRepository
 from examtwin.services.paper_parsing import MAX_UPLOAD_BYTES
+from examtwin.subject_packages import subject_package_registry
 
 
 @asynccontextmanager
@@ -22,6 +25,9 @@ async def lifespan(_: FastAPI):
     settings = get_settings()
     configure_logging()
     upgrade_database(settings.database_url)
+    WorkspaceRepository(
+        create_session_factory(settings.database_url)
+    ).synchronize_installed_subjects(subject_package_registry(settings.subject_packages_dir).all())
     build_object_store(settings).ping()
     yield
 

@@ -20,8 +20,41 @@ function closesFence(line: string, fence: Fence) {
   return /^[ \t]*(?:\n)?$/.test(line.slice(match[0].length));
 }
 
+function normalizeDollarMathCurrency(value: string) {
+  return value.replace(
+    /(?<!\\)\$((?:\\\$|[^$\n])*)(?<!\\)\$/g,
+    (match: string, math: string) =>
+      math.includes("\\$") ? `$${math.replace(/\\\$/g, "\\text{USD }")}$` : match,
+  );
+}
+
+function escapeCurrencyDollars(value: string) {
+  return value.replace(
+    /(?<!\\)\$(\d[\d,]*(?:\.\d+)?)/g,
+    (match: string, amount: string, offset: number, source: string) => {
+      const remainder = source.slice(offset + match.length);
+      const closingOffset = remainder.search(/(?<!\\)\$/);
+      if (closingOffset >= 0) {
+        const candidate = source.slice(
+          offset + 1,
+          offset + match.length + closingOffset,
+        );
+        const startsWithNumberAndVariable =
+          /^\d[\d,.]*\s*[A-Za-z](?![A-Za-z])/.test(candidate);
+        if (startsWithNumberAndVariable || /[+\-*/=^_<>{}\\]/.test(candidate)) {
+          return match;
+        }
+      }
+      const afterAmount = remainder[0] ?? "";
+      if (/[+\-*/=^_<>{}\\$]/.test(afterAmount)) return match;
+      const followedByProse = /^\s+[A-Za-z]/.test(remainder);
+      return amount.includes(",") || followedByProse ? `\\${match}` : match;
+    },
+  );
+}
+
 function normalizeDelimiters(value: string) {
-  return value
+  return escapeCurrencyDollars(normalizeDollarMathCurrency(value))
     .replace(
       /(?<!\\)\\\[([\s\S]*?)(?<!\\)\\\]/g,
       (_match, math: string) => `\n\n$$\n${math.trim()}\n$$\n\n`,

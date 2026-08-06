@@ -256,13 +256,19 @@ export default function App() {
               />
             )}
             {tab === "knowledge" && subject && (
-              <Knowledge key={subject.id} points={points} relations={relations} />
+              <Knowledge
+                key={subject.id}
+                points={points}
+                relations={relations}
+                subject={subject}
+                refresh={() => refreshTab("knowledge")}
+              />
             )}
             {tab === "ask" && subject && (
               <PaperAnswering key={subject.id} enabled={paperJobsReady} subject={subject} />
             )}
             {tab === "grading" && subject && (
-              <Grading key={subject.id} onCreated={refreshReviews} />
+              <Grading key={subject.id} subject={subject} onCreated={refreshReviews} />
             )}
             {tab === "reviews" && subject && (
               <Reviews key={subject.id} items={reviews} refresh={refreshReviews} />

@@ -30,6 +30,16 @@ class SubjectUnitResponse(SerializedResponse):
     strand: str
 
 
+class SubjectKnowledgeBaseResponse(SerializedResponse):
+    id: str
+    name: str
+    kind: str
+    active_version_id: str | None = None
+    active_version_number: int | None = None
+    status: str = "empty"
+    vector_points: int = 0
+
+
 class SubjectPackResponse(SerializedResponse):
     id: str
     version: str
@@ -37,8 +47,12 @@ class SubjectPackResponse(SerializedResponse):
     subject_code: str
     title: str
     board_name: str
+    capability_profile_id: str | None = None
+    generic_qa_enabled: bool = True
     answering_enabled: bool
     answering_disabled_reason: str | None = None
+    active_graph_version_id: str | None = None
+    knowledge_bases: list[SubjectKnowledgeBaseResponse] = Field(default_factory=list)
     units: list[SubjectUnitResponse]
 
 

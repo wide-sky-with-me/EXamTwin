@@ -1,7 +1,11 @@
 import createClient from "openapi-fetch";
 
 import type { paths } from "../generated/openapi";
-import type { PaperJobCreated, SourceContextResult } from "../types";
+import type {
+  PaperJobCreated,
+  SourceContextResult,
+  SourceDocument,
+} from "../types";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api/v1";
 export const SUBJECT_STORAGE_KEY = "examtwin.subject";
@@ -99,6 +103,27 @@ export async function uploadPaper(file: File, unitCode: string): Promise<PaperJo
   if (unitCode) form.append("unit_code", unitCode);
   const response = await checkedFetch("/papers/answer", { method: "POST", body: form });
   return response.json() as Promise<PaperJobCreated>;
+}
+
+export async function uploadWorkspaceDocument(
+  workspaceId: string,
+  file: File,
+  sourceType: string,
+  options: {
+    knowledgeBaseId?: string;
+    licenseConfirmed?: boolean;
+  } = {},
+): Promise<SourceDocument> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("source_type", sourceType);
+  form.append("license_confirmed", String(options.licenseConfirmed ?? false));
+  if (options.knowledgeBaseId) form.append("knowledge_base_id", options.knowledgeBaseId);
+  const response = await checkedFetch(
+    `/subject-workspaces/${encodeURIComponent(workspaceId)}/documents`,
+    { method: "POST", body: form },
+  );
+  return response.json() as Promise<SourceDocument>;
 }
 
 export async function getSourceContext(

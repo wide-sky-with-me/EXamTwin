@@ -122,6 +122,8 @@ class AnswerTask:
     authority_tiers: tuple[str, ...] = ("official", "licensed_core")
     top_k: int = 6
     question_images: tuple[QuestionImage, ...] = ()
+    knowledge_base_version_ids: tuple[str, ...] = ()
+    graph_version_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -157,6 +159,8 @@ class AgentRunLedger(Protocol):
         model_name: str,
         max_iterations: int,
         max_tool_calls: int,
+        knowledge_base_version_ids: tuple[str, ...],
+        graph_version_id: str | None,
     ) -> None: ...
 
     def find_replay(

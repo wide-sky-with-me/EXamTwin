@@ -1,0 +1,56 @@
+{
+  "subject_code": "9640",
+  "top_k": 5,
+  "minimum_recall_at_k": 0.8,
+  "minimum_mrr": 0.6,
+  "cases": [
+    {
+      "id": "u1-ped-total-revenue",
+      "query": "Explain the relationship between price elasticity of demand and a firm's total revenue.",
+      "unit_code": "U1",
+      "targets": [{"knowledge_code": "3.1.2.2.O04"}]
+    },
+    {
+      "id": "u1-market-competition-profits",
+      "query": "Why are profits likely to be lower in a competitive market than in a market dominated by a few large firms?",
+      "unit_code": "U1",
+      "targets": [{"knowledge_code": "3.1.4.3.O03"}]
+    },
+    {
+      "id": "u2-circular-flow",
+      "query": "Use the circular flow of income model to explain why income equals output and expenditure.",
+      "unit_code": "U2",
+      "targets": [{"knowledge_code": "3.2.2.1.O04"}]
+    },
+    {
+      "id": "u2-multiplier-process",
+      "query": "Explain why an initial change in expenditure can cause a larger change in national income through the multiplier process.",
+      "unit_code": "U2",
+      "targets": [{"knowledge_code": "3.2.2.4.O02"}]
+    },
+    {
+      "id": "u3-perfect-competition-efficiency",
+      "query": "Under what assumptions does perfect competition produce an efficient allocation of resources?",
+      "unit_code": "U3",
+      "targets": [{"knowledge_code": "3.3.3.2.O04"}]
+    },
+    {
+      "id": "u3-lorenz-gini",
+      "query": "Interpret a Lorenz curve and Gini coefficient as measures of income inequality.",
+      "unit_code": "U3",
+      "targets": [{"knowledge_code": "3.3.5.1.O03"}]
+    },
+    {
+      "id": "u4-comparative-advantage",
+      "query": "Explain the difference between absolute advantage and comparative advantage in international trade.",
+      "unit_code": "U4",
+      "targets": [{"knowledge_code": "3.4.1.2.O02"}]
+    },
+    {
+      "id": "u4-terms-of-trade",
+      "query": "Calculate the terms of trade using export and import price indices and explain its significance.",
+      "unit_code": "U4",
+      "targets": [{"knowledge_code": "3.4.1.2.O16"}]
+    }
+  ]
+}

@@ -43,7 +43,11 @@ class CorpusRepository:
         now = utcnow()
         values: dict[str, Any] = {
             "subject_code": "9660",
+            "subject_id": None,
+            "knowledge_base_id": None,
             "authority_tier": "supplementary",
+            "source_role": "excluded",
+            "license_confirmed": False,
             "pair_key": None,
             "unit_code": None,
             "exam_year": None,
@@ -102,8 +106,12 @@ class CorpusRepository:
                     existing.metadata_json = str(values["metadata_json"])
                 for field in (
                     "subject_code",
+                    "subject_id",
+                    "knowledge_base_id",
                     "source_type",
                     "authority_tier",
+                    "source_role",
+                    "license_confirmed",
                     "checksum",
                     "pair_key",
                     "unit_code",
@@ -269,6 +277,10 @@ class CorpusRepository:
             "filename",
             "source_type",
             "authority_tier",
+            "source_role",
+            "knowledge_base_id",
+            "license_confirmed",
+            "checksum",
             "pair_key",
             "unit_code",
             "exam_year",

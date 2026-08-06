@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import threading
@@ -14,11 +15,20 @@ from typing import Any, cast
 from examtwin.answering_agent.contracts import AgentRunLedger, AgentStep, QuestionImage
 from examtwin.config import Settings
 from examtwin.persistence.paper_job_repository import LostLeaseError
+from examtwin.persistence.session import create_session_factory
+from examtwin.persistence.workspace_repository import WorkspaceRepository
 from examtwin.schemas.papers import PaperQuestionAnswer
 from examtwin.services.agent_run_ledger import PaperAgentRunLedger
 from examtwin.services.corpus_ingestion import render_documents
 from examtwin.services.inventory import parse_exam_identity
 from examtwin.services.paper_answering import SPLIT_CONTRACT_VERSION, PaperAnswerService
+from examtwin.services.paper_classification import (
+    PAPER_CLASSIFICATION_CONTRACT_VERSION,
+    PaperDocumentClassification,
+    PaperDocumentClassifier,
+    PaperDocumentClassifierFn,
+    require_question_paper,
+)
 from examtwin.services.paper_job_runtime import PaperJobRuntime
 from examtwin.services.paper_parsing import (
     mineru_reader,
@@ -69,6 +79,7 @@ class PaperWorker:
         *,
         jobs: PaperJobRuntime,
         answer_service: PaperAnswerService,
+        document_classifier: PaperDocumentClassifierFn | None = None,
         chunk_parser: Callable[[Path, int, int], str] | None = None,
         vision_reviewer: (Callable[[Path, str, int, int], VisionReviewResult] | None) = None,
         wakeup: PaperJobWakeup | None = None,
@@ -79,6 +90,7 @@ class PaperWorker:
         self.subject = subject
         self.jobs = jobs
         self.answer_service = answer_service
+        self.document_classifier = document_classifier
         self.chunk_parser = chunk_parser or self._parse_pdf_chunk
         self.vision_reviewer = vision_reviewer or PaperVisionReviewer(settings).review_chunk
         self.wakeup = wakeup or SleepPaperJobWakeup()
@@ -89,10 +101,100 @@ class PaperWorker:
         package_id = str(job.get("subject_pack_id") or "")
         if self.subject_resolver is not None:
             self.subject = self.subject_resolver(package_id)
+            raw_version_ids = json.loads(str(job.get("knowledge_base_version_ids_json") or "[]"))
+            if not isinstance(raw_version_ids, list) or not raw_version_ids:
+                raise ValueError("试卷任务缺少已发布知识库版本快照")
+            version_ids = [str(item) for item in raw_version_ids]
+            snapshot = WorkspaceRepository(
+                create_session_factory(self.settings.database_url)
+            ).retrieval_snapshot_for_versions(self.subject.id, version_ids)
+            self.subject = self.subject.with_retrieval_snapshot(
+                version_ids=tuple(version_ids),
+                collections=tuple(str(item) for item in snapshot["collections"]),
+                graph_version_id=(
+                    str(job["graph_version_id"]) if job.get("graph_version_id") else None
+                ),
+            )
             if self.answer_service_factory is None:
                 raise RuntimeError("multi-subject worker is missing its answer service factory")
             self.answer_service = self.answer_service_factory(self.subject)
         self.subject.require(str(job.get("subject_code") or ""))
+
+    def _classify_document(
+        self,
+        job_id: str,
+        markdown: str,
+    ) -> PaperDocumentClassification:
+        classifier = self.document_classifier
+        if classifier is None:
+            model_classifier = PaperDocumentClassifier(self.settings)
+            classifier = model_classifier.classify
+            self.document_classifier = classifier
+        classifier_owner = getattr(classifier, "__self__", None)
+        model_name = str(getattr(classifier_owner, "model_name", self.settings.paper_split_model))
+        input_digest = hashlib.sha256(
+            json.dumps(
+                {
+                    "contract": PAPER_CLASSIFICATION_CONTRACT_VERSION,
+                    "model": model_name,
+                    "markdown": markdown,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()
+        relative_path = f"{job_id}/classification.json"
+        path = self.jobs.resolve_file(relative_path)
+        classification: PaperDocumentClassification | None = None
+        if path.is_file():
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                if (
+                    payload.get("contract_version") != PAPER_CLASSIFICATION_CONTRACT_VERSION
+                    or payload.get("input_digest") != input_digest
+                    or payload.get("model") != model_name
+                ):
+                    raise ValueError("paper classification checkpoint provenance mismatch")
+                classification = PaperDocumentClassification.model_validate(
+                    payload["classification"]
+                )
+            except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+                logger.warning(
+                    "paper classification checkpoint rejected",
+                    extra={
+                        "event": "paper_classification_checkpoint_rejected",
+                        "job_id": job_id,
+                        "stage": "splitting",
+                    },
+                )
+        if classification is None:
+            classification = classifier(markdown)
+            self.jobs.write_file(
+                relative_path,
+                json.dumps(
+                    {
+                        "contract_version": PAPER_CLASSIFICATION_CONTRACT_VERSION,
+                        "input_digest": input_digest,
+                        "model": model_name,
+                        "classification": classification.model_dump(mode="json"),
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+            )
+        logger.info(
+            "paper content classified",
+            extra={
+                "event": "paper_content_classified",
+                "job_id": job_id,
+                "stage": "splitting",
+                "document_type": classification.document_type,
+                "confidence": classification.confidence,
+                "model": model_name,
+            },
+        )
+        require_question_paper(classification)
+        return classification
 
     def run_once(self) -> bool:
         claimed = self.jobs.claim_next()
@@ -212,7 +314,7 @@ class PaperWorker:
         if self.jobs.list_questions(job_id):
             return
         vision_review_enabled = job["suffix"] == ".pdf" and self.settings.paper_vision_enabled
-        active_stage = "vision_review" if vision_review_enabled else "splitting"
+        active_stage = "splitting"
         self.jobs.set_stage(job_id, token, active_stage)
         started = time.monotonic()
         try:
@@ -220,11 +322,13 @@ class PaperWorker:
             source_path = self.jobs.source_path(job)
             reviewed_by_chunk: dict[int, str] = {}
             pending_reviews: list[tuple[dict[str, Any], str]] = []
+            classification_sections: list[str] = []
             for chunk in chunks:
                 if chunk["status"] != "completed" or not chunk["markdown_path"]:
                     raise ValueError("仍有未完成的 PDF 页段")
                 markdown_path = self.jobs.resolve_file(chunk["markdown_path"])
                 markdown = markdown_path.read_text(encoding="utf-8")
+                classification_sections.append(markdown)
                 if vision_review_enabled:
                     reviewed_path = markdown_path.with_suffix(".vision.md")
                     reviewed_is_valid = False
@@ -252,6 +356,10 @@ class PaperWorker:
                         reviewed_by_chunk[chunk["chunk_index"]] = markdown
                 else:
                     reviewed_by_chunk[chunk["chunk_index"]] = markdown
+            self._classify_document(job_id, "\n\n".join(classification_sections))
+            if vision_review_enabled:
+                active_stage = "vision_review"
+                self.jobs.set_stage(job_id, token, active_stage)
 
             first_review_error: Exception | None = None
             if pending_reviews:

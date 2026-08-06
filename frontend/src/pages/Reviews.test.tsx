@@ -25,6 +25,7 @@ const item: ReviewItem = {
     symbolic_checks: [],
     citations: [],
     warnings: [],
+    improvement_suggestions: [],
     manual_review_required: true,
   },
 };

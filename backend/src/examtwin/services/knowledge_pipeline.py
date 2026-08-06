@@ -2,16 +2,16 @@ from __future__ import annotations
 
 import json
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
 
-from examtwin.agent_harness import StructuredModelPort, StructuredTask, StructuredTaskRunner
 from examtwin.config import Settings
+from examtwin.persistence.document_block_repository import DocumentBlockRepository
 from examtwin.persistence.knowledge_build_repository import KnowledgeBuildRepository
 from examtwin.persistence.knowledge_repository import KnowledgeRepository
 from examtwin.persistence.session import utcnow
-from examtwin.prompt_templates import load_prompt_template
+from examtwin.persistence.workspace_repository import WorkspaceRepository
 from examtwin.services.cache_paths import resolve_markdown_cache_path
 from examtwin.services.curriculum import (
     MINERU_MARKDOWN_PROJECTION,
@@ -22,119 +22,28 @@ from examtwin.services.curriculum import (
     pdf_text_curriculum_projection,
     select_curriculum_projection,
 )
+from examtwin.services.difficulty_assessment import (
+    DIFFICULTY_METHOD,
+    DifficultyAssessmentProvider,
+    LiteLLMDifficultyAssessmentProvider,
+    ModelDifficultyAssessment,
+    build_difficulty_targets,
+    build_evidence_materials,
+    difficulty_input_hash,
+    validate_assessment_evidence,
+)
 from examtwin.services.knowledge_publication import publish_curriculum_graph
-from examtwin.services.structured_model import LiteLLMStructuredModel
 from examtwin.services.subject_context import SubjectContext
-from examtwin.subjects import SubjectPack
-from pydantic import BaseModel, ConfigDict, Field
 
-PIPELINE_VERSION = "curriculum-build-v2"
-AI_DIFFICULTY_METHOD = "syllabus-ai-feature-estimate-v1"
+PIPELINE_VERSION = "curriculum-build-v3"
 
 
 class CurriculumReviewRequired(ValueError):
     pass
 
 
-class SyllabusDifficultyAssessment(BaseModel):
-    """Auditable D-level feature estimate, never an official difficulty rating."""
-
-    model_config = ConfigDict(extra="forbid", strict=True)
-
-    code: str = Field(min_length=1, max_length=80)
-    syllabus_complexity: float = Field(ge=0, le=1)
-    cognitive_demand: float = Field(ge=0, le=1)
-    prerequisite_depth: int = Field(ge=0, le=12)
-    solution_steps: int = Field(ge=1, le=20)
-    confidence: float = Field(ge=0.05, le=0.45)
-    rationale: str = Field(min_length=1, max_length=500)
-
-
-class SyllabusDifficultyBatch(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
-
-    assessments: list[SyllabusDifficultyAssessment] = Field(min_length=1, max_length=50)
-
-
-class SyllabusDifficultyProvider(Protocol):
-    model: str
-    batch_size: int
-
-    def assess_batch(
-        self,
-        subject_pack: SubjectPack,
-        objectives: Sequence[Mapping[str, Any]],
-    ) -> dict[str, SyllabusDifficultyAssessment]: ...
-
-
-class LiteLLMSyllabusDifficultyProvider:
-    """Use provider-constrained JSON to estimate syllabus features in bounded batches."""
-
-    def __init__(
-        self,
-        settings: Settings,
-        *,
-        structured_model: StructuredModelPort | None = None,
-    ) -> None:
-        credential = settings.llm_provider_api_key
-        if structured_model is None and (credential is None or not credential.get_secret_value()):
-            raise RuntimeError("LLM credential is required for AI syllabus difficulty")
-        self.model = settings.knowledge_difficulty_model
-        self.api_base = settings.llm_provider_base_url
-        self.api_key = "" if credential is None else credential.get_secret_value()
-        self.reasoning_effort = settings.knowledge_difficulty_reasoning_effort
-        self.timeout = settings.knowledge_difficulty_timeout
-        self.batch_size = settings.knowledge_difficulty_batch_size
-        self.runner = StructuredTaskRunner(
-            structured_model
-            or LiteLLMStructuredModel(
-                model=self.model,
-                api_base=self.api_base,
-                api_key=self.api_key,
-                reasoning_effort=self.reasoning_effort,
-                max_retries=1,
-            )
-        )
-
-    def assess_batch(
-        self,
-        subject_pack: SubjectPack,
-        objectives: Sequence[Mapping[str, Any]],
-    ) -> dict[str, SyllabusDifficultyAssessment]:
-        if not objectives or len(objectives) > self.batch_size:
-            raise ValueError(f"AI difficulty batch must contain 1..{self.batch_size} objectives")
-        expected = {str(item["code"]) for item in objectives}
-        task = StructuredTask(
-            system_prompt=load_prompt_template("difficulty/SYSTEM.md"),
-            user_content=json.dumps(
-                {
-                    "subject": subject_pack.title,
-                    "objectives": [
-                        {
-                            "code": item["code"],
-                            "parent": item["parent"],
-                            "title": item["title"],
-                            "description": item.get("description", ""),
-                        }
-                        for item in objectives
-                    ],
-                },
-                ensure_ascii=False,
-            ),
-        )
-        payload = self.runner.run(task, SyllabusDifficultyBatch, timeout=self.timeout)
-        actual = {item.code for item in payload.assessments}
-        if actual != expected or len(payload.assessments) != len(expected):
-            missing = sorted(expected - actual)
-            unexpected = sorted(actual - expected)
-            raise ValueError(
-                f"AI difficulty batch code mismatch; missing={missing}, unexpected={unexpected}"
-            )
-        return {item.code: item for item in payload.assessments}
-
-
 class KnowledgeBuildPipeline:
-    """Build and transactionally publish one subject's syllabus knowledge graph."""
+    """Build and transactionally publish one subject's evidence-rated curriculum graph."""
 
     def __init__(
         self,
@@ -142,23 +51,24 @@ class KnowledgeBuildPipeline:
         subject: SubjectContext,
         repository: KnowledgeBuildRepository,
         graph_repository: KnowledgeRepository,
+        workspace_repository: WorkspaceRepository,
+        block_repository: DocumentBlockRepository,
     ) -> None:
         self.settings = settings
         self.subject_pack = subject.pack
         self.repository = repository
         self.graph_repository = graph_repository
+        self.workspace_repository = workspace_repository
+        self.block_repository = block_repository
 
     def run(
         self,
         *,
-        use_ai_difficulty: bool = False,
-        difficulty_provider: SyllabusDifficultyProvider | None = None,
+        difficulty_provider: DifficultyAssessmentProvider | None = None,
     ) -> dict[str, Any]:
         run_id = str(uuid.uuid4())
         now = utcnow()
-        provider = difficulty_provider
-        if use_ai_difficulty and provider is None:
-            provider = LiteLLMSyllabusDifficultyProvider(self.settings)
+        provider = difficulty_provider or LiteLLMDifficultyAssessmentProvider(self.settings)
         self.repository.create_run(
             {
                 "id": run_id,
@@ -169,8 +79,8 @@ class KnowledgeBuildPipeline:
                 "stage": "loading_syllabus",
                 "pipeline_version": PIPELINE_VERSION,
                 "input_hash": None,
-                "ai_model": provider.model if provider else None,
-                "config_json": json.dumps({"use_ai_difficulty": use_ai_difficulty}),
+                "ai_model": provider.model,
+                "config_json": json.dumps({"difficulty_method": DIFFICULTY_METHOD}),
                 "metrics_json": "{}",
                 "artifact_json": "{}",
                 "error": None,
@@ -185,7 +95,7 @@ class KnowledgeBuildPipeline:
             extraction, markdown_path = self._curriculum_extraction(document)
             candidate = extraction.candidate
             validation = extraction.validation
-            input_hash = candidate.input_hash
+            curriculum_input_hash = candidate.input_hash
             new_candidate_id = str(uuid.uuid4())
             candidate_now = utcnow()
             auto_publish = validation.passed and not validation.warnings
@@ -199,7 +109,7 @@ class KnowledgeBuildPipeline:
                     "subject_pack_id": self.subject_pack.id,
                     "subject_code": self.subject_pack.subject_code,
                     "source_document_id": str(document["id"]),
-                    "input_hash": input_hash,
+                    "input_hash": curriculum_input_hash,
                     "content_hash": candidate.content_hash,
                     "extractor_version": candidate.extractor_version,
                     "status": candidate_status,
@@ -217,68 +127,95 @@ class KnowledgeBuildPipeline:
                 raise CurriculumReviewRequired(
                     "Curriculum candidate requires review: " + "; ".join(reasons)
                 )
+
             objectives = [objective.model_dump() for objective in candidate.objectives]
+            targets = build_difficulty_targets(candidate)
+            knowledge_base_version_id = self._core_knowledge_base_version_id()
+            blocks = self.block_repository.list_for_version(
+                knowledge_base_version_id,
+                limit=None,
+            )
+            materials = build_evidence_materials(targets, blocks)
+            assessment_input_hash = difficulty_input_hash(
+                candidate_hash=candidate.content_hash,
+                knowledge_base_version_id=knowledge_base_version_id,
+                materials=materials,
+            )
             artifact = {
                 "candidate_id": candidate_id,
                 "candidate_hash": candidate.content_hash,
+                "curriculum_input_hash": curriculum_input_hash,
                 "extractor_version": candidate.extractor_version,
                 "unit_codes": [unit.code for unit in candidate.units],
                 "topic_codes": [topic.code for topic in candidate.topics],
                 "objective_codes": [item["code"] for item in objectives],
+                "difficulty_target_codes": [str(item["code"]) for item in targets],
+                "difficulty_input_hash": assessment_input_hash,
+                "difficulty_method": DIFFICULTY_METHOD,
+                "knowledge_base_version_id": knowledge_base_version_id,
+                "evidence_block_count": len(blocks),
                 "source_path": str(markdown_path),
                 "source_projection": extraction.projection,
                 "validation": validation.model_dump(),
             }
             self._update_run(
                 run_id,
-                stage="assessing_difficulty" if provider else "publishing",
+                stage="assessing_difficulty",
                 source_document_id=str(document["id"]),
-                input_hash=input_hash,
+                input_hash=assessment_input_hash,
                 artifact_json=json.dumps(artifact, ensure_ascii=False),
             )
 
-            assessments: dict[str, SyllabusDifficultyAssessment] = {}
-            ai_reused = False
-            if provider:
-                assessments = self._cached_assessments(
-                    input_hash,
-                    provider.model,
-                )
-                ai_reused = bool(assessments)
-                cached_count = len(assessments)
-                pending = [item for item in objectives if item["code"] not in assessments]
+            assessments = self._cached_assessments(
+                assessment_input_hash,
+                provider.model,
+                materials,
+            )
+            cached_count = len(assessments)
+            for unit in candidate.units:
+                unit_targets = [
+                    materials[str(target["code"])]
+                    for target in targets
+                    if target["unit_code"] == unit.code
+                ]
+                pending = [item for item in unit_targets if item["code"] not in assessments]
                 for offset in range(0, len(pending), provider.batch_size):
                     batch = pending[offset : offset + provider.batch_size]
-                    batch_results = provider.assess_batch(self.subject_pack, batch)
+                    batch_results = provider.assess_batch(
+                        self.subject_pack,
+                        unit_outline=unit_targets,
+                        targets=batch,
+                    )
                     assessments.update(batch_results)
                     artifact["difficulty_assessments"] = [
                         assessments[code].model_dump() for code in sorted(assessments)
                     ]
                     self._update_run(
                         run_id,
-                        stage=f"assessing_difficulty:{len(assessments)}/{len(objectives)}",
+                        stage=f"assessing_difficulty:{len(assessments)}/{len(targets)}",
                         metrics_json=json.dumps(
                             {
-                                "objectives": len(objectives),
+                                "difficulty_targets": len(targets),
                                 "ai_assessments": len(assessments),
                                 "ai_reused_count": cached_count,
                             }
                         ),
                         artifact_json=json.dumps(artifact, ensure_ascii=False),
                     )
-                expected = {str(item["code"]) for item in objectives}
-                if set(assessments) != expected:
-                    raise ValueError(
-                        "AI difficulty provider did not assess every syllabus objective"
-                    )
-                artifact["difficulty_assessments"] = [
-                    assessments[code].model_dump() for code in sorted(assessments)
-                ]
-                self._update_run(
-                    run_id,
-                    stage="publishing",
-                    artifact_json=json.dumps(artifact, ensure_ascii=False),
+
+            expected = {str(item["code"]) for item in targets}
+            if set(assessments) != expected:
+                raise ValueError(
+                    "Difficulty provider did not assess every Topic and Learning Objective"
                 )
+            artifact["difficulty_assessments"] = [
+                assessments[code].model_dump() for code in sorted(assessments)
+            ]
+            self._update_run(
+                run_id,
+                stage="publishing",
+                artifact_json=json.dumps(artifact, ensure_ascii=False),
+            )
 
             publish_curriculum_graph(
                 self.graph_repository,
@@ -286,17 +223,23 @@ class KnowledgeBuildPipeline:
                 candidate=candidate,
                 syllabus_document=document,
                 difficulty_assessments=assessments,
+                difficulty_materials=materials,
                 build_run_id=run_id,
-                input_hash=input_hash,
-                difficulty_model_name=provider.model if provider else None,
+                input_hash=assessment_input_hash,
+                difficulty_model_name=provider.model,
+                knowledge_base_version_id=knowledge_base_version_id,
             )
             metrics = {
                 "units": len(candidate.units),
                 "topics": len(candidate.topics),
                 "objectives": len(objectives),
+                "difficulty_targets": len(targets),
                 "ai_assessments": len(assessments),
-                "ai_reused": ai_reused,
+                "ai_reused": cached_count == len(targets),
+                "ai_reused_count": cached_count,
                 "difficulty_evidence_level": "D",
+                "difficulty_method": DIFFICULTY_METHOD,
+                "knowledge_base_version_id": knowledge_base_version_id,
             }
             completed_at = utcnow()
             self.repository.update_candidate(
@@ -396,12 +339,27 @@ class KnowledgeBuildPipeline:
             validation.errors.append(f"published objectives disappeared: {missing_objectives[:20]}")
         validation.passed = not validation.errors
 
+    def _core_knowledge_base_version_id(self) -> str:
+        subject = self.workspace_repository.require_subject(self.subject_pack.id)
+        core = next(
+            (base for base in subject["knowledge_bases"] if base["kind"] == "core"),
+            None,
+        )
+        active = None if core is None else core.get("active_version")
+        if not isinstance(active, Mapping) or active.get("status") != "published":
+            raise LookupError(
+                "No published core knowledge base is available for "
+                f"{self.subject_pack.subject_code}"
+            )
+        return str(active["id"])
+
     def _cached_assessments(
         self,
         input_hash: str,
         model: str,
-    ) -> dict[str, SyllabusDifficultyAssessment]:
-        merged: dict[str, SyllabusDifficultyAssessment] = {}
+        materials: Mapping[str, Mapping[str, Any]],
+    ) -> dict[str, ModelDifficultyAssessment]:
+        merged: dict[str, ModelDifficultyAssessment] = {}
         for value in self.repository.cached_artifacts(
             subject_code=self.subject_pack.subject_code,
             input_hash=input_hash,
@@ -410,10 +368,17 @@ class KnowledgeBuildPipeline:
             try:
                 artifact = json.loads(value or "{}")
                 items = artifact.get("difficulty_assessments", [])
-                assessments = [SyllabusDifficultyAssessment.model_validate(item) for item in items]
+                assessments = [ModelDifficultyAssessment.model_validate(item) for item in items]
             except (TypeError, ValueError, json.JSONDecodeError):
                 continue
             for assessment in assessments:
+                material = materials.get(assessment.code)
+                if material is None:
+                    continue
+                try:
+                    validate_assessment_evidence(assessment, material)
+                except ValueError:
+                    continue
                 merged.setdefault(assessment.code, assessment)
         return merged
 

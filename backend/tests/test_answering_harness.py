@@ -4,6 +4,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+import pymupdf
 import pytest
 from examtwin.answering_agent import (
     AnswerTask,
@@ -19,6 +20,7 @@ from examtwin.answering_agent.tools import (
     PairedExamLookupTool,
     ProbabilityCalculateTool,
 )
+from examtwin.answering_agent.tools.question_vision import QuestionVisionPayload
 from examtwin.answering_agent.verification import verify_answer_contract
 from examtwin.config import Settings
 from examtwin.schemas import AnswerDiagram, AnswerImage, DiagramElement
@@ -135,9 +137,26 @@ def test_agent_budget_scales_with_subparts_but_respects_hard_caps() -> None:
 
 @pytest.mark.asyncio
 async def test_paired_exam_lookup_uses_only_the_exact_pair(tmp_path: Path) -> None:
-    markdown = tmp_path / "corpus" / "md" / "ms-1.md"
-    markdown.parent.mkdir(parents=True)
-    markdown.write_text("# Question 4\nAward 2 marks for the correct binomial value.")
+    insert_markdown = tmp_path / "corpus" / "md" / "insert-1.md"
+    insert_markdown.parent.mkdir(parents=True)
+    insert_markdown.write_text("# Extract A: Supplied probability table")
+    insert_pdf = tmp_path / "2026-jun-psm1-insert.pdf"
+    pdf = pymupdf.open()
+    page = pdf.new_page()
+    page.insert_text((72, 72), "Extract A: supplied probability table")
+    pdf.save(insert_pdf)
+    pdf.close()
+
+    class VisionProvider:
+        def inspect(self, question: str, images: tuple[Any, ...]) -> QuestionVisionPayload:
+            assert "Extract A" in question
+            assert len(images) == 1
+            assert images[0].page_number == 1
+            assert images[0].media_type == "image/jpeg"
+            assert images[0].content.startswith(b"\xff\xd8")
+            return QuestionVisionPayload(
+                observation="Extract A visibly shows P(X = 1) = 0.42 in the probability table."
+            )
 
     class PairDocumentReader:
         def exact_pair_documents(
@@ -148,26 +167,33 @@ async def test_paired_exam_lookup_uses_only_the_exact_pair(tmp_path: Path) -> No
             assert pair_key == "9660:2026:JUN:PSM1"
             return [
                 {
-                    "id": "ms-1",
-                    "path": "/corpus/2026-jun-psm1-ms.pdf",
+                    "id": "mark-scheme-1",
+                    "path": "/corpus/2026-jun-psm1-mark-scheme.pdf",
                     "source_type": "mark_scheme",
                     "authority_tier": "official",
                     "pair_key": "9660:2026:JUN:PSM1",
-                }
+                },
+                {
+                    "id": "insert-1",
+                    "path": str(insert_pdf),
+                    "source_type": "insert",
+                    "authority_tier": "official",
+                    "pair_key": "9660:2026:JUN:PSM1",
+                },
             ][:limit]
 
         def get_converted(self, document_id: str) -> dict[str, Any]:
-            assert document_id == "ms-1"
+            assert document_id == "insert-1"
             return {
-                "id": "ms-1",
-                "path": "/corpus/2026-jun-psm1-ms.pdf",
-                "markdown_path": str(markdown),
+                "id": document_id,
+                "path": str(insert_pdf),
+                "markdown_path": str(insert_markdown),
             }
 
     context = AgentRunContext(
         task=AnswerTask(
             subject_code="9660",
-            question="Find the probability.",
+            question="Using Extract A, find the probability.",
             question_number="4",
             pair_key="9660:2026:JUN:PSM1",
         )
@@ -175,11 +201,15 @@ async def test_paired_exam_lookup_uses_only_the_exact_pair(tmp_path: Path) -> No
     tool = PairedExamLookupTool(
         PairDocumentReader(),
         Settings(object_store_local_root=tmp_path),
+        vision_provider=VisionProvider(),
     ).bind(context)
 
     result = await tool.acall()
 
     assert result.is_error is False
-    assert "Award 2 marks" in result.content
+    assert "supplied probability table" in result.content.casefold()
+    assert "P(X = 1) = 0.42" in result.content
+    assert "Correct answer: 0.42." not in result.content
     assert len(context.citations) == 1
+    assert context.citations[0].source_type == "insert"
     assert context.citations[0].pair_key == "9660:2026:JUN:PSM1"

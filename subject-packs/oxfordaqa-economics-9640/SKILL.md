@@ -44,5 +44,6 @@ Treat economics diagrams as exact answer artifacts:
 - when the command says "with the help of a diagram", "using a diagram" or explicitly asks the
   candidate to draw a diagram, the answer is incomplete until `economics_diagram` succeeds.
 
-Use knowledge and same-session evidence as support, but do not quote a Mark Scheme as if it were
-the candidate's answer. The final response must remain a coherent answer to the printed question.
+Use knowledge evidence and, when the question depends on it, the exact-session source
+booklet/insert. The answering stage must not access Mark Schemes or examiner reports. The final
+response must remain a coherent answer to the printed question.

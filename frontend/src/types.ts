@@ -34,6 +34,15 @@ export type SymbolicCheck = Schemas["SymbolicCheck"];
 export type GradeResult = Schemas["GradeResponse"];
 export type ReviewItem = Schemas["ReviewQueueItem"];
 export type InventoryResult = Schemas["InventoryResponse"];
+export type SourceDocument = Schemas["SourceDocumentResponse"];
+export type GradingPaper = Schemas["GradingPaperSummary"];
+export type RubricSetSummary = Schemas["RubricSetSummary"];
+export type RubricSet = Schemas["RubricSetResponse"];
+export type PaperAssessment = Schemas["PaperAssessmentResponse"];
+export type GraphVersion = Schemas["GraphVersionResponse"];
+export type GraphVersionSummary = Schemas["GraphVersionSummary"];
+export type GraphNode = Schemas["GraphNodeResponse"];
+export type GraphEdge = Schemas["GraphEdgeResponse"];
 
 export type PaperJobStatus = PaperJobResult["status"];
 export type DiagramTone = NonNullable<DiagramElement["tone"]>;

@@ -45,7 +45,11 @@ def test_create_job_infers_unit_from_filename_unless_explicitly_set(
     repository = CapturingCreateJobRepository()
     jobs = PaperJobService(  # type: ignore[arg-type]
         Settings(object_store_local_root=tmp_path),
-        subject_context(Settings(object_store_local_root=tmp_path)),
+        subject_context(Settings(object_store_local_root=tmp_path)).with_retrieval_snapshot(
+            version_ids=("version-1",),
+            collections=("collection-1",),
+            graph_version_id=None,
+        ),
         repository=repository,  # type: ignore[arg-type]
     )
 
@@ -55,10 +59,64 @@ def test_create_job_infers_unit_from_filename_unless_explicitly_set(
     assert repository.values["unit_code"] == expected_unit
 
 
-async def test_paper_upload_api_returns_a_persistent_job_receipt() -> None:
+def test_create_job_rejects_mark_scheme_before_persisting(tmp_path: Path) -> None:
+    repository = CapturingCreateJobRepository()
+    jobs = PaperJobService(  # type: ignore[arg-type]
+        Settings(object_store_local_root=tmp_path),
+        subject_context(Settings(object_store_local_root=tmp_path)).with_retrieval_snapshot(
+            version_ids=("version-1",),
+            collections=("collection-1",),
+            graph_version_id=None,
+        ),
+        repository=repository,  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(ValueError, match="Mark Scheme"):
+        jobs.create_job(
+            "A-Level-AQA经济学-国际卷MS-202505-Economics-U4-AQA.pdf",
+            b"%PDF-1.7",
+        )
+
+    assert repository.values is None
+
+
+async def test_paper_upload_api_returns_a_persistent_job_receipt(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from examtwin.api import papers as papers_api
+
+    class SnapshotRepository:
+        def __init__(self, _sessions: object) -> None:
+            pass
+
+        def active_retrieval_snapshot(
+            self,
+            subject_id: str,
+            *,
+            include_supplementary: bool,
+        ) -> dict[str, object]:
+            assert subject_id
+            assert include_supplementary is False
+            return {
+                "version_ids": ["version-1"],
+                "collections": ["collection-1"],
+                "graph_version_id": None,
+            }
+
     jobs = FakePaperJobs()
+    monkeypatch.setattr(papers_api, "WorkspaceRepository", SnapshotRepository)
+    monkeypatch.setattr(papers_api, "build_paper_job_service", lambda _settings, _subject: jobs)
     upload = FakeUpload()
-    created = await answer_paper(upload, unit_code="P2", jobs=jobs)  # type: ignore[arg-type]
+    settings = Settings(object_store_local_root=tmp_path)
+    created = await answer_paper(
+        upload,  # type: ignore[arg-type]
+        unit_code="P2",
+        knowledge_base_version_ids=None,
+        include_supplementary=False,
+        settings=settings,
+        subject=subject_context(settings),
+    )
     assert created.model_dump() == {
         "job_id": "job-1",
         "status": "queued",

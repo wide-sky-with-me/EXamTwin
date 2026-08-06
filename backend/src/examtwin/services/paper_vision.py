@@ -187,7 +187,38 @@ class PaperVisionReviewer:
         markdown: str,
         page_start: int,
         page_end: int,
+        _allow_empty: bool = False,
     ) -> VisionReviewResult:
+        if page_start != page_end:
+            parsed_pages = parse_physical_page_markdown(markdown)
+            page_inputs = (
+                validate_physical_page_markdown(markdown, page_start, page_end)
+                if parsed_pages
+                else [(page_number, markdown) for page_number in range(page_start, page_end + 1)]
+            )
+            results = [
+                self.review_chunk(
+                    source_path,
+                    body,
+                    page_number,
+                    page_number,
+                    _allow_empty=True,
+                )
+                for page_number, body in page_inputs
+            ]
+            combined_markdown = "\n\n".join(result.markdown for result in results)
+            combined_length = sum(
+                len(body.strip()) for _page, body in parse_physical_page_markdown(combined_markdown)
+            )
+            if combined_length < 10 <= len(markdown.strip()):
+                raise ValueError("视觉模型没有返回可用的页段 Markdown")
+            return VisionReviewResult(
+                markdown=combined_markdown,
+                repairs=tuple(repair for result in results for repair in result.repairs),
+                confidence=min(result.confidence for result in results),
+                model=self.settings.paper_vision_model,
+            )
+
         images = self._render_pages(source_path, page_start, page_end)
         content: list[dict[str, Any]] = [
             {
@@ -212,7 +243,16 @@ class PaperVisionReviewer:
             page_start=page_start,
             page_end=page_end,
         )
-        if sum(len(body.strip()) for _page, body in parse_physical_page_markdown(reviewed)) < 10:
+        reviewed_length = sum(
+            len(body.strip()) for _page, body in parse_physical_page_markdown(reviewed)
+        )
+        source_pages = parse_physical_page_markdown(markdown)
+        source_length = (
+            sum(len(body.strip()) for _page, body in source_pages)
+            if source_pages
+            else len(markdown.strip())
+        )
+        if not _allow_empty and reviewed_length < 10 <= source_length:
             raise ValueError("视觉模型没有返回可用的页段 Markdown")
         raw_repairs = payload.get("repairs", [])
         repairs = (
@@ -340,7 +380,7 @@ class PaperVisionReviewer:
     @staticmethod
     def _prompt(markdown: str, page_start: int, page_end: int) -> str:
         return f"""
-You are the visual quality gate for an OxfordAQA Mathematics 9660 question paper.
+You are the visual quality gate for an examination question paper.
 Compare the MinerU Markdown with the rendered PDF pages {page_start}-{page_end}.
 The page images are the source of truth. Repair the Markdown, do not solve anything.
 

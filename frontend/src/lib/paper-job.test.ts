@@ -9,6 +9,8 @@ function job(overrides: Partial<PaperJobResult>): PaperJobResult {
     subject_pack_id: "oxfordaqa-mathematics-9660",
     subject_code: "9660",
     unit_code: "P2",
+    knowledge_base_version_ids: [],
+    graph_version_id: null,
     status: "answering",
     stage: "answering",
     total_pages: 10,

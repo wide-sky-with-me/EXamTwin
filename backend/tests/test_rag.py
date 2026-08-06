@@ -160,6 +160,34 @@ def test_knowledge_card_preserves_subject_and_unit_scope() -> None:
     assert node.node.metadata["unit_code"] == "P1"
 
 
+def test_rag_unit_scope_accepts_global_but_not_other_unit_evidence() -> None:
+    def node(unit_code: str) -> NodeWithScore:
+        return NodeWithScore(
+            node=TextNode(
+                text="Approved subject evidence.",
+                metadata={
+                    "subject_code": "9660",
+                    "unit_code": unit_code,
+                    "source_type": "textbook",
+                    "authority_tier": "licensed_core",
+                    "source_role": "core_knowledge",
+                },
+            )
+        )
+
+    scope = {
+        "subject_code": "9660",
+        "unit_code": "P1",
+        "pair_key": None,
+        "source_types": set(),
+        "authority_tiers": {"licensed_core"},
+    }
+
+    assert RagService._in_scope(node(""), **scope)
+    assert RagService._in_scope(node("P1"), **scope)
+    assert not RagService._in_scope(node("P2"), **scope)
+
+
 def test_rag_carries_question_images_into_answer_task(monkeypatch) -> None:
     captured: list[AnswerTask] = []
 

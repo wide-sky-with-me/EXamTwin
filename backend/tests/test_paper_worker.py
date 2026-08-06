@@ -8,6 +8,7 @@ from examtwin.config import Settings
 from examtwin.schemas import (
     PaperQuestionAnswer,
 )
+from examtwin.services.paper_classification import PaperDocumentClassification
 from examtwin.services.paper_worker import PaperWorker
 from examtwin.services.subject_context import subject_context
 
@@ -41,7 +42,65 @@ def test_split_checkpoint_requires_matching_input_digest(tmp_path: Path) -> None
     assert worker._load_split_checkpoint("job-1", 0, "digest-b") is None
 
 
-def test_worker_activates_the_subject_persisted_on_each_job(tmp_path: Path) -> None:
+def test_worker_checkpoints_and_reuses_non_question_classification(tmp_path: Path) -> None:
+    class ClassificationFiles:
+        def resolve_file(self, relative_path: str) -> Path:
+            return tmp_path / relative_path
+
+        def write_file(self, relative_path: str, content: bytes | str) -> None:
+            path = tmp_path / relative_path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(content if isinstance(content, bytes) else content.encode())
+
+    calls = 0
+
+    def classify(_markdown: str) -> PaperDocumentClassification:
+        nonlocal calls
+        calls += 1
+        return PaperDocumentClassification(
+            document_type="mark_scheme",
+            confidence=0.99,
+            evidence=["MARK SCHEME"],
+            rationale="The document contains scoring instructions.",
+        )
+
+    settings = Settings(object_store_local_root=tmp_path)
+    worker = PaperWorker(
+        settings,
+        subject_context(settings),
+        jobs=ClassificationFiles(),  # type: ignore[arg-type]
+        answer_service=FakeAnswerService(),  # type: ignore[arg-type]
+        document_classifier=classify,
+    )
+
+    for _ in range(2):
+        with pytest.raises(ValueError, match="Mark Scheme"):
+            worker._classify_document("job-1", "Parsed scoring guidance and acceptable answers.")
+
+    assert calls == 1
+
+
+def test_worker_activates_the_subject_persisted_on_each_job(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class SnapshotRepository:
+        def __init__(self, _sessions: object) -> None:
+            pass
+
+        def retrieval_snapshot_for_versions(
+            self,
+            subject_id: str,
+            version_ids: list[str],
+        ) -> dict[str, object]:
+            assert subject_id
+            assert version_ids == ["economics-version-1"]
+            return {"collections": ["economics-collection-1"]}
+
+    monkeypatch.setattr(
+        "examtwin.services.paper_worker.WorkspaceRepository",
+        SnapshotRepository,
+    )
     settings = Settings(object_store_local_root=tmp_path)
     mathematics = subject_context(settings, "9660")
     economics = subject_context(settings, "9640")
@@ -64,6 +123,8 @@ def test_worker_activates_the_subject_persisted_on_each_job(tmp_path: Path) -> N
         {
             "subject_pack_id": economics.pack.id,
             "subject_code": economics.subject_code,
+            "knowledge_base_version_ids_json": '["economics-version-1"]',
+            "graph_version_id": None,
         }
     )
 

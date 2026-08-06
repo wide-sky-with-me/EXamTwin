@@ -9,6 +9,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
+from examtwin.agent_harness.structured import (
+    StructuredModelPort,
+    StructuredTask,
+    StructuredTaskRunner,
+)
 from examtwin.answering_agent.contracts import AgentEventSink, AgentRunLedger, QuestionImage
 from examtwin.config import Settings
 from examtwin.persistence.knowledge_repository import KnowledgeRepository
@@ -23,6 +28,7 @@ from examtwin.services.inventory import parse_exam_identity
 from examtwin.services.knowledge import list_knowledge_points
 from examtwin.services.model_json import parse_json_response
 from examtwin.services.paper_parsing import (
+    QuestionSourcePageResolutionError,
     _tokens,
     question_spec_from_item,
     reconcile_question_source_pages,
@@ -30,7 +36,9 @@ from examtwin.services.paper_parsing import (
 )
 from examtwin.services.providers import build_llm
 from examtwin.services.rag import RagService
+from examtwin.services.structured_model import LiteLLMStructuredModel
 from examtwin.services.subject_context import SubjectContext
+from pydantic import BaseModel, ConfigDict, Field
 
 PAGE_SECTION = re.compile(
     r"(?=<!--\s*(?:pages?\s+\d+|examtwin:physical-page=\d+))",
@@ -40,6 +48,31 @@ SPLIT_CONTRACT_VERSION = "paper-question-split-v2"
 
 SplitCheckpointLoader = Callable[[int, str], list[dict[str, Any]] | None]
 SplitCheckpointSaver = Callable[[int, int, str, list[dict[str, Any]], float], None]
+
+
+class _QuestionRepairGroup(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    number: str = Field(min_length=1, max_length=32)
+    candidate_indexes: list[int] = Field(min_length=1)
+
+
+class _QuestionRepairPlan(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    groups: list[_QuestionRepairGroup] = Field(min_length=1)
+
+
+def _build_question_repair_model(settings: Settings) -> StructuredModelPort:
+    api_key = settings.llm_provider_api_key
+    if api_key is None:
+        raise RuntimeError("Question structure repair requires OPENAI_COMPAT_API_KEY")
+    return LiteLLMStructuredModel(
+        model=settings.paper_split_model,
+        api_base=settings.llm_provider_base_url,
+        api_key=api_key.get_secret_value(),
+        reasoning_effort=settings.paper_split_reasoning_effort,
+    )
 
 
 def _split_markdown_batches(markdown: str, *, max_chars: int) -> list[str]:
@@ -69,24 +102,144 @@ def _split_markdown_batches(markdown: str, *, max_chars: int) -> list[str]:
     return batches
 
 
+def _question_number_identity(number: str) -> tuple[str, str | None, bool]:
+    compact = re.sub(r"\s+", "", number).lower()
+    exact = re.fullmatch(r"0*(\d+)", compact)
+    if exact:
+        canonical = str(int(exact.group(1)))
+        return compact, canonical, True
+    prefix = re.match(r"0*(\d+)", compact)
+    canonical = str(int(prefix.group(1))) if prefix else None
+    return compact, canonical, False
+
+
 def _merge_split_questions(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    identities = [_question_number_identity(str(item.get("number", "?")).strip()) for item in items]
+    top_level_numbers = {
+        canonical
+        for _compact, canonical, is_top_level in identities
+        if canonical is not None and is_top_level
+    }
     merged: list[dict[str, Any]] = []
+    merged_is_top_level: list[bool] = []
     positions: dict[str, int] = {}
-    for item in items:
-        number = str(item.get("number", "?")).strip()
-        key = re.sub(r"\s+", "", number).lower()
+    for item, (compact, canonical, is_top_level) in zip(items, identities, strict=True):
+        key = canonical if canonical in top_level_numbers else compact
         if not key or key == "?" or key not in positions:
             if key and key != "?":
                 positions[key] = len(merged)
             merged.append(item)
+            merged_is_top_level.append(is_top_level)
             continue
         position = positions[key]
         previous = merged[position]
+        previous_is_top_level = merged_is_top_level[position]
+        if previous_is_top_level and not is_top_level:
+            # Recovery text may split one complete top-level question into numbered fragments.
+            continue
+        if is_top_level and not previous_is_top_level:
+            merged[position] = item
+            merged_is_top_level[position] = True
+            continue
         previous_text = str(previous.get("question_markdown", ""))
         candidate_text = str(item.get("question_markdown", ""))
         if len(candidate_text) > len(previous_text):
-            merged[position] = item
+            replacement = dict(item)
+            if is_top_level:
+                replacement["number"] = previous.get("number", item.get("number"))
+            merged[position] = replacement
     return merged
+
+
+def _combine_repair_group(
+    items: list[dict[str, Any]],
+    group: _QuestionRepairGroup,
+) -> dict[str, Any]:
+    target_compact, target_canonical, _target_is_top_level = _question_number_identity(group.number)
+    identities = [_question_number_identity(str(item.get("number", "?")).strip()) for item in items]
+    if target_canonical is not None:
+        identity_matches = any(canonical == target_canonical for _, canonical, _ in identities)
+    else:
+        identity_matches = any(compact == target_compact for compact, _, _ in identities)
+    if not identity_matches:
+        raise ValueError(f"结构修复模型为题组生成了无来源题号：{group.number}")
+
+    exact_top_level = [
+        item
+        for item, (compact, canonical, is_top_level) in zip(items, identities, strict=True)
+        if is_top_level
+        and (
+            canonical == target_canonical
+            if target_canonical is not None
+            else compact == target_compact
+        )
+    ]
+    if exact_top_level:
+        repaired = dict(
+            max(
+                exact_top_level,
+                key=lambda item: len(str(item.get("question_markdown", ""))),
+            )
+        )
+    else:
+        repaired = dict(items[0])
+        texts = list(
+            dict.fromkeys(
+                text for item in items if (text := str(item.get("question_markdown", "")).strip())
+            )
+        )
+        repaired["question_markdown"] = "\n\n".join(texts)
+
+    repaired["number"] = group.number.strip()
+    repaired.pop("source_pages", None)
+    repaired["requires_visual_context"] = any(
+        bool(item.get("requires_visual_context")) for item in items
+    )
+
+    knowledge_codes: list[str] = []
+    requirements: list[Any] = []
+    requirement_keys: set[str] = set()
+    for item in items:
+        for code in item.get("knowledge_codes") or []:
+            normalized_code = str(code).strip()
+            if normalized_code and normalized_code not in knowledge_codes:
+                knowledge_codes.append(normalized_code)
+        for requirement in item.get("answer_requirements") or []:
+            key = json.dumps(requirement, ensure_ascii=False, sort_keys=True)
+            if key not in requirement_keys:
+                requirement_keys.add(key)
+                requirements.append(requirement)
+    if knowledge_codes:
+        repaired["knowledge_codes"] = knowledge_codes
+    if requirements:
+        repaired["answer_requirements"] = requirements
+        repaired["total_marks"] = None
+    elif not exact_top_level:
+        totals = [int(total) for item in items if (total := item.get("total_marks")) is not None]
+        repaired["total_marks"] = max(totals, default=None)
+    return repaired
+
+
+def _apply_question_repair_plan(
+    items: list[dict[str, Any]],
+    plan: _QuestionRepairPlan,
+) -> list[dict[str, Any]]:
+    indexes = [index for group in plan.groups for index in group.candidate_indexes]
+    if sorted(indexes) != list(range(len(items))):
+        raise ValueError("结构修复模型必须将每个候选题恰好使用一次")
+
+    group_identities: set[str] = set()
+    repaired: list[dict[str, Any]] = []
+    for group in plan.groups:
+        compact, canonical, _is_top_level = _question_number_identity(group.number)
+        identity = canonical or compact
+        if not identity or identity in group_identities:
+            raise ValueError(f"结构修复模型返回了重复或无效的顶层题号：{group.number}")
+        group_identities.add(identity)
+        repaired.append(
+            _combine_repair_group([items[index] for index in group.candidate_indexes], group)
+        )
+    return repaired
 
 
 class PaperAnswerService:
@@ -100,6 +253,7 @@ class PaperAnswerService:
         splitter: Callable[[str, list[dict[str, Any]]], list[dict[str, Any]]] | None = None,
         parser: Callable[[Settings, str, bytes], str] | None = None,
         catalog_loader: Callable[[str | None], list[dict[str, Any]]] | None = None,
+        structured_model: StructuredModelPort | None = None,
     ):
         self.settings = settings
         self.subject = subject
@@ -108,6 +262,7 @@ class PaperAnswerService:
         self.splitter = splitter
         self.parser = parser or upload_to_markdown
         self.catalog_loader = catalog_loader or self._load_catalog
+        self.structured_model = structured_model
 
     def _load_catalog(self, unit_code: str | None) -> list[dict[str, Any]]:
         if self.knowledge_repository is None:
@@ -380,9 +535,7 @@ Paper Markdown:
             f"{catalog_by_code[code]['features'].get('description', '')}"
             for code in codes
         )
-        source_types = ["syllabus", "textbook", "question_paper"]
-        if pair_key is not None:
-            source_types.append("mark_scheme")
+        source_types: list[str] = []
         rag_options: dict[str, Any] = {
             "question_images": question_images,
             "question_number": number,
@@ -403,6 +556,12 @@ Paper Markdown:
                 subject_code=self.subject.subject_code,
                 unit_code=unit_code,
                 pair_key=pair_key,
+                authority_tiers=[
+                    "official",
+                    "licensed_core",
+                    "licensed",
+                    "supplementary",
+                ],
                 source_types=source_types,
                 top_k=6,
             ),
@@ -462,6 +621,64 @@ Paper Markdown:
             save_checkpoint=save_checkpoint,
         )
 
+    def _repair_question_structure(
+        self,
+        source_markdown: str,
+        items: list[dict[str, Any]],
+        unresolved_numbers: tuple[str, ...],
+    ) -> list[dict[str, Any]]:
+        excerpt_limit = max(800, min(3_000, 80_000 // len(items)))
+        candidates = [
+            {
+                "candidate_index": index,
+                "number": str(item.get("number", "?")),
+                "question_excerpt": str(item.get("question_markdown", ""))[:excerpt_limit],
+                "answer_requirements": item.get("answer_requirements") or [],
+            }
+            for index, item in enumerate(items)
+        ]
+        if len(source_markdown) > 60_000:
+            source_excerpt = (
+                source_markdown[:30_000]
+                + "\n\n[... trusted source middle omitted ...]\n\n"
+                + source_markdown[-30_000:]
+            )
+        else:
+            source_excerpt = source_markdown
+        task = StructuredTask(
+            system_prompt=(
+                "Repair only the grouping and physical order of extracted examination-question "
+                "candidates. Return one group per top-level question in trusted source order. "
+                "Group duplicate candidates and subquestion fragments under their top-level "
+                "question. Use every candidate_index exactly once. Keep each group's number "
+                "within the number family present in that group's candidates. Do not solve, "
+                "rewrite, discard, or add questions, and do not infer source page numbers."
+            ),
+            user_content=json.dumps(
+                {
+                    "unresolved_numbers": unresolved_numbers,
+                    "trusted_source_excerpt": source_excerpt,
+                    "candidates": candidates,
+                },
+                ensure_ascii=False,
+            ),
+        )
+        model = self.structured_model
+        if model is None:
+            model = _build_question_repair_model(self.settings)
+            self.structured_model = model
+        plan = StructuredTaskRunner(model).run(
+            task,
+            _QuestionRepairPlan,
+            timeout=self.settings.paper_split_timeout,
+        )
+        repaired = _apply_question_repair_plan(items, plan)
+        for item in repaired:
+            spec = question_spec_from_item(item)
+            item["answer_requirements"] = [part.model_dump(mode="json") for part in spec.subparts]
+            item["total_marks"] = spec.total_marks
+        return repaired
+
     def _split_questions(
         self,
         markdown: str,
@@ -490,7 +707,19 @@ Paper Markdown:
             spec = question_spec_from_item(item)
             item["answer_requirements"] = [part.model_dump(mode="json") for part in spec.subparts]
             item["total_marks"] = spec.total_marks
-        return reconcile_question_source_pages(source_markdown or markdown, normalized)
+        trusted_source = source_markdown or markdown
+        try:
+            return reconcile_question_source_pages(trusted_source, normalized)
+        except QuestionSourcePageResolutionError as source_error:
+            try:
+                repaired = self._repair_question_structure(
+                    trusted_source,
+                    normalized,
+                    source_error.unresolved_numbers,
+                )
+            except Exception as repair_error:
+                raise ValueError(f"{source_error}；结构修复失败：{repair_error}") from repair_error
+            return reconcile_question_source_pages(trusted_source, repaired)
 
     def answer_question(
         self,

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "version": "2026-08-04.1",
+  "version": "2026-08-05.2",
   "id": "oxfordaqa-mathematics-9660",
   "subject_code": "9660",
   "title": "OxfordAQA International AS/A-level Mathematics (9660)",
@@ -51,11 +51,11 @@
     ],
     "topic_code_pattern": "(?:P1|PP1|S1|M1|P2|S2|M2)\\.\\d+",
     "unit_patterns": [
-      ["\\bupsm1\\b|\\bpsm1\\b", "PSM1"],
-      ["\\bup1\\b|\\bunit\\s*p1\\b|\\bunit\\s*1\\b", "P1"],
-      ["\\bup2\\b|\\bunit\\s*p2\\b|\\bunit\\s*3\\b", "P2"],
-      ["\\bus2\\b|\\bunit\\s*s2\\b|\\bunit\\s*4\\b", "S2"],
-      ["\\bum2\\b|\\bunit\\s*m2\\b|\\bunit\\s*5\\b", "M2"]
+      ["\\b(?:upsm1a?|psm1|ma02)\\b|\\bunit\\s*(?:psm1|2)\\b|\\binsert[- ]*2\\b|\\bpure[- ]statistics\\b", "PSM1"],
+      ["\\b(?:up1a?|p1|ma01)\\b|\\bunit\\s*(?:p1|1)\\b|\\binsert\\s*1\\b|(?:^|[\\\\/])as[\\\\/].*pure[- ]mathematics", "P1"],
+      ["\\b(?:up2a?|p2|ma03)\\b|\\bunit\\s*(?:p2|3)\\b|\\binsert\\s*3\\b", "P2"],
+      ["\\b(?:us2a?|s2|ma04)\\b|\\bunit\\s*(?:s2|4)\\b|\\binsert\\s*4\\b", "S2"],
+      ["\\b(?:um2a?|m2|ma05)\\b|\\bunit\\s*(?:m2|5)\\b|\\binsert\\s*5\\b", "M2"]
     ],
     "paper_unit_map": {
       "1": "P1",

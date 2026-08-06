@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from examtwin.agent_harness import StructuredModelPort, StructuredTask, StructuredTaskRunner
 from examtwin.config import Settings
@@ -38,6 +38,19 @@ class GradingRubricDraft(BaseModel):
     rationale: str
     confidence: float = Field(ge=0, le=1)
     source_ref: str | None = None
+    knowledge_codes: list[str] = Field(default_factory=list)
+    error_types: list[
+        Literal[
+            "conceptual",
+            "procedural",
+            "calculation",
+            "notation",
+            "unit",
+            "diagram",
+            "omission",
+        ]
+    ] = Field(default_factory=list)
+    improvement_suggestion: str | None = None
 
 
 class GradingDraft(BaseModel):
@@ -205,6 +218,9 @@ CAS CHECKS:
 
 MAXIMUM MARKS:
 {max_marks_context}
+
+RELEVANT KNOWLEDGE CODES:
+{", ".join(request.knowledge_codes) or "None supplied."}
 """.strip()
         runner = StructuredTaskRunner(self.structured_model or _grading_model(self.settings))
         payload = runner.run(
@@ -227,6 +243,9 @@ MAXIMUM MARKS:
                     rationale=item.rationale,
                     confidence=item.confidence,
                     source_ref=item.source_ref,
+                    knowledge_codes=item.knowledge_codes,
+                    error_types=item.error_types,
+                    improvement_suggestion=item.improvement_suggestion,
                 )
             )
         if not awards:
@@ -256,6 +275,11 @@ MAXIMUM MARKS:
             symbolic_checks=checks,
             citations=citations,
             warnings=warnings,
+            improvement_suggestions=list(
+                dict.fromkeys(
+                    item.improvement_suggestion for item in awards if item.improvement_suggestion
+                )
+            ),
             manual_review_required=True,
         )
         now = utcnow()

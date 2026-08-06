@@ -111,10 +111,12 @@ class CorpusIngestor:
                 "source": str(source),
                 "source_type": row["source_type"],
                 "authority_tier": row.get("authority_tier", "supplementary"),
+                "source_role": row.get("source_role", "excluded"),
+                "knowledge_base_id": row.get("knowledge_base_id"),
                 "pair_key": row.get("pair_key"),
                 "unit_code": row.get("unit_code"),
             }
-            if source.suffix.lower() == ".md":
+            if source.suffix.lower() in {".md", ".markdown"}:
                 body = source.read_text(encoding="utf-8")
             else:
                 with prepare_for_mineru(

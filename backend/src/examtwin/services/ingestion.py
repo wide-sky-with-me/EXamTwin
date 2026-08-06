@@ -10,9 +10,11 @@ from pathlib import Path
 from typing import Any
 
 from examtwin.config import Settings
+from examtwin.persistence.document_block_repository import DocumentBlockRepository
 from examtwin.persistence.knowledge_repository import KnowledgeRepository
-from examtwin.persistence.session import utcnow
+from examtwin.persistence.session import create_session_factory, utcnow
 from examtwin.persistence.vector_index_repository import VectorIndexRepository
+from examtwin.persistence.workspace_repository import WorkspaceRepository
 from examtwin.schemas.common import JobResult
 from examtwin.services.cache_paths import resolve_markdown_cache_path
 from examtwin.services.knowledge import (
@@ -39,6 +41,13 @@ HTML_TABLE_RE = re.compile(r"(<table\b.*?</table>)", re.IGNORECASE | re.DOTALL)
 TABLE_EMBED_CHAR_LIMIT = 16_000
 ASSESSMENT_CHUNK_SIZE = 450
 ASSESSMENT_CHUNK_OVERLAP = 60
+KNOWLEDGE_SPLIT_POLICIES = {
+    "syllabus": (360, 40),
+    "textbook": (560, 80),
+    "slide": (320, 0),
+    "revision_note": (420, 50),
+}
+KNOWLEDGE_SOURCE_TYPES = frozenset(KNOWLEDGE_SPLIT_POLICIES)
 logger = logging.getLogger(__name__)
 
 
@@ -115,6 +124,8 @@ def _documents_with_pages(text: str, row: dict[str, Any]) -> list[Document]:
         "filename": row["filename"],
         "source_type": row["source_type"],
         "authority_tier": row.get("authority_tier", "supplementary"),
+        "source_role": row.get("source_role", "excluded"),
+        "knowledge_base_id": row.get("knowledge_base_id") or "",
         "pair_key": row["pair_key"] or "",
         "unit_code": row["unit_code"] or "",
         "subject_code": row.get("subject_code") or "9660",
@@ -149,67 +160,92 @@ def _evidence_nodes(
     splitter: SentenceSplitter | None = None,
     assessment_splitter: SentenceSplitter | None = None,
 ) -> list[BaseNode]:
-    """Split prose normally while keeping each MinerU HTML table as one node."""
-    splitter = splitter or SentenceSplitter(chunk_size=900, chunk_overlap=120)
+    """Split retrieval children by source while retaining immutable section parents."""
     assessment_splitter = assessment_splitter or SentenceSplitter(
         chunk_size=ASSESSMENT_CHUNK_SIZE,
         chunk_overlap=ASSESSMENT_CHUNK_OVERLAP,
     )
     nodes: list[BaseNode] = []
     for document in documents:
-        document_splitter = (
-            assessment_splitter
-            if document.metadata.get("source_type") in {"question_paper", "mark_scheme"}
-            else splitter
+        source_type = str(document.metadata.get("source_type") or "")
+        if source_type in {"question_paper", "mark_scheme"}:
+            document_splitter = assessment_splitter
+        elif splitter is not None:
+            document_splitter = splitter
+        else:
+            chunk_size, overlap = KNOWLEDGE_SPLIT_POLICIES.get(source_type, (480, 60))
+            document_splitter = SentenceSplitter(
+                chunk_size=chunk_size,
+                chunk_overlap=overlap,
+            )
+        parent_hash = hashlib.sha256(document.text.encode("utf-8")).hexdigest()
+        parent_block_id = str(
+            uuid.uuid5(
+                uuid.NAMESPACE_URL,
+                f"https://examtwin.local/evidence/parent/{document.node_id}/{parent_hash}",
+            )
         )
+        produced: list[BaseNode] = []
         parts = HTML_TABLE_RE.split(document.text)
         if len(parts) == 1:
-            document.metadata["block_kind"] = "prose"
-            nodes.extend(
+            document.metadata.update({"block_kind": "prose", "parent_block_id": parent_block_id})
+            produced.extend(
                 document_splitter.get_nodes_from_documents([document], show_progress=False)
             )
-            continue
-        for block_index, part in enumerate(parts):
-            content = part.strip()
-            if not content:
-                continue
-            metadata = dict(document.metadata)
-            if HTML_TABLE_RE.fullmatch(content):
-                content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
-                retrieval_text = _table_retrieval_projection(content)
-                metadata.update(
-                    {
-                        "block_kind": "table",
-                        "table_index": block_index,
-                        "table_row_count": len(re.findall(r"<tr\b", content, flags=re.IGNORECASE)),
-                        "retrieval_text": retrieval_text,
-                    }
-                )
-                nodes.append(
-                    TextNode(
-                        id_=str(
-                            uuid.uuid5(
-                                uuid.NAMESPACE_URL,
-                                (
-                                    "https://examtwin.local/evidence/table/"
-                                    f"{document.node_id}/{block_index}/{content_hash}"
-                                ),
-                            )
-                        ),
-                        text=content,
-                        metadata=metadata,
-                        excluded_llm_metadata_keys=["document_id"],
+        else:
+            for block_index, part in enumerate(parts):
+                content = part.strip()
+                if not content:
+                    continue
+                metadata = {**document.metadata, "parent_block_id": parent_block_id}
+                if HTML_TABLE_RE.fullmatch(content):
+                    content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+                    retrieval_text = _table_retrieval_projection(content)
+                    metadata.update(
+                        {
+                            "block_kind": "table",
+                            "table_index": block_index,
+                            "table_row_count": len(
+                                re.findall(r"<tr\b", content, flags=re.IGNORECASE)
+                            ),
+                            "retrieval_text": retrieval_text,
+                        }
                     )
+                    produced.append(
+                        TextNode(
+                            id_=str(
+                                uuid.uuid5(
+                                    uuid.NAMESPACE_URL,
+                                    (
+                                        "https://examtwin.local/evidence/table/"
+                                        f"{document.node_id}/{block_index}/{content_hash}"
+                                    ),
+                                )
+                            ),
+                            text=content,
+                            metadata=metadata,
+                            excluded_llm_metadata_keys=["document_id"],
+                        )
+                    )
+                    continue
+                metadata["block_kind"] = "prose"
+                prose = Document(
+                    id_=f"{document.node_id}:prose:{block_index}",
+                    text=content,
+                    metadata=metadata,
+                    excluded_llm_metadata_keys=["document_id"],
                 )
-                continue
-            metadata["block_kind"] = "prose"
-            prose = Document(
-                id_=f"{document.node_id}:prose:{block_index}",
-                text=content,
-                metadata=metadata,
-                excluded_llm_metadata_keys=["document_id"],
+                produced.extend(
+                    document_splitter.get_nodes_from_documents([prose], show_progress=False)
+                )
+        for index, node in enumerate(produced):
+            node.metadata["node_kind"] = "evidence_chunk"
+            node.metadata["parent_block_id"] = parent_block_id
+            node.metadata["previous_block_id"] = produced[index - 1].node_id if index > 0 else None
+            node.metadata["next_block_id"] = (
+                produced[index + 1].node_id if index + 1 < len(produced) else None
             )
-            nodes.extend(document_splitter.get_nodes_from_documents([prose], show_progress=False))
+        nodes.extend(produced)
     return nodes
 
 
@@ -429,6 +465,9 @@ def build_vector_index(
     limit: int | None = None,
     embedding: Any | None = None,
     resume: bool = False,
+    knowledge_base_version_id: str | None = None,
+    source_document_ids: list[str] | None = None,
+    block_repository: DocumentBlockRepository | None = None,
 ) -> JobResult:
     if limit is not None:
         raise ValueError(
@@ -436,10 +475,24 @@ def build_vector_index(
             "convert a bounded corpus first, then run a complete index build."
         )
     subject_pack = subject.pack
+    subject_code = subject.subject_code
     rows = repository.indexable_documents(
-        subject_code=subject_pack.subject_code,
+        subject_code=subject_code,
+        document_ids=source_document_ids,
         limit=limit,
     )
+    forbidden = sorted({str(row["source_type"]) for row in rows} - KNOWLEDGE_SOURCE_TYPES)
+    if forbidden:
+        raise ValueError(
+            "Assessment or unclassified sources cannot enter a knowledge index: "
+            + ", ".join(forbidden)
+        )
+    if source_document_ids is not None and {str(row["id"]) for row in rows} != set(
+        source_document_ids
+    ):
+        raise ValueError(
+            "Knowledge-base source snapshot contains missing, unconverted, or excluded documents"
+        )
     client = QdrantClient(url=settings.qdrant_url)
     publisher = QdrantIndexPublisher(
         client,
@@ -483,6 +536,7 @@ def build_vector_index(
             {
                 "id": run_id,
                 "subject_code": subject_pack.subject_code,
+                "knowledge_base_version_id": knowledge_base_version_id,
                 "alias_name": settings.qdrant_collection_alias,
                 "staging_collection": staging_collection,
                 "previous_collection": previous_collection,
@@ -521,7 +575,7 @@ def build_vector_index(
             raise ValueError("Vector index input gate failed: no indexable documents")
 
         evidence_nodes = _evidence_nodes(documents)
-        catalog = _index_catalog(knowledge_repository, subject_pack.subject_code)
+        catalog = _index_catalog(knowledge_repository, subject_code)
         _annotate_evidence_nodes(evidence_nodes, catalog)
         nodes: list[BaseNode] = [*evidence_nodes, *_knowledge_point_nodes(catalog)]
         index_schema_version = HYBRID_INDEX_SCHEMA_VERSION if hybrid_index else "dense-v0"
@@ -538,10 +592,8 @@ def build_vector_index(
                     "index_schema_version": index_schema_version,
                     "embedding_identity": embed_identity,
                     "chunk_policy": {
-                        "general_size": 900,
-                        "general_overlap": 120,
-                        "assessment_size": ASSESSMENT_CHUNK_SIZE,
-                        "assessment_overlap": ASSESSMENT_CHUNK_OVERLAP,
+                        "parser_version": "hierarchical-v1",
+                        "source_policies": KNOWLEDGE_SPLIT_POLICIES,
                         "table_projection_limit": TABLE_EMBED_CHAR_LIMIT,
                     },
                 },
@@ -581,7 +633,7 @@ def build_vector_index(
         logger.info(
             "vector_index_embedding_plan",
             extra={
-                "subject_code": subject_pack.subject_code,
+                "subject_code": subject_code,
                 "build_id": run_id,
                 "points": len(nodes),
                 "resumed_points": write_plan.resumed_points,
@@ -618,20 +670,40 @@ def build_vector_index(
         _persist_index_evidence(
             knowledge_repository,
             evidence_nodes,
-            subject_code=subject_pack.subject_code,
+            subject_code=subject_code,
             build_id=run_id,
         )
+        if knowledge_base_version_id is not None:
+            blocks = block_repository or DocumentBlockRepository(
+                create_session_factory(settings.database_url)
+            )
+            blocks.replace_build(
+                run_id,
+                _document_block_rows(
+                    documents,
+                    evidence_nodes,
+                    knowledge_base_version_id=knowledge_base_version_id,
+                    build_id=run_id,
+                ),
+            )
         publisher.publish(staging_collection, len(nodes))
         published_at = utcnow()
         repository.finalize_publication(
             run_id=run_id,
-            subject_code=subject_pack.subject_code,
+            subject_code=subject_code,
             alias_name=settings.qdrant_collection_alias,
             collection_name=staging_collection,
             indexed_points=gate.indexed_points,
             document_ids=[str(row["id"]) for row in rows],
             published_at=published_at,
+            knowledge_base_version_id=knowledge_base_version_id,
         )
+        if knowledge_base_version_id is not None:
+            WorkspaceRepository(create_session_factory(settings.database_url)).publish_version(
+                knowledge_base_version_id,
+                build_id=run_id,
+                collection_name=staging_collection,
+            )
         return JobResult(processed=len(rows), succeeded=len(rows), failed=0)
     except Exception as error:
         repository.update_run(
@@ -644,6 +716,92 @@ def build_vector_index(
             },
         )
         raise
+
+
+def _document_block_rows(
+    documents: list[Document],
+    nodes: list[BaseNode],
+    *,
+    knowledge_base_version_id: str,
+    build_id: str,
+) -> list[dict[str, Any]]:
+    now = utcnow()
+    parent_children: dict[str, list[BaseNode]] = {}
+    for node in nodes:
+        parent_children.setdefault(str(node.metadata.get("parent_block_id") or ""), []).append(node)
+    rows: list[dict[str, Any]] = []
+    for document in documents:
+        parent_hash = hashlib.sha256(document.text.encode("utf-8")).hexdigest()
+        parent_id = str(
+            uuid.uuid5(
+                uuid.NAMESPACE_URL,
+                f"https://examtwin.local/evidence/parent/{document.node_id}/{parent_hash}",
+            )
+        )
+        children = parent_children.get(parent_id, [])
+        if not children:
+            continue
+        metadata = dict(document.metadata)
+        rows.append(
+            {
+                "id": parent_id,
+                "document_id": str(metadata["document_id"]),
+                "knowledge_base_version_id": knowledge_base_version_id,
+                "build_id": build_id,
+                "parent_block_id": None,
+                "previous_block_id": None,
+                "next_block_id": None,
+                "page": metadata.get("page"),
+                "section": metadata.get("section"),
+                "section_path_json": json.dumps(
+                    metadata.get("section_path") or [], ensure_ascii=False
+                ),
+                "block_kind": "section",
+                "source_role": str(metadata.get("source_role") or "excluded"),
+                "content": document.text,
+                "content_hash": parent_hash,
+                "knowledge_codes_json": json.dumps(
+                    sorted(
+                        {
+                            str(code)
+                            for child in children
+                            for code in child.metadata.get("knowledge_codes", [])
+                        }
+                    )
+                ),
+                "metadata_json": json.dumps(metadata, ensure_ascii=False, default=str),
+                "created_at": now,
+            }
+        )
+    for node in nodes:
+        metadata = dict(node.metadata)
+        content = node.get_content()
+        rows.append(
+            {
+                "id": node.node_id,
+                "document_id": str(metadata["document_id"]),
+                "knowledge_base_version_id": knowledge_base_version_id,
+                "build_id": build_id,
+                "parent_block_id": metadata.get("parent_block_id"),
+                "previous_block_id": metadata.get("previous_block_id"),
+                "next_block_id": metadata.get("next_block_id"),
+                "page": metadata.get("page"),
+                "section": metadata.get("section"),
+                "section_path_json": json.dumps(
+                    metadata.get("section_path") or [], ensure_ascii=False
+                ),
+                "block_kind": str(metadata.get("block_kind") or "prose"),
+                "source_role": str(metadata.get("source_role") or "excluded"),
+                "content": content,
+                "content_hash": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+                "knowledge_codes_json": json.dumps(
+                    metadata.get("knowledge_codes") or [], ensure_ascii=False
+                ),
+                "metadata_json": json.dumps(metadata, ensure_ascii=False, default=str),
+                "created_at": now,
+            }
+        )
+    return rows
 
 
 def load_vector_index(settings: Settings, embedding: Any | None = None) -> VectorStoreIndex:

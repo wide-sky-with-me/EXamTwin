@@ -3,6 +3,7 @@ import { useId, useState } from "react";
 import { backendResourceUrl } from "../lib/api";
 import { useModalFocus } from "../lib/use-modal-focus";
 import type { AnswerImage } from "../types";
+import { InlineMarkdown } from "./Markdown";
 
 export function AnswerImageView({ image }: { image: AnswerImage }) {
   const id = useId().replaceAll(":", "");
@@ -21,7 +22,7 @@ export function AnswerImageView({ image }: { image: AnswerImage }) {
     >
       <div className="answer-diagram-header">
         <div>
-          <strong id={titleId}>{image.title}</strong>
+          <strong id={titleId}><InlineMarkdown>{image.title}</InlineMarkdown></strong>
           <span>GPT Image 生成图片 · 请核对内容准确性</span>
         </div>
         <div
@@ -52,7 +53,7 @@ export function AnswerImageView({ image }: { image: AnswerImage }) {
           />
         </div>
       </div>
-      {image.caption && <figcaption>{image.caption}</figcaption>}
+      {image.caption && <figcaption><InlineMarkdown>{image.caption}</InlineMarkdown></figcaption>}
     </figure>
   );
 }

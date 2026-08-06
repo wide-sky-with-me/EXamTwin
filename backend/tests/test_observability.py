@@ -43,6 +43,21 @@ def test_invalid_request_id_is_replaced_with_a_bounded_server_value() -> None:
     assert len(generated) == 32
 
 
+def test_noisy_pdf_repair_details_are_suppressed() -> None:
+    root = logging.getLogger()
+    pypdf_logger = logging.getLogger("pypdf")
+    original_handlers = list(root.handlers)
+    original_root_level = root.level
+    original_pypdf_level = pypdf_logger.level
+    try:
+        configure_logging()
+        assert pypdf_logger.getEffectiveLevel() == logging.ERROR
+    finally:
+        root.handlers[:] = original_handlers
+        root.setLevel(original_root_level)
+        pypdf_logger.setLevel(original_pypdf_level)
+
+
 @pytest.mark.integration
 def test_embedded_migration_preserves_structured_logging() -> None:
     database_url = os.environ.get("EXAMTWIN_TEST_DATABASE_URL")

@@ -29,8 +29,6 @@ from examtwin.schemas.grading import (
 from examtwin.schemas.knowledge import (
     AskRequest,
     AskResponse,
-    DifficultyFeatures,
-    DifficultyResult,
     KnowledgeDifficultySummary,
     KnowledgePathItem,
     KnowledgePointResponse,
@@ -59,8 +57,6 @@ __all__ = [
     "DiagramElement",
     "DiagramLegendItem",
     "DiagramTone",
-    "DifficultyFeatures",
-    "DifficultyResult",
     "ExpectedExpression",
     "GradeRequest",
     "GradeResponse",

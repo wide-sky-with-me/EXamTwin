@@ -8,24 +8,6 @@ from examtwin.schemas.base import SerializedResponse
 from examtwin.schemas.evidence import AnswerDiagram, AnswerImage, Citation
 
 
-class DifficultyFeatures(BaseModel):
-    syllabus_complexity: float = Field(default=0.5, ge=0, le=1)
-    prerequisite_depth: int = Field(default=0, ge=0)
-    cognitive_demand: float = Field(default=0.5, ge=0, le=1)
-    facility_rate: float | None = Field(default=None, ge=0, le=1)
-    solution_steps: int = Field(default=3, ge=1)
-    examiner_severity: float | None = Field(default=None, ge=0, le=1)
-    evidence_confidence: float = Field(default=0.35, ge=0, le=1)
-
-
-class DifficultyResult(SerializedResponse):
-    score: float
-    label: Literal["easy", "medium", "hard"]
-    confidence: float
-    raw_score: float
-    contributions: dict[str, float]
-
-
 class KnowledgePathItem(SerializedResponse):
     code: str
     title: str
@@ -91,6 +73,8 @@ class AskRequest(BaseModel):
     pair_key: str | None = None
     source_types: list[str] = Field(default_factory=list)
     authority_tiers: list[str] = Field(default_factory=lambda: ["official", "licensed_core"])
+    knowledge_base_version_ids: list[str] = Field(default_factory=list)
+    include_supplementary: bool = False
     top_k: int | None = Field(default=None, ge=1, le=50)
 
 
@@ -101,6 +85,8 @@ class AskResponse(SerializedResponse):
     images: list[AnswerImage] = Field(default_factory=list)
     confidence: float
     grounded: bool
+    knowledge_base_version_ids: list[str] = Field(default_factory=list)
+    graph_version_id: str | None = None
     warnings: list[str] = Field(default_factory=list)
 
 

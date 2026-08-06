@@ -23,6 +23,7 @@ class GradeRequest(BaseModel):
     max_marks: float | None = Field(default=None, gt=0)
     unit_code: str | None = None
     expected_expressions: list[ExpectedExpression] = Field(default_factory=list)
+    knowledge_codes: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def require_question_context(self) -> GradeRequest:
@@ -41,6 +42,19 @@ class RubricAward(SerializedResponse):
     rationale: str
     confidence: float = Field(ge=0, le=1)
     source_ref: str | None = None
+    knowledge_codes: list[str] = Field(default_factory=list)
+    error_types: list[
+        Literal[
+            "conceptual",
+            "procedural",
+            "calculation",
+            "notation",
+            "unit",
+            "diagram",
+            "omission",
+        ]
+    ] = Field(default_factory=list)
+    improvement_suggestion: str | None = None
 
 
 class SymbolicCheck(SerializedResponse):
@@ -62,6 +76,7 @@ class GradeResponse(SerializedResponse):
     symbolic_checks: list[SymbolicCheck] = Field(default_factory=list)
     citations: list[Citation] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    improvement_suggestions: list[str] = Field(default_factory=list)
     manual_review_required: bool = True
 
 

@@ -81,15 +81,15 @@ OBJECT_STORE_BACKEND=s3 uv run examtwin storage-migrate --execute
 `stored_objects` 中保留并重试。手工对账可运行 `uv run examtwin storage-gc`。上传试卷及其
 派生页图默认保留 30 天，答案 PNG 默认保留 30 天；Markdown 课程缓存无自动过期。
 
-`docker compose ps` 中 `api` 必须显示为 `healthy`。其健康检查不仅要求 HTTP 200，
-还会校验 v16 契约、持久化保护层、课纲候选流水线与答案作图门禁；因此旧 API 不会被误判成可用。原始 9660
-资料以只读方式挂载进 API/Worker，单一 `var/` 根目录用于可写缓存、任务和答案图片。代码变化后重新执行
-`docker compose up -d --build api paper-worker storage-gc`，由 API 服务唯一构建共享镜像，保证
-API、Worker 与 GC 同版本，同时避免 Compose 为同一镜像重复执行三次构建。
+`docker compose ps` 中 `api` 必须显示为 `healthy`。健康检查要求 HTTP 200、当前 API 契约、
+持久任务、知识/检索发布和答案产物能力同时存在，因此旧 API 不会被误判成可用。两科原始
+资料只读挂载，单一 `var/` 根目录用于可写缓存、任务和答案图片。代码变化后重新执行
+`docker compose up -d --build api paper-worker storage-gc`；API 服务唯一构建共享镜像，
+保证 API、Worker 与 GC 同版本，避免同一镜像重复构建。
 
 ## 数据管线
 
-先清点全部 9660 文件并建立严格配对清单：
+先选择 SubjectPack，清点该科目文件并建立严格配对清单：
 
 ```bash
 uv run examtwin inventory
@@ -110,15 +110,14 @@ uv run examtwin convert --type question_paper --type mark_scheme
 
 ```bash
 uv run examtwin curriculum-preview --output /tmp/curriculum.json
-uv run examtwin knowledge-build --no-ai-difficulty
 uv run examtwin index
 uv run examtwin retrieval-evaluate
 uv run examtwin retrieval-traces --limit 20
 ```
 
-`index` 每次写入新的 staging collection，记录输入哈希与检查点，全部点数门禁通过后
-才把 `examtwin_9660_live` alias 原子切换到新版本。失败可使用 `--resume`继续，上一版仍可用；
-为防止小样本误覆盖线上知识库，`index --limit` 不允许发布。
+`index` 每次写入当前科目的新 staging collection，记录输入哈希与检查点，全部点数门禁通过
+后才切换该 SubjectPack 的 live alias。失败可使用 `--resume` 继续，上一版仍可用；为防止
+小样本误覆盖正式知识库，`index --limit` 不允许发布。
 
 新索引同时保存稠密向量与确定性词法稀疏向量；`subject_code`、Unit、严格配对键、来源类型和
 权威等级在 Qdrant 召回前过滤，rerank 后始终保留少量未被知识卡片覆盖的原始证据。
@@ -130,19 +129,22 @@ trace 写入 PostgreSQL，便于按查询、过滤条件、索引 build 和候�
 collection 点数误当成节点顺序偏移。
 
 `curriculum-preview` 从当前科目的真实课纲 Markdown 生成完整候选并运行结构、数量、父子关系
-和已发布节点漂移门禁，不写候选表也不发布图谱。`knowledge-build` 是显式、可审计的发布入口；
-它先把同一候选、提取器版本、输入/内容哈希和校验结果写入 `curriculum_candidates`，只有零错误、
-零警告的候选才自动发布。API 启动、`init` 和 `inventory` 不会隐式改写正式图谱。运行记录保存
-输入哈希、阶段、产物、指标和失败原因。若需要在缺少真实表现资料时让 AI 根据课纲估计难度
-分项，显式执行：
+和已发布节点漂移门禁，不写候选表也不发布图谱。`knowledge-build` 是显式、可审计且必定调用
+模型的发布入口；它要求当前科目已有包含官方 syllabus 与授权 textbook 的已发布 Core
+Knowledge Base。流水线先为每个 Topic / Learning Objective 从层级文档块选择双来源材料，
+再按 Unit 提供完整目标标尺、分批让模型直接给出 `[0,1]` 分数、相对位置、分项判断和逐字引用。
+固定代码只校验结构、双来源引用、证据块归属与完整性，并把分数映射为 easy / medium / hard；
+不再根据动作词、文本长度或人工权重生成难度，也没有规则回退。
 
 ```bash
-uv run examtwin knowledge-build --ai-difficulty
+uv run examtwin knowledge-build
 ```
 
-AI 结果只作为 D 级冷启动证据，置信度上限为 0.45；同一课纲输入和同一模型会复用已完成
-批次。每批结果都会立即写入运行检查点，失败后只补缺失批次，全部知识点通过门禁后才事务
-发布。普通启动、确定性建图和测试都不会调用模型。
+结果只作为 D 级“证据化模型冷启动评级”，置信度上限为 0.45；运行记录保留核心知识库版本、
+模型、提示词哈希、候选与证据内容哈希、块/文档/页码/章节、逐字引用、理由和置信度。同一完整
+输入和模型会复用已完成检查点；资料、核心版本或提示词变化后重新评级。模型不可用、任一目标
+缺少 syllabus / textbook 证据或引用校验失败时不发布，上一正式图谱保持可用。API 启动、
+`init`、`inventory` 和普通测试不会调用模型。
 
 知识构建、向量索引、语料、整卷任务、评分与总览投影都使用 SQLAlchemy 2.0 ORM、领域
 Repository 与显式 Session 事务；
@@ -190,15 +192,14 @@ uv run examtwin bootstrap --convert-limit 6
 - A：官方量化数据（facility、mean mark、discrimination 等）；
 - B：官方定性或比例描述；
 - C：有验证依据的历史估计；
-- D：课程结构与 LLM 冷启动推断。
+- D：缺少官方表现资料时，模型基于课纲和授权教材原文给出的可审计冷启动推断。
 
 当前 9660 知识图从官方 specification 建立 5 个 Unit、38 个主题和 183 个学习目标节点，
 并显式保存官方层级的 `contains` 和同一主题内官方列举顺序的 `syllabus_sequence`。旧 seed 仅凭
 课纲顺序推断的 72 条 `prerequisite_of` 已删除；只有后续带明确来源和置信度的关系才能发布。
-主题与学习目标
-学习目标当前已有由结构化 AI 分项评定、统一函数归一化的 D 级课纲冷启动值；模型、输入
-哈希、理由、置信度和构建 run 均保留。后续从 examiner report 或真实作答抽取的 A/B/C
-证据应参与重新聚合，而不是把 D 级推断冒充官方结论。
+新的知识构建会对主题与学习目标统一生成 `model-evidence-direct-v1` D 级评级，直接保存模型
+分数和 Unit 内相对位置，并关联 syllabus / textbook 的文档块、内容哈希和逐字引用。后续从
+examiner report 或真实作答抽取的 A/B/C 证据应参与重新聚合，而不是把 D 级推断冒充官方结论。
 
 ## 整卷逐题作答
 
@@ -271,5 +272,13 @@ cd frontend && pnpm test && pnpm lint && pnpm build
 ```
 
 PostgreSQL 集成测试需要显式提供 `EXAMTWIN_TEST_DATABASE_URL`；测试进程会创建唯一临时同级
-数据库并在结束时只删除自己创建的库，因此不会复用或清空固定共享库。测试不会读取或调用
-真实模型密钥；云端连通性通过单独的显式 smoke test 验证。
+数据库并在结束时只删除自己创建的库，因此不会复用或清空固定共享库。CI 在 Python
+3.11、3.12 和 3.13 上执行非集成测试。普通测试不读取或调用真实模型密钥。
+
+需要核对真实供应商兼容性时显式运行以下付费冒烟；它分别验证结构化 LLM、embedding 和
+rerank 的当前响应契约，失败以非零状态退出且不打印密钥：
+
+```bash
+uv run examtwin provider-smoke
+uv run examtwin provider-smoke --provider llm,embedding
+```

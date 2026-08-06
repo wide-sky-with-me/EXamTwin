@@ -115,6 +115,8 @@ class ReActHarnessRunner:
                 model_name=model.model_name,
                 max_iterations=max_iterations,
                 max_tool_calls=max_tool_calls,
+                knowledge_base_version_ids=task.knowledge_base_version_ids,
+                graph_version_id=task.graph_version_id,
             )
 
         events: list[ProtocolEvent] = [

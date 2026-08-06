@@ -6,11 +6,14 @@ from examtwin.api.dependencies import get_subject_context
 from examtwin.composition import dashboard_repository
 from examtwin.config import Settings, get_settings
 from examtwin.contracts.system import API_CAPABILITIES, API_CONTRACT_VERSION
+from examtwin.persistence.session import create_session_factory
+from examtwin.persistence.workspace_repository import WorkspaceRepository
 from examtwin.schemas.common import (
     HealthResponse,
     InfrastructureHealthResponse,
     PlatformStatusResponse,
     StatsResponse,
+    SubjectKnowledgeBaseResponse,
     SubjectPackResponse,
     SubjectStatusResponse,
     SubjectUnitResponse,
@@ -51,18 +54,38 @@ def health(settings: Settings = Depends(get_settings)) -> HealthResponse:
     )
 
 
-def _subject_response(subject: SubjectContext) -> SubjectPackResponse:
+def _subject_response(subject: SubjectContext, settings: Settings) -> SubjectPackResponse:
     package = subject.package
     pack = package.pack
+    workspace = WorkspaceRepository(create_session_factory(settings.database_url)).resolve_subject(
+        subject.id
+    ) or {"knowledge_bases": []}
     return SubjectPackResponse(
-        id=pack.id,
+        id=subject.id,
         version=package.manifest.version,
         digest=package.digest,
         subject_code=pack.subject_code,
         title=pack.title,
-        board_name=pack.board.name,
-        answering_enabled=package.answering_enabled,
-        answering_disabled_reason=package.answering_disabled_reason,
+        board_name=subject.board_name,
+        capability_profile_id=subject.capability_profile_id,
+        generic_qa_enabled=True,
+        answering_enabled=subject.paper_answering_enabled,
+        answering_disabled_reason=subject.answering_disabled_reason,
+        active_graph_version_id=subject.graph_version_id,
+        knowledge_bases=[
+            SubjectKnowledgeBaseResponse(
+                id=str(base["id"]),
+                name=str(base["name"]),
+                kind=str(base["kind"]),
+                active_version_id=(
+                    str(base["active_version_id"]) if base.get("active_version_id") else None
+                ),
+                active_version_number=(base.get("active_version") or {}).get("version_number"),
+                status=str((base.get("active_version") or {}).get("status", "empty")),
+                vector_points=int((base.get("active_version") or {}).get("vector_points", 0)),
+            )
+            for base in workspace.get("knowledge_bases", [])
+        ],
         units=[
             SubjectUnitResponse(code=unit.code, title=unit.title, strand=unit.strand)
             for unit in pack.unit_rules
@@ -72,7 +95,7 @@ def _subject_response(subject: SubjectContext) -> SubjectPackResponse:
 
 @router.get("/subjects", response_model=list[SubjectPackResponse])
 def subjects(settings: Settings = Depends(get_settings)) -> list[SubjectPackResponse]:
-    return [_subject_response(subject) for subject in all_subject_contexts(settings)]
+    return [_subject_response(subject, settings) for subject in all_subject_contexts(settings)]
 
 
 @router.get("/subjects/status", response_model=PlatformStatusResponse)
@@ -93,9 +116,10 @@ def platform_status(settings: Settings = Depends(get_settings)) -> PlatformStatu
 
 @router.get("/subject", response_model=SubjectPackResponse)
 def subject_metadata(
+    settings: Settings = Depends(get_settings),
     subject: SubjectContext = Depends(get_subject_context),
 ) -> SubjectPackResponse:
-    return _subject_response(subject)
+    return _subject_response(subject, settings)
 
 
 @router.get("/stats", response_model=StatsResponse)

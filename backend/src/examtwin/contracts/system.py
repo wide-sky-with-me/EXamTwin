@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-API_CONTRACT_VERSION = "2026-08-05.hybrid-retrieval-v24"  # gitleaks:allow
+API_CONTRACT_VERSION = "2026-08-05.evidence-difficulty-v25"  # gitleaks:allow
 
 API_CAPABILITIES = (
     "paper_jobs_v1",
@@ -27,7 +27,7 @@ API_CAPABILITIES = (
     "source_context_v1",
     "subject_pack_v1",
     "knowledge_build_runs_v1",
-    "syllabus_ai_difficulty_v1",
+    "evidence_grounded_difficulty_v1",
     "vector_index_atomic_publication_v1",
     "versioned_schema_migrations_v1",
     "economics_subject_pack_9640_v1",

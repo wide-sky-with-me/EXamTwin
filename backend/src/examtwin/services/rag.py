@@ -20,6 +20,8 @@ from examtwin.answering_agent.contracts import (
 from examtwin.answering_agent.factory import AnswerEvidenceReader, build_answering_runtime
 from examtwin.answering_agent.finalization import FinalAnswerProvider
 from examtwin.config import Settings
+from examtwin.persistence.document_block_repository import DocumentBlockRepository
+from examtwin.persistence.graph_repository import GraphRepository
 from examtwin.persistence.knowledge_repository import KnowledgeRepository
 from examtwin.persistence.retrieval_trace_repository import RetrievalTraceRepository
 from examtwin.persistence.session import utcnow
@@ -308,6 +310,8 @@ class RagService:
         knowledge_repository: KnowledgeRepository | None = None,
         documents: AnswerEvidenceReader | None = None,
         trace_repository: RetrievalTraceRepository | None = None,
+        block_repository: DocumentBlockRepository | None = None,
+        graph_repository: GraphRepository | None = None,
         *,
         final_answer_provider: FinalAnswerProvider | None = None,
         object_store: ManagedObjectStore | None = None,
@@ -316,6 +320,8 @@ class RagService:
         self.knowledge_repository = knowledge_repository
         self.documents = documents
         self.trace_repository = trace_repository
+        self.block_repository = block_repository
+        self.graph_repository = graph_repository
         self.subject = subject
         self.final_answer_provider = final_answer_provider or build_final_answer_provider(settings)
         self.object_store = object_store
@@ -333,11 +339,47 @@ class RagService:
         metadata = node.node.metadata
         return bool(
             metadata.get("subject_code") == subject_code
-            and (not unit_code or metadata.get("unit_code") == unit_code)
+            and (not unit_code or metadata.get("unit_code") in {"", unit_code})
             and (not pair_key or metadata.get("pair_key") == pair_key)
             and (not source_types or metadata.get("source_type") in source_types)
             and (not authority_tiers or metadata.get("authority_tier") in authority_tiers)
+            and metadata.get("source_role") in {"core_knowledge", "supplementary_knowledge"}
         )
+
+    def _expand_parent_context(
+        self,
+        nodes: list[NodeWithScore],
+    ) -> list[NodeWithScore]:
+        if self.block_repository is None:
+            return nodes
+        grouped: dict[str, list[str]] = {}
+        for node in nodes:
+            metadata = node.node.metadata
+            build_id = metadata.get("index_build_id")
+            parent_id = metadata.get("parent_block_id")
+            if build_id and parent_id:
+                grouped.setdefault(str(build_id), []).append(str(parent_id))
+        parents: dict[str, dict[str, object]] = {}
+        for build_id, parent_ids in grouped.items():
+            parents.update(self.block_repository.parents(build_id, parent_ids))
+        expanded: list[NodeWithScore] = []
+        for node in nodes:
+            parent = parents.get(str(node.node.metadata.get("parent_block_id") or ""))
+            if parent is None:
+                expanded.append(node)
+                continue
+            metadata = {**node.node.metadata, "matched_child_text": node.node.get_content()}
+            expanded.append(
+                NodeWithScore(
+                    node=TextNode(
+                        id_=node.node.node_id,
+                        text=str(parent["content"]),
+                        metadata=metadata,
+                    ),
+                    score=node.score,
+                )
+            )
+        return expanded
 
     def _raw_fallbacks(
         self,
@@ -451,27 +493,55 @@ class RagService:
             "created_at": utcnow(),
         }
         try:
+            retrieval_question = question
+            if self.graph_repository is not None and self.subject.graph_version_id:
+                expansion_terms = self.graph_repository.expansion_terms(
+                    self.subject.graph_version_id,
+                    question,
+                )
+                if expansion_terms:
+                    retrieval_question = f"{question}\nRelated curriculum terms: " + "; ".join(
+                        expansion_terms
+                    )
             embedding = build_embedding(self.settings)
-            index = load_vector_index(self.settings, embedding)
-            hybrid = bool(getattr(index.vector_store, "enable_hybrid", False))
-            trace["retrieval_mode"] = "hybrid" if hybrid else "dense_compat"
-            retriever = index.as_retriever(
-                similarity_top_k=candidate_count,
-                sparse_top_k=candidate_count,
-                hybrid_top_k=candidate_count,
-                alpha=self.settings.retrieval_hybrid_alpha,
-                vector_store_query_mode=(
-                    VectorStoreQueryMode.HYBRID if hybrid else VectorStoreQueryMode.DEFAULT
-                ),
-                filters=retrieval_filters(
-                    subject_code=subject_code,
-                    unit_code=unit_code,
-                    pair_key=pair_key,
-                    source_types=tuple(source_type_set),
-                    authority_tiers=tuple(authority_tier_set),
-                ),
+            collections = self.subject.vector_collections or (
+                self.settings.qdrant_collection_alias,
             )
-            nodes = retriever.retrieve(question)
+            nodes_by_id: dict[str, NodeWithScore] = {}
+            retrieval_modes: set[str] = set()
+            for collection in collections:
+                collection_settings = self.settings.model_copy(
+                    update={
+                        "qdrant_collection": collection,
+                        "qdrant_collection_alias": collection,
+                    }
+                )
+                index = load_vector_index(collection_settings, embedding)
+                hybrid = bool(getattr(index.vector_store, "enable_hybrid", False))
+                retrieval_modes.add("hybrid" if hybrid else "dense_compat")
+                retriever = index.as_retriever(
+                    similarity_top_k=candidate_count,
+                    sparse_top_k=candidate_count,
+                    hybrid_top_k=candidate_count,
+                    alpha=self.settings.retrieval_hybrid_alpha,
+                    vector_store_query_mode=(
+                        VectorStoreQueryMode.HYBRID if hybrid else VectorStoreQueryMode.DEFAULT
+                    ),
+                    filters=retrieval_filters(
+                        subject_code=subject_code,
+                        unit_code=unit_code,
+                        pair_key=pair_key,
+                        source_types=tuple(source_type_set),
+                        authority_tiers=tuple(authority_tier_set),
+                        source_roles=("core_knowledge", "supplementary_knowledge"),
+                    ),
+                )
+                for node in retriever.retrieve(retrieval_question):
+                    current = nodes_by_id.get(node.node.node_id)
+                    if current is None or float(node.score or 0) > float(current.score or 0):
+                        nodes_by_id[node.node.node_id] = node
+            trace["retrieval_mode"] = "+".join(sorted(retrieval_modes))
+            nodes = list(nodes_by_id.values())
             trace["candidate_count"] = len(nodes)
             filtered = [
                 node
@@ -494,6 +564,7 @@ class RagService:
                 filtered,
                 top_n=min(max(top_n * 3, top_n), len(filtered)),
             )
+            reranked = self._expand_parent_context(reranked)
             trace["reranked_count"] = len(reranked)
             if self.knowledge_repository is None:
                 results = reranked[:top_n]
@@ -505,27 +576,43 @@ class RagService:
                 for node in reranked
                 if node.node.metadata.get("index_build_id")
             }
-            if len(build_ids) > 1:
-                raise RuntimeError("Live vector alias returned nodes from multiple index builds")
-            index_build_id = next(iter(build_ids), None)
-            trace["index_build_id"] = index_build_id
-            evidence_items = [
-                {
-                    "excerpt": relevant_node_excerpt(node, question),
-                    "score": float(node.score or 0),
-                    "metadata": dict(node.node.metadata),
-                }
-                for node in reranked
-            ]
-            cards = build_retrieval_cards(
-                self.knowledge_repository,
-                question,
-                evidence_items,
-                subject_code=subject_code,
-                index_build_id=index_build_id,
-                unit_code=unit_code,
-                limit=top_n,
+            index_build_id = next(iter(build_ids), None) if len(build_ids) == 1 else None
+            trace["index_build_id"] = index_build_id or json.dumps(
+                sorted(build_ids), ensure_ascii=False
             )
+            grouped_nodes: dict[str | None, list[NodeWithScore]] = {}
+            for node in reranked:
+                build_id = node.node.metadata.get("index_build_id")
+                grouped_nodes.setdefault(str(build_id) if build_id else None, []).append(node)
+            cards_by_id: dict[str, dict] = {}
+            for build_id, build_nodes in grouped_nodes.items():
+                evidence_items = [
+                    {
+                        "excerpt": relevant_node_excerpt(node, question),
+                        "score": float(node.score or 0),
+                        "metadata": dict(node.node.metadata),
+                    }
+                    for node in build_nodes
+                ]
+                for card in build_retrieval_cards(
+                    self.knowledge_repository,
+                    question,
+                    evidence_items,
+                    subject_code=subject_code,
+                    index_build_id=build_id,
+                    unit_code=unit_code,
+                    limit=top_n,
+                ):
+                    existing = cards_by_id.get(str(card["id"]))
+                    if existing is None or float(card.get("retrieval_score") or 0) > float(
+                        existing.get("retrieval_score") or 0
+                    ):
+                        cards_by_id[str(card["id"])] = card
+            cards = sorted(
+                cards_by_id.values(),
+                key=lambda card: float(card.get("retrieval_score") or 0),
+                reverse=True,
+            )[:top_n]
             cards = self._filter_cards_to_scope(
                 cards,
                 pair_key=pair_key,
@@ -577,6 +664,17 @@ class RagService:
         event_sink: AgentEventSink | None = None,
         ledger: AgentRunLedger | None = None,
     ) -> AskResponse:
+        forbidden_sources = set(request.source_types) & {
+            "question_paper",
+            "mark_scheme",
+            "examiner_report",
+            "answer_booklet",
+            "specimen_paper",
+        }
+        if forbidden_sources:
+            raise ValueError(
+                "知识问答不能检索试卷、Mark Scheme 或考官报告；评分资料只允许在独立评分阶段使用"
+            )
         self.subject.require(request.subject_code)
         runtime = build_answering_runtime(
             self.settings,
@@ -600,6 +698,8 @@ class RagService:
                 authority_tiers=tuple(request.authority_tiers),
                 top_k=request.top_k or self.settings.rerank_top_n,
                 question_images=question_images,
+                knowledge_base_version_ids=self.subject.knowledge_base_version_ids,
+                graph_version_id=self.subject.graph_version_id,
             ),
             event_sink=event_sink,
             ledger=ledger,
@@ -609,19 +709,17 @@ class RagService:
             {citation.knowledge_code for citation in citations if citation.knowledge_code}
         )
         build_ids = {citation.index_build_id for citation in citations if citation.index_build_id}
-        if len(build_ids) > 1:
-            raise RuntimeError("Answer citations crossed vector index build versions")
-        index_build_id = next(iter(build_ids), None)
-        cards = (
-            knowledge_cards_by_code(
-                self.knowledge_repository,
-                request.subject_code,
-                codes,
-                index_build_id=index_build_id,
-            )
-            if self.knowledge_repository is not None and codes
-            else {}
-        )
+        cards: dict[str, dict] = {}
+        if self.knowledge_repository is not None and codes:
+            for build_id in build_ids or {None}:
+                cards.update(
+                    knowledge_cards_by_code(
+                        self.knowledge_repository,
+                        request.subject_code,
+                        codes,
+                        index_build_id=build_id,
+                    )
+                )
         calibrated_confidence, calibrated_grounded, calibration_warnings = (
             calibrate_evidence_confidence(
                 citations,
@@ -640,5 +738,7 @@ class RagService:
             images=list(result.images),
             confidence=calibrated_confidence,
             grounded=calibrated_grounded,
+            knowledge_base_version_ids=list(self.subject.knowledge_base_version_ids),
+            graph_version_id=self.subject.graph_version_id,
             warnings=list(dict.fromkeys([*result.warnings, *calibration_warnings])),
         )

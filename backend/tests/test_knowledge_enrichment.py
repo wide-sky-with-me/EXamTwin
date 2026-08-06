@@ -197,7 +197,7 @@ def make_knowledge_repository() -> KnowledgeRepository:
             "features_json": (
                 '{"node_type":"learning_objective",'
                 '"description":"Use the reverse of the product rule.",'
-                '"difficulty_method":"objective-feature-model-v2",'
+                '"difficulty_method":"model-evidence-direct-v1",'
                 '"cognitive_demand":0.72}'
             ),
             "updated_at": now,
@@ -255,7 +255,7 @@ def test_retrieval_cards_group_evidence_under_real_learning_objective() -> None:
     assert objective["breadcrumb"] == (
         "Mathematics 9660 › Pure Mathematics 2 › Integration › Integration by parts"
     )
-    assert objective["difficulty"]["method"] == "objective-feature-model-v2"
+    assert objective["difficulty"]["method"] == "model-evidence-direct-v1"
     assert objective["references"][0]["section"] == "Integration by parts"
 
     textbook = {

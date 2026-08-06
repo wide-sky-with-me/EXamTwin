@@ -37,9 +37,14 @@ class Settings(BaseSettings):
     llm_model: str = "gpt-5.6-sol"
     llm_reasoning_effort: ReasoningEffort = "medium"
     knowledge_difficulty_model: str = "gpt-5.6-luna"
-    knowledge_difficulty_reasoning_effort: ReasoningEffort = "none"
+    knowledge_difficulty_reasoning_effort: ReasoningEffort = "low"
     knowledge_difficulty_timeout: int = Field(default=120, ge=30, le=300)
     knowledge_difficulty_batch_size: int = Field(default=20, ge=1, le=50)
+    knowledge_graph_model: str = "gpt-5.6-luna"
+    knowledge_graph_reasoning_effort: ReasoningEffort = "low"
+    knowledge_graph_timeout: int = Field(default=120, ge=30, le=300)
+    knowledge_graph_batch_chars: int = Field(default=24_000, ge=4_000, le=60_000)
+    knowledge_graph_max_blocks: int = Field(default=400, ge=1, le=2_000)
     grading_model: str = "gpt-5.6-sol"
     grading_reasoning_effort: ReasoningEffort = "medium"
     grading_timeout: int = Field(default=120, ge=30, le=300)
@@ -91,6 +96,11 @@ class Settings(BaseSettings):
     paper_object_retention_days: int = Field(default=30, ge=1, le=3650)
     answer_artifact_retention_days: int = Field(default=30, ge=1, le=3650)
     storage_gc_batch_size: int = Field(default=200, ge=1, le=5000)
+    knowledge_upload_max_bytes: int = Field(
+        default=256 * 1024 * 1024,
+        ge=1024 * 1024,
+        le=2 * 1024 * 1024 * 1024,
+    )
     storage_gc_interval_seconds: int = Field(default=3600, ge=60, le=86400)
     paper_chunk_pages: int = Field(default=5, ge=1, le=20)
     paper_lease_seconds: int = Field(default=60, ge=30, le=3600)

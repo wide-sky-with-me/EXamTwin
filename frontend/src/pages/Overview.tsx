@@ -6,12 +6,13 @@ import {
   FileCheck2,
   HardDrive,
   Layers3,
+  Plus,
   LoaderCircle,
   Network,
   RefreshCw,
   ShieldCheck,
 } from "lucide-react";
-import { useState } from "react";
+import { type FormEvent, useState } from "react";
 
 import { apiClient, unwrapApi } from "../lib/api";
 import { sourceLabels } from "../lib/evidence";
@@ -32,6 +33,40 @@ export function Overview({
 }) {
   const [inventorying, setInventorying] = useState(false);
   const [notice, setNotice] = useState("");
+  const [showCreate, setShowCreate] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [subjectDraft, setSubjectDraft] = useState({
+    id: "",
+    subject_code: "",
+    title: "",
+    board_name: "",
+  });
+
+  async function createSubject(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setCreating(true);
+    setNotice("");
+    try {
+      const created = await unwrapApi(
+        apiClient.POST("/api/v1/subject-workspaces", {
+          body: {
+            ...subjectDraft,
+            capability_profile_id: null,
+            language: "en",
+          },
+        }),
+      );
+      await refresh();
+      selectSubject(created.id);
+      setSubjectDraft({ id: "", subject_code: "", title: "", board_name: "" });
+      setShowCreate(false);
+      setNotice(`已创建 ${created.subject_code} 科目工作区。`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "科目工作区创建失败");
+    } finally {
+      setCreating(false);
+    }
+  }
 
   async function inventory() {
     if (!selected) return;
@@ -83,11 +118,72 @@ export function Overview({
           <h1>所有科目，一套可验证的工作流。</h1>
           <p>在这里选择科目上下文，并检查资料、知识索引、答题能力与基础设施是否就绪。</p>
         </div>
-        <button className="secondary" onClick={() => void refresh()} disabled={loading}>
-          {loading ? <LoaderCircle className="spin" size={17} /> : <RefreshCw size={17} />}
-          刷新状态
-        </button>
+        <div className="page-heading-actions">
+          <button className="secondary" onClick={() => setShowCreate((value) => !value)} type="button">
+            <Plus size={17} />
+            新建科目
+          </button>
+          <button className="secondary" onClick={() => void refresh()} disabled={loading}>
+            {loading ? <LoaderCircle className="spin" size={17} /> : <RefreshCw size={17} />}
+            刷新状态
+          </button>
+        </div>
       </div>
+      {showCreate && (
+        <form className="panel subject-create-panel" onSubmit={(event) => void createSubject(event)}>
+          <div>
+            <span className="kicker">新科目工作区</span>
+            <h2>建立隔离的资料、知识与评测边界</h2>
+            <p>新科目会自动获得核心知识库和补充知识库；能力模板可在服务端后续绑定。</p>
+          </div>
+          <div className="subject-create-fields">
+            <label>
+              科目标识
+              <input
+                required
+                pattern="[a-z0-9][a-z0-9-]{1,62}"
+                placeholder="例如 international-physics"
+                value={subjectDraft.id}
+                onChange={(event) => setSubjectDraft((draft) => ({ ...draft, id: event.target.value }))}
+              />
+            </label>
+            <label>
+              科目代码
+              <input
+                required
+                placeholder="例如 9630"
+                value={subjectDraft.subject_code}
+                onChange={(event) => setSubjectDraft((draft) => ({ ...draft, subject_code: event.target.value }))}
+              />
+            </label>
+            <label>
+              科目名称
+              <input
+                required
+                placeholder="例如 International A-level Physics"
+                value={subjectDraft.title}
+                onChange={(event) => setSubjectDraft((draft) => ({ ...draft, title: event.target.value }))}
+              />
+            </label>
+            <label>
+              课程体系
+              <input
+                required
+                placeholder="例如 OxfordAQA International Qualifications"
+                value={subjectDraft.board_name}
+                onChange={(event) => setSubjectDraft((draft) => ({ ...draft, board_name: event.target.value }))}
+              />
+            </label>
+          </div>
+          <div className="subject-create-actions">
+            <button className="secondary" onClick={() => setShowCreate(false)} type="button">取消</button>
+            <button className="primary" disabled={creating} type="submit">
+              {creating ? <LoaderCircle className="spin" size={16} /> : <Plus size={16} />}
+              创建工作区
+            </button>
+          </div>
+        </form>
+      )}
 
       <div className="infrastructure-strip" aria-label="基础设施状态">
         {infrastructureItems.map(([label, ready, Icon]) => (

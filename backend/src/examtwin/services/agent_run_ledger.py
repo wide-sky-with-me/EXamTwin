@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 
 from examtwin.answering_agent.contracts import AgentRunLedger, ToolReplayPayload
@@ -39,6 +40,8 @@ class PaperAgentRunLedger(AgentRunLedger):
         model_name: str,
         max_iterations: int,
         max_tool_calls: int,
+        knowledge_base_version_ids: tuple[str, ...],
+        graph_version_id: str | None,
     ) -> None:
         self.repository.start_agent_run(
             {
@@ -53,6 +56,11 @@ class PaperAgentRunLedger(AgentRunLedger):
                 "model_name": model_name,
                 "max_iterations": max_iterations,
                 "max_tool_calls": max_tool_calls,
+                "knowledge_base_version_ids_json": json.dumps(
+                    knowledge_base_version_ids,
+                    separators=(",", ":"),
+                ),
+                "graph_version_id": graph_version_id,
                 "status": "running",
                 "started_at": utcnow(),
                 "completed_at": None,

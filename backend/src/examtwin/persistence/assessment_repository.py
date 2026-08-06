@@ -47,6 +47,54 @@ class AssessmentRepository:
             for row in rows
         ]
 
+    def for_paper(self, paper_job_id: str, *, subject_code: str) -> list[dict[str, Any]]:
+        statement = (
+            select(AssessmentModel)
+            .where(
+                AssessmentModel.paper_job_id == paper_job_id,
+                AssessmentModel.subject_code == subject_code,
+            )
+            .order_by(AssessmentModel.question_position, AssessmentModel.created_at.desc())
+        )
+        with self.sessions() as session:
+            rows = list(session.scalars(statement))
+        return [
+            {
+                "id": row.id,
+                "paper_job_id": row.paper_job_id,
+                "question_position": row.question_position,
+                "rubric_set_id": row.rubric_set_id,
+                "status": row.status,
+                "result": json.loads(row.result_json),
+                "created_at": row.created_at,
+            }
+            for row in rows
+        ]
+
+    def link_context(
+        self,
+        assessment_id: str,
+        *,
+        paper_job_id: str,
+        question_position: int,
+        rubric_set_id: str,
+        knowledge_base_version_ids: list[str],
+        graph_version_id: str | None,
+    ) -> None:
+        with self.sessions.begin() as session:
+            assessment = session.get(AssessmentModel, assessment_id)
+            if assessment is None:
+                raise LookupError("Assessment not found")
+            assessment.paper_job_id = paper_job_id
+            assessment.question_position = question_position
+            assessment.rubric_set_id = rubric_set_id
+            assessment.knowledge_base_version_ids_json = json.dumps(
+                knowledge_base_version_ids,
+                ensure_ascii=False,
+            )
+            assessment.graph_version_id = graph_version_id
+            assessment.updated_at = utcnow()
+
     def review(
         self,
         assessment_id: str,

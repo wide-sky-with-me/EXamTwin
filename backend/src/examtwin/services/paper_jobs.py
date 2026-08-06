@@ -23,7 +23,7 @@ from examtwin.schemas.papers import (
     PaperJobResponse,
     PaperQuestionAnswer,
 )
-from examtwin.services.inventory import parse_exam_identity
+from examtwin.services.inventory import classify_source, parse_exam_identity
 from examtwin.services.model_json import repair_markdown_latex
 from examtwin.services.paper_parsing import (
     MAX_UPLOAD_BYTES,
@@ -91,9 +91,16 @@ class PaperJobService:
         *,
         unit_code: str | None = None,
     ) -> PaperJobCreated:
+        self.subject.require_paper_capability()
+        if not self.subject.knowledge_base_version_ids:
+            raise ValueError("整卷作答前必须选择已发布的知识库版本")
         suffix = Path(filename).suffix.lower()
         if suffix not in SUPPORTED_SUFFIXES:
             raise ValueError("仅支持 Markdown（.md/.markdown）或 PDF 试卷")
+        if classify_source(Path(filename)) == "mark_scheme":
+            raise ValueError(
+                "上传文件被识别为 Mark Scheme（评分标准），请选择 Question Paper（试题）文件"
+            )
         resolved_unit_code = (
             unit_code
             or parse_exam_identity(
@@ -128,6 +135,10 @@ class PaperJobService:
                     "filename": Path(filename).name,
                     "suffix": suffix,
                     "unit_code": resolved_unit_code,
+                    "knowledge_base_version_ids_json": json.dumps(
+                        self.subject.knowledge_base_version_ids, ensure_ascii=False
+                    ),
+                    "graph_version_id": self.subject.graph_version_id,
                     "source_path": source_rel,
                     "status": "queued",
                     "stage": "queued",
@@ -227,6 +238,10 @@ class PaperJobService:
             subject_pack_id=job["subject_pack_id"],
             subject_code=job["subject_code"],
             unit_code=job["unit_code"],
+            knowledge_base_version_ids=json.loads(
+                job.get("knowledge_base_version_ids_json") or "[]"
+            ),
+            graph_version_id=job.get("graph_version_id"),
             status=job["status"],
             stage=job["stage"],
             total_pages=job["total_pages"],

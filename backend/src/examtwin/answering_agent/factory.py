@@ -87,11 +87,14 @@ def build_answering_runtime(
         settings.subject_pack,
         settings.subject_packages_dir,
     )
+    question_vision_provider = (
+        None if vision_llm is not None else build_question_vision_provider(settings)
+    )
     tools: list[AgentTool] = [
         QuestionVisionTool(
             vision_llm,
             timeout_seconds=settings.paper_vision_timeout + 5,
-            provider=None if vision_llm is not None else build_question_vision_provider(settings),
+            provider=question_vision_provider,
         ),
         KnowledgeSearchTool(
             retriever,
@@ -126,6 +129,7 @@ def build_answering_runtime(
                     documents,
                     settings,
                     timeout_seconds=min(settings.answer_agent_timeout / 3, 45),
+                    vision_provider=question_vision_provider,
                 ),
                 SourceReadTool(
                     documents,
