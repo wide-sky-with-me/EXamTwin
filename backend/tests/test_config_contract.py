@@ -1,6 +1,6 @@
 import pytest
-from examtwin.config import Settings
-from examtwin.config_contract import audit_environment_contract
+from examtwin.platform.config import Settings
+from examtwin.platform.config_contract import audit_environment_contract
 from pydantic import ValidationError
 
 

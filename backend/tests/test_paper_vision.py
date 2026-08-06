@@ -5,11 +5,11 @@ from pathlib import Path
 
 import httpx
 import pytest
-from examtwin.config import Settings
-from examtwin.services.paper_vision import (
+from examtwin.assessment.paper_vision import (
     PaperVisionReviewer,
     parse_physical_page_markdown,
 )
+from examtwin.platform.config import Settings
 from pypdf import PdfWriter
 
 

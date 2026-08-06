@@ -1,6 +1,6 @@
 import uuid
 
-from examtwin.services.ingestion import (
+from examtwin.knowledge.ingestion import (
     TABLE_EMBED_CHAR_LIMIT,
     _documents_with_pages,
     _evidence_nodes,

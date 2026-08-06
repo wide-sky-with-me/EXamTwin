@@ -4,7 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
-from examtwin.main import app
+from examtwin.app.main import app
 
 
 def rendered_schema() -> str:

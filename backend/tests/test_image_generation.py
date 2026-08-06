@@ -7,8 +7,9 @@ from typing import Any
 import httpx
 import pymupdf
 import pytest
-from examtwin.answering_agent.contracts import AgentRunContext, AnswerTask
-from examtwin.answering_agent.tools.image_generate import (
+from examtwin.app.api.papers import answer_image_asset
+from examtwin.assessment.answering_agent.contracts import AgentRunContext, AnswerTask
+from examtwin.assessment.answering_agent.tools.image_generate import (
     PNG_SIGNATURE,
     AnswerImageStore,
     GeneratedImage,
@@ -16,7 +17,6 @@ from examtwin.answering_agent.tools.image_generate import (
     OpenAICompatibleImageProvider,
     _normalize_png,
 )
-from examtwin.api.papers import answer_image_asset
 from fastapi import HTTPException
 
 
@@ -46,7 +46,7 @@ async def test_image_provider_retries_transient_status_and_validates_png(
         return responses.pop(0)
 
     monkeypatch.setattr(
-        "examtwin.answering_agent.tools.image_generate.httpx.AsyncClient.post",
+        "examtwin.assessment.answering_agent.tools.image_generate.httpx.AsyncClient.post",
         fake_post,
     )
 
@@ -54,7 +54,7 @@ async def test_image_provider_retries_transient_status_and_validates_png(
         return None
 
     monkeypatch.setattr(
-        "examtwin.answering_agent.tools.image_generate.asyncio.sleep",
+        "examtwin.assessment.answering_agent.tools.image_generate.asyncio.sleep",
         no_sleep,
     )
     provider = OpenAICompatibleImageProvider(

@@ -4,10 +4,10 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any
 
-from examtwin.api import workspaces as workspace_api
-from examtwin.config import Settings
-from examtwin.services.subject_context import subject_context
-from examtwin.storage import LocalObjectStore, ManagedObjectStore
+from examtwin.app.api import workspaces as workspace_api
+from examtwin.platform.config import Settings
+from examtwin.platform.storage import LocalObjectStore, ManagedObjectStore
+from examtwin.subjects.public import subject_context
 from fastapi import UploadFile
 from starlette.datastructures import Headers
 

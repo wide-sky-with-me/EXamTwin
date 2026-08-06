@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 
 import pytest
-from examtwin.api.request_limits import UploadBodyLimitMiddleware
+from examtwin.app.api.request_limits import UploadBodyLimitMiddleware
 from starlette.types import Message, Receive, Scope, Send
 
 

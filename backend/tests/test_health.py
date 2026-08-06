@@ -1,8 +1,8 @@
-from examtwin.api import system
-from examtwin.config import Settings
+from examtwin.app.api import system
+from examtwin.app.healthcheck import health_payload_is_valid
 from examtwin.contracts.system import API_CAPABILITIES, API_CONTRACT_VERSION
-from examtwin.healthcheck import health_payload_is_valid
-from examtwin.services import health as health_service
+from examtwin.platform import health as health_service
+from examtwin.platform.config import Settings
 
 
 def test_infrastructure_health_keeps_component_failures_independent(monkeypatch) -> None:

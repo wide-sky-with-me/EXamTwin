@@ -1,11 +1,11 @@
 import pytest
+from examtwin.app.main import app
 from examtwin.contracts.system import API_CAPABILITIES, API_CONTRACT_VERSION
-from examtwin.main import app
 
 
 @pytest.mark.integration
 def test_health_and_knowledge_graph() -> None:
-    from examtwin.config import get_settings
+    from examtwin.platform.config import get_settings
     from fastapi.testclient import TestClient
 
     with TestClient(app) as client:

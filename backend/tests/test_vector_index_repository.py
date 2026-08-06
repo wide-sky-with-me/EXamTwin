@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from examtwin.persistence.models import Base, SourceDocumentModel
-from examtwin.persistence.vector_index_repository import VectorIndexRepository
+from examtwin.knowledge.vector_index_repository import VectorIndexRepository
+from examtwin.platform.database.models import Base, SourceDocumentModel
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 

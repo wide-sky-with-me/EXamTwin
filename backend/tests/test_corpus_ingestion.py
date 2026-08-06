@@ -2,11 +2,11 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from examtwin.config import Settings
-from examtwin.services.corpus_ingestion import CorpusIngestor
-from examtwin.services.source_preprocessing import prepare_for_mineru, restore_source_pages
-from examtwin.services.subject_context import subject_context
-from examtwin.storage import LocalObjectStore, ManagedObjectStore, ObjectMetadata
+from examtwin.knowledge.corpus_ingestion import CorpusIngestor
+from examtwin.knowledge.source_preprocessing import prepare_for_mineru, restore_source_pages
+from examtwin.platform.config import Settings
+from examtwin.platform.storage import LocalObjectStore, ManagedObjectStore, ObjectMetadata
+from examtwin.subjects.public import subject_context
 from llama_index.core import Document
 from pypdf import PdfReader, PdfWriter
 

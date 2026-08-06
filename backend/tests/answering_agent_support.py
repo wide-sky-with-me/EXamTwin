@@ -4,22 +4,22 @@ import asyncio
 import json
 from typing import Any
 
-from examtwin.agent_harness import HarnessMessage, HarnessTool
-from examtwin.answering_agent import (
+from examtwin.assessment.answering_agent import (
     AgentFinalPayload,
     AnsweringAgentRuntime,
     CapabilityRegistry,
 )
-from examtwin.answering_agent.contracts import (
+from examtwin.assessment.answering_agent.contracts import (
     AgentRunContext,
 )
-from examtwin.answering_agent.tools import (
+from examtwin.assessment.answering_agent.tools import (
     KnowledgeSearchTool,
     MathCalculateTool,
     MathDiagramTool,
 )
-from examtwin.schemas import Citation
-from examtwin.subject_packages import get_subject_package
+from examtwin.contracts import Citation
+from examtwin.platform.agent_runtime import HarnessMessage, HarnessTool
+from examtwin.subjects.packages import get_subject_package
 from llama_index.core.llms import (
     ChatMessage,
     ChatResponse,

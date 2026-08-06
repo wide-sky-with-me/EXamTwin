@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import psycopg
 import pytest
-from examtwin.config import Settings, get_settings
+from examtwin.platform.config import Settings, get_settings
 from psycopg import sql
 from sqlalchemy.engine import make_url
 

@@ -3,20 +3,20 @@ from collections.abc import Sequence
 from typing import TypeVar
 
 import pytest
-from examtwin.agent_harness import HarnessMessage
-from examtwin.config import get_settings
-from examtwin.persistence.assessment_repository import AssessmentRepository
-from examtwin.persistence.corpus_repository import CorpusRepository
-from examtwin.persistence.migrations import upgrade_database
-from examtwin.persistence.models import AssessmentModel, ReviewModel
-from examtwin.persistence.session import create_session_factory
-from examtwin.schemas import (
+from examtwin.assessment.assessment_repository import AssessmentRepository
+from examtwin.assessment.grading import GradingService, symbolic_checks
+from examtwin.contracts import (
     ExpectedExpression,
     GradeRequest,
     ReviewRequest,
 )
-from examtwin.services.grading import GradingService, symbolic_checks
-from examtwin.services.subject_context import subject_context
+from examtwin.knowledge.corpus_repository import CorpusRepository
+from examtwin.platform.agent_runtime import HarnessMessage
+from examtwin.platform.config import get_settings
+from examtwin.platform.database.migrations import upgrade_database
+from examtwin.platform.database.models import AssessmentModel, ReviewModel
+from examtwin.platform.database.session import create_session_factory
+from examtwin.subjects.public import subject_context
 from pydantic import BaseModel
 
 StructuredResultT = TypeVar("StructuredResultT", bound=BaseModel)

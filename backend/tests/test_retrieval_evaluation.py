@@ -1,4 +1,4 @@
-from examtwin.services.retrieval_evaluation import (
+from examtwin.knowledge.retrieval_evaluation import (
     RetrievalCase,
     RetrievalEvaluationDataset,
     RetrievalTarget,

@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from examtwin.services.subject_pack_audit import audit_subject_pack_pdf
 from examtwin.subjects import get_subject_pack
+from examtwin.subjects.audit import audit_subject_pack_pdf
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 

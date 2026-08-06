@@ -7,17 +7,17 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from examtwin.config import Settings
-from examtwin.persistence.object_catalog_repository import ObjectCatalogRepository
-from examtwin.persistence.session import utcnow
-from examtwin.services.storage_lifecycle import run_storage_gc_forever
-from examtwin.storage import (
+from examtwin.platform.config import Settings
+from examtwin.platform.database.session import utcnow
+from examtwin.platform.object_catalog_repository import ObjectCatalogRepository
+from examtwin.platform.storage import (
     LocalObjectStore,
     ManagedObjectStore,
     ObjectMetadata,
     S3ObjectStore,
     StoredObject,
 )
+from examtwin.platform.storage_lifecycle import run_storage_gc_forever
 
 from backend.tests.paper_job_support import _job_service, _test_database
 

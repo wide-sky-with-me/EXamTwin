@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from examtwin.persistence.dashboard_repository import DashboardRepository
-from examtwin.persistence.models import (
+from examtwin.platform.database.models import (
     Base,
     KnowledgePointModel,
     KnowledgeRelationModel,
     SourceDocumentModel,
 )
+from examtwin.subjects.dashboard_repository import DashboardRepository
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 

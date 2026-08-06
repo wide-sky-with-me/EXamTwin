@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from examtwin.services.difficulty_assessment import (
+from examtwin.knowledge.difficulty_assessment import (
     DifficultyCitation,
     ModelDifficultyAssessment,
     build_evidence_materials,

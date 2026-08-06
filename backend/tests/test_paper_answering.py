@@ -8,21 +8,21 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from examtwin.answering_agent.contracts import QuestionImage
-from examtwin.config import Settings
-from examtwin.schemas import AskResponse, Citation
-from examtwin.services.paper_answering import (
+from examtwin.assessment.answering_agent.contracts import QuestionImage
+from examtwin.assessment.paper_answering import (
     PaperAnswerService,
     _merge_split_questions,
     _split_markdown_batches,
 )
-from examtwin.services.paper_parsing import (
+from examtwin.assessment.paper_parsing import (
     question_requires_visual_context,
     reconcile_question_source_pages,
     upload_to_markdown,
 )
-from examtwin.services.paper_vision import format_physical_page_markdown
-from examtwin.services.subject_context import subject_context
+from examtwin.assessment.paper_vision import format_physical_page_markdown
+from examtwin.contracts import AskResponse, Citation
+from examtwin.platform.config import Settings
+from examtwin.subjects.public import subject_context
 
 
 def fake_catalog(_unit_code: str | None) -> list[dict[str, Any]]:
@@ -121,7 +121,7 @@ def test_split_batches_are_concurrent_and_resume_from_digest_checkpoints(
                     active -= 1
 
     monkeypatch.setattr(
-        "examtwin.services.paper_answering.build_llm",
+        "examtwin.assessment.paper_answering.build_llm",
         lambda *_args, **_kwargs: FakeLLM(),
     )
     checkpoints: dict[tuple[int, str], list[dict[str, Any]]] = {}

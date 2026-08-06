@@ -5,15 +5,15 @@ from typing import Any
 
 import numpy as np
 import pytest
-from examtwin.answering_agent import (
+from examtwin.assessment.answering_agent import (
     AnswerTask,
 )
-from examtwin.answering_agent.contracts import (
+from examtwin.assessment.answering_agent.contracts import (
     AgentRunContext,
     QuestionImage,
     QuestionSpec,
 )
-from examtwin.answering_agent.tools import (
+from examtwin.assessment.answering_agent.tools import (
     EconomicsCalculateTool,
     EconomicsDiagramTool,
     KnowledgeSearchTool,
@@ -22,11 +22,11 @@ from examtwin.answering_agent.tools import (
     MathPlotTool,
     ProbabilityCalculateTool,
 )
-from examtwin.answering_agent.tools.economics_calculate import (
+from examtwin.assessment.answering_agent.tools.economics_calculate import (
     EconomicsCalculateInput,
     calculate_economics,
 )
-from examtwin.schemas import SubpartRequirement
+from examtwin.contracts import SubpartRequirement
 from PIL import Image, ImageDraw
 
 from backend.tests.answering_agent_support import (

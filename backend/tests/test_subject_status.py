@@ -3,9 +3,9 @@ from __future__ import annotations
 from typing import Any, cast
 
 import pytest
-from examtwin.config import Settings
-from examtwin.persistence.dashboard_repository import DashboardRepository
-from examtwin.services import subject_status
+from examtwin.platform.config import Settings
+from examtwin.subjects import status as subject_status
+from examtwin.subjects.dashboard_repository import DashboardRepository
 
 
 class _MissingVectorIndex:

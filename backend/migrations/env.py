@@ -4,9 +4,9 @@ import logging
 from logging.config import fileConfig
 
 from alembic import context
-from examtwin.config import get_settings
-from examtwin.persistence.models import Base
-from examtwin.persistence.session import sqlalchemy_database_url
+from examtwin.platform.config import get_settings
+from examtwin.platform.database.models import Base
+from examtwin.platform.database.session import sqlalchemy_database_url
 from sqlalchemy import engine_from_config, pool
 
 config = context.config

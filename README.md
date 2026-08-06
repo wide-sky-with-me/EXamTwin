@@ -30,6 +30,24 @@ OxfordAQA International AS/A-level Mathematics (9660)，科目边界由版本化
 | 整卷后台任务 | PostgreSQL 持久任务/租约/检查点，`LISTEN/NOTIFY` 唤醒，超时轮询兜底 |
 | 前端 | 项目固定 `pnpm 11.1.1`、React、TypeScript、Vite |
 
+### 后端模块边界
+
+`backend/src/examtwin/` 按业务能力组织，而不是按 `services`、`schemas`、`persistence`
+技术层横切：
+
+| 边界 | 责任 |
+|---|---|
+| `app/` | FastAPI/CLI 入口、HTTP 适配器和 composition root |
+| `subjects/` | 学科包、运行时学科上下文与公开入口 `subjects.public` |
+| `knowledge/` | corpus、课程图谱、检索和知识库发布；跨 feature 只经 `knowledge.public` |
+| `assessment/` | 整卷作答、Agent、rubric、评分、复核和持久任务 |
+| `platform/` | 配置、数据库、对象存储、模型适配器和通用 Agent runtime |
+| `contracts/` | 稳定 HTTP/任务数据契约，不依赖运行时模块 |
+
+依赖方向固定为 `subjects → knowledge → assessment → app`；`platform` 和 `contracts`
+位于底层，不反向依赖业务 feature。`scripts/check_architecture.py` 在 CI 中拒绝反向依赖、
+绕过 feature 公共入口、业务模块直接引入 FastAPI，以及重新建立旧横向包。
+
 运行约束：PostgreSQL、Qdrant、FastAPI 和整卷 Worker 统一通过 `compose.yaml` 运行；
 API 与 Worker 必须来自同一个 uv 锁定镜像，避免前端命中新旧不一致的 Python 进程。
 转换缓存、任务文件和答案图片统一经 `ManagedObjectStore` 写入；默认本地后端位于
@@ -231,9 +249,10 @@ Package `SKILL.md` 学科政策和本题运行时数据；合成摘要随 run le
 Package/Prompt 摘要、预算、工具调用与结果摘要。同一题后续 attempt 只会复用服务端明确标记为
 replay-safe 的 CAS/确定性矢量工具结果；知识检索和配对试卷证据依赖可变索引，仍每次重新执行。
 
-运行时的 `agent_harness` 只定义消息、模型、协议、工具执行/治理和结构化输出 Port，不导入
-LlamaIndex 或 LiteLLM。现有 ReAct 格式与 LlamaIndex 工具通过 answering adapter 接入，
-LiteLLM 只存在于服务层 provider adapter。每题先根据 `QuestionSpec`、来源图片和严格配卷键
+运行时的 `platform/agent_runtime` 只定义消息、模型、协议、工具执行/治理和结构化输出
+Port，不导入 LlamaIndex 或 LiteLLM。现有 ReAct 格式、LlamaIndex 工具和终答/视觉
+provider 适配器归入 `assessment/answering_agent`，通用模型、embedding 与 rerank
+适配器归入 `platform/providers.py`。每题先根据 `QuestionSpec`、来源图片和严格配卷键
 确定性缩小工具面：知识检索及学科基础验证能力保留，视觉、配卷、绘图和通用生图仅在任务
 确实需要时暴露；强制检索、引用闭合和必需产物门禁仍由领域 Policy 执行，不交给模型自行决定。
 
@@ -269,9 +288,11 @@ M/A/B/FT 评分原子最初都是 `pending`：
 
 ```bash
 uv run examtwin config-check
-uv run ruff check backend/src backend/tests
-uv run pytest -m 'not integration'
-cd frontend && pnpm test && pnpm lint && pnpm build
+uv run ruff check backend scripts
+uv run python scripts/check_architecture.py
+uv run pytest -m 'not integration and not local_assets'
+uv run python scripts/export_openapi.py --check frontend/openapi.json
+cd frontend && pnpm api:types:check && pnpm test && pnpm lint && pnpm build
 ```
 
 PostgreSQL 集成测试需要显式提供 `EXAMTWIN_TEST_DATABASE_URL`；测试进程会创建唯一临时同级

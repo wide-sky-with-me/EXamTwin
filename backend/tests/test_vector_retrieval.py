@@ -4,20 +4,20 @@ import json
 import uuid
 from datetime import UTC, datetime
 
-from examtwin.config import Settings
-from examtwin.persistence.models import RetrievalTraceModel
-from examtwin.persistence.retrieval_trace_repository import RetrievalTraceRepository
-from examtwin.services.rag import RagService
-from examtwin.services.subject_context import subject_context
-from examtwin.services.vector_index_reuse import (
+from examtwin.assessment.rag import RagService
+from examtwin.knowledge.retrieval_trace_repository import RetrievalTraceRepository
+from examtwin.knowledge.vector_index_reuse import (
     embedding_identity,
     plan_vector_writes,
 )
-from examtwin.services.vector_retrieval import (
+from examtwin.knowledge.vector_retrieval import (
     lexical_sparse_encoder,
     qdrant_vector_store,
     retrieval_filters,
 )
+from examtwin.platform.config import Settings
+from examtwin.platform.database.models import RetrievalTraceModel
+from examtwin.subjects.public import subject_context
 from llama_index.core.schema import NodeWithScore, TextNode
 from llama_index.core.vector_stores.types import VectorStoreQuery, VectorStoreQueryMode
 from qdrant_client import QdrantClient

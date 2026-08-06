@@ -1,7 +1,7 @@
 from typing import Any
 
-from examtwin.config import Settings
-from examtwin.services.providers import (
+from examtwin.platform.config import Settings
+from examtwin.platform.providers import (
     SiliconFlowReranker,
     _embedding_batch_with_fallback,
     build_llm,
@@ -73,7 +73,7 @@ def test_reranker_limits_table_projection_without_mutating_full_table(
         )
         return FakeResponse()
 
-    monkeypatch.setattr("examtwin.services.providers.httpx.post", fake_post)
+    monkeypatch.setattr("examtwin.platform.providers.httpx.post", fake_post)
     reranker = object.__new__(SiliconFlowReranker)
     reranker.url = "https://reranker.invalid/rerank"
     reranker.api_key = "placeholder"

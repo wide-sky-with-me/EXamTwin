@@ -1,18 +1,18 @@
 from datetime import UTC, datetime
 
-from examtwin.persistence.knowledge_repository import KnowledgeRepository
-from examtwin.persistence.models import (
+from examtwin.knowledge.knowledge_repository import KnowledgeRepository
+from examtwin.knowledge.publication import extract_syllabus_objectives
+from examtwin.knowledge.queries import (
+    build_retrieval_cards,
+    list_knowledge_points,
+)
+from examtwin.platform.database.models import (
     Base,
     KnowledgeEvidenceModel,
     KnowledgePointModel,
     KnowledgeRelationModel,
     SourceDocumentModel,
 )
-from examtwin.services.knowledge import (
-    build_retrieval_cards,
-    list_knowledge_points,
-)
-from examtwin.services.knowledge_publication import extract_syllabus_objectives
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 

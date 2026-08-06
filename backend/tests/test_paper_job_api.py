@@ -4,21 +4,21 @@ import asyncio
 from pathlib import Path
 
 import pytest
-from examtwin.api.dependencies import get_paper_jobs, get_task_events
-from examtwin.api.papers import (
+from examtwin.app.api.dependencies import get_paper_jobs, get_task_events
+from examtwin.app.api.papers import (
     answer_paper,
     paper_job,
     retry_paper_job,
 )
-from examtwin.api.papers import router as paper_router
-from examtwin.config import Settings
-from examtwin.main import app
-from examtwin.services.paper_jobs import (
+from examtwin.app.api.papers import router as paper_router
+from examtwin.app.main import app
+from examtwin.assessment.paper_jobs import (
     PaperJobService,
     _question_source_warnings,
 )
-from examtwin.services.subject_context import subject_context
-from examtwin.services.task_events import PostgresTaskEvents
+from examtwin.assessment.task_events import PostgresTaskEvents
+from examtwin.platform.config import Settings
+from examtwin.subjects.public import subject_context
 
 from backend.tests.paper_job_support import (
     CapturingCreateJobRepository,
@@ -84,7 +84,7 @@ async def test_paper_upload_api_returns_a_persistent_job_receipt(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    from examtwin.api import papers as papers_api
+    from examtwin.app.api import papers as papers_api
 
     class SnapshotRepository:
         def __init__(self, _sessions: object) -> None:

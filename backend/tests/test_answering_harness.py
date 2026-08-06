@@ -6,24 +6,24 @@ from typing import Any
 
 import pymupdf
 import pytest
-from examtwin.answering_agent import (
+from examtwin.assessment.answering_agent import (
     AnswerTask,
 )
-from examtwin.answering_agent.blocking import run_blocking_bounded
-from examtwin.answering_agent.budget import budget_for_task
-from examtwin.answering_agent.contracts import (
+from examtwin.assessment.answering_agent.blocking import run_blocking_bounded
+from examtwin.assessment.answering_agent.budget import budget_for_task
+from examtwin.assessment.answering_agent.contracts import (
     AgentRunContext,
     QuestionSpec,
     SubpartRequirement,
 )
-from examtwin.answering_agent.tools import (
+from examtwin.assessment.answering_agent.tools import (
     PairedExamLookupTool,
     ProbabilityCalculateTool,
 )
-from examtwin.answering_agent.tools.question_vision import QuestionVisionPayload
-from examtwin.answering_agent.verification import verify_answer_contract
-from examtwin.config import Settings
-from examtwin.schemas import AnswerDiagram, AnswerImage, DiagramElement
+from examtwin.assessment.answering_agent.tools.question_vision import QuestionVisionPayload
+from examtwin.assessment.answering_agent.verification import verify_answer_contract
+from examtwin.contracts import AnswerDiagram, AnswerImage, DiagramElement
+from examtwin.platform.config import Settings
 
 
 @pytest.mark.asyncio

@@ -1,13 +1,13 @@
 from datetime import UTC, datetime
 
-from examtwin.persistence.knowledge_build_repository import KnowledgeBuildRepository
-from examtwin.persistence.models import (
+from examtwin.knowledge.knowledge_build_repository import KnowledgeBuildRepository
+from examtwin.platform.database.models import (
     Base,
     CurriculumCandidateModel,
     KnowledgePointModel,
     SourceDocumentModel,
 )
-from examtwin.persistence.session import sqlalchemy_database_url
+from examtwin.platform.database.session import sqlalchemy_database_url
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 

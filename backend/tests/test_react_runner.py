@@ -3,25 +3,25 @@ from __future__ import annotations
 import time
 
 import pytest
-from examtwin.answering_agent import (
+from examtwin.assessment.answering_agent import (
     AgentFinalPayload,
     AnsweringAgentRuntime,
     AnswerTask,
     CapabilityRegistry,
     ReActHarnessRunner,
 )
-from examtwin.answering_agent.contracts import (
+from examtwin.assessment.answering_agent.contracts import (
     AgentRunContext,
     SubjectSkill,
     ToolReplayPayload,
 )
-from examtwin.answering_agent.tools import (
+from examtwin.assessment.answering_agent.tools import (
     KnowledgeSearchTool,
     MathCalculateTool,
     MathDiagramTool,
     MathPlotTool,
 )
-from examtwin.subject_packages import get_subject_package
+from examtwin.subjects.packages import get_subject_package
 from llama_index.core.llms import (
     CustomLLM,
     MockLLM,
@@ -692,7 +692,7 @@ async def test_diagram_tool_rejects_unsafe_path() -> None:
 
 @pytest.mark.asyncio
 async def test_mcp_provider_calls_only_explicitly_allowed_tool(monkeypatch) -> None:
-    from examtwin.answering_agent.mcp import MCPServerConfig, MCPToolProvider
+    from examtwin.assessment.answering_agent.mcp import MCPServerConfig, MCPToolProvider
     from llama_index.tools import mcp as mcp_module
 
     async def echo(value: str) -> str:

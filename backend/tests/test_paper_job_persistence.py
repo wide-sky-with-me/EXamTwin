@@ -7,23 +7,23 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from examtwin.answering_agent.contracts import ToolReplayPayload
-from examtwin.config import Settings
-from examtwin.persistence.paper_job_repository import LostLeaseError, PaperJobRepository
-from examtwin.schemas import (
+from examtwin.assessment.agent_run_ledger import PaperAgentRunLedger
+from examtwin.assessment.answering_agent.contracts import ToolReplayPayload
+from examtwin.assessment.paper_job_repository import LostLeaseError, PaperJobRepository
+from examtwin.assessment.paper_jobs import PaperJobService
+from examtwin.assessment.paper_vision import (
+    VisionReviewResult,
+    format_physical_page_markdown,
+)
+from examtwin.assessment.paper_worker import PaperWorker
+from examtwin.contracts import (
     AnswerDiagram,
     DiagramElement,
     PaperDiagramSource,
     PaperQuestionAnswer,
 )
-from examtwin.services.agent_run_ledger import PaperAgentRunLedger
-from examtwin.services.paper_jobs import PaperJobService
-from examtwin.services.paper_vision import (
-    VisionReviewResult,
-    format_physical_page_markdown,
-)
-from examtwin.services.paper_worker import PaperWorker
-from examtwin.services.subject_context import subject_context
+from examtwin.platform.config import Settings
+from examtwin.subjects.public import subject_context
 
 from backend.tests.paper_job_support import (
     FakeAnswerService,

@@ -1,8 +1,35 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
+
+
+@dataclass(frozen=True)
+class SubjectSkill:
+    """Subject policy and the capabilities an answering Agent may use."""
+
+    name: str
+    subject_codes: tuple[str, ...]
+    instructions: str
+    tool_names: tuple[str, ...]
+    required_tool_names: tuple[str, ...] = ()
+    mandatory_tool_names: tuple[str, ...] = ()
+    visual_tool_selector: Callable[[str], str | None] | None = None
+    version: str = "1"
+    digest: str = ""
+    package_digest: str = ""
+
+    def required_visual_tool(self, question: str) -> str | None:
+        if self.visual_tool_selector is None:
+            return None
+        tool_name = self.visual_tool_selector(question)
+        if tool_name is not None and tool_name not in self.tool_names:
+            raise ValueError(
+                f"Visual tool selector returned an unregistered capability: {tool_name}"
+            )
+        return tool_name
 
 
 class CurriculumTextNormalizer(Protocol):

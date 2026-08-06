@@ -98,7 +98,7 @@ services:
       context: .
       dockerfile: Dockerfile.worker
       network: host
-    command: ["uvicorn", "examtwin.main:app", "--host", "127.0.0.1", "--port", "8000"]
+    command: ["uvicorn", "examtwin.app.main:app", "--host", "127.0.0.1", "--port", "8000"]
     healthcheck:
       test: ["CMD", "examtwin-healthcheck"]
       interval: 5s

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 
 import pytest
-from examtwin.api.local_only import LocalOnlyMiddleware
+from examtwin.app.api.local_only import LocalOnlyMiddleware
 
 
 @pytest.mark.asyncio

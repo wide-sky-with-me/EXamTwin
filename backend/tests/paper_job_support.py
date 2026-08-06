@@ -5,12 +5,13 @@ from io import BytesIO
 from typing import Any
 
 import pytest
-from examtwin.answering_agent.contracts import AgentStep
-from examtwin.config import Settings
-from examtwin.persistence.migrations import upgrade_database
-from examtwin.persistence.paper_job_repository import PaperJobRepository
-from examtwin.persistence.session import create_session_factory
-from examtwin.schemas import (
+from examtwin.assessment.answering_agent.contracts import AgentStep
+from examtwin.assessment.paper_classification import PaperDocumentClassification
+from examtwin.assessment.paper_job_repository import PaperJobRepository
+from examtwin.assessment.paper_job_runtime import PaperJobRuntime
+from examtwin.assessment.paper_jobs import PaperJobService
+from examtwin.assessment.paper_sources import PaperSourceStore
+from examtwin.contracts import (
     AnswerDiagram,
     Citation,
     DiagramElement,
@@ -18,11 +19,10 @@ from examtwin.schemas import (
     PaperJobResponse,
     PaperQuestionAnswer,
 )
-from examtwin.services.paper_classification import PaperDocumentClassification
-from examtwin.services.paper_job_runtime import PaperJobRuntime
-from examtwin.services.paper_jobs import PaperJobService
-from examtwin.services.paper_sources import PaperSourceStore
-from examtwin.services.subject_context import subject_context
+from examtwin.platform.config import Settings
+from examtwin.platform.database.migrations import upgrade_database
+from examtwin.platform.database.session import create_session_factory
+from examtwin.subjects.public import subject_context
 from pypdf import PdfWriter
 from sqlalchemy import text
 

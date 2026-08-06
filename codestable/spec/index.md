@@ -231,13 +231,13 @@ flowchart TB
 | 需要核对什么 | 当前证据 |
 |---|---|
 | 项目定位、启动和公开契约 | [`README.md`](../../README.md)、[`pyproject.toml`](../../pyproject.toml)、[`compose.yaml`](../../compose.yaml) |
-| REST 接口与输入/输出 | [`backend/src/examtwin/api/router.py`](../../backend/src/examtwin/api/router.py)、[`backend/src/examtwin/schemas/`](../../backend/src/examtwin/schemas/) |
-| 数据表与持久化边界 | [`backend/src/examtwin/persistence/`](../../backend/src/examtwin/persistence/)、[`backend/migrations/`](../../backend/migrations/) |
-| 清点、分类和严格配对 | [`backend/src/examtwin/services/inventory.py`](../../backend/src/examtwin/services/inventory.py)、[`subject-packs/`](../../subject-packs/) |
-| MinerU 转换与 Qdrant 发布 | [`backend/src/examtwin/services/ingestion.py`](../../backend/src/examtwin/services/ingestion.py)、[`backend/src/examtwin/services/vector_retrieval.py`](../../backend/src/examtwin/services/vector_retrieval.py) |
-| 知识构建和难度 | [`backend/src/examtwin/services/knowledge_pipeline.py`](../../backend/src/examtwin/services/knowledge_pipeline.py)、[`backend/src/examtwin/services/difficulty.py`](../../backend/src/examtwin/services/difficulty.py) |
-| RAG、Agent 与供应商边界 | [`backend/src/examtwin/services/rag.py`](../../backend/src/examtwin/services/rag.py)、[`backend/src/examtwin/agent_harness/`](../../backend/src/examtwin/agent_harness/)、[`backend/src/examtwin/services/providers.py`](../../backend/src/examtwin/services/providers.py) |
-| 整卷任务、评分与复核 | [`backend/src/examtwin/services/paper_jobs.py`](../../backend/src/examtwin/services/paper_jobs.py)、[`backend/src/examtwin/services/paper_worker.py`](../../backend/src/examtwin/services/paper_worker.py)、[`backend/src/examtwin/services/grading.py`](../../backend/src/examtwin/services/grading.py) |
+| REST 接口与输入/输出 | [`backend/src/examtwin/app/api/router.py`](../../backend/src/examtwin/app/api/router.py)、[`backend/src/examtwin/contracts/`](../../backend/src/examtwin/contracts/) |
+| 数据表与持久化边界 | [`backend/src/examtwin/platform/database/`](../../backend/src/examtwin/platform/database/)、[`backend/migrations/`](../../backend/migrations/) |
+| 清点、分类和严格配对 | [`backend/src/examtwin/knowledge/inventory.py`](../../backend/src/examtwin/knowledge/inventory.py)、[`subject-packs/`](../../subject-packs/) |
+| MinerU 转换与 Qdrant 发布 | [`backend/src/examtwin/knowledge/ingestion.py`](../../backend/src/examtwin/knowledge/ingestion.py)、[`backend/src/examtwin/knowledge/vector_retrieval.py`](../../backend/src/examtwin/knowledge/vector_retrieval.py) |
+| 知识构建和难度 | [`backend/src/examtwin/knowledge/pipeline.py`](../../backend/src/examtwin/knowledge/pipeline.py)、[`backend/src/examtwin/knowledge/difficulty.py`](../../backend/src/examtwin/knowledge/difficulty.py) |
+| RAG、Agent 与供应商边界 | [`backend/src/examtwin/assessment/rag.py`](../../backend/src/examtwin/assessment/rag.py)、[`backend/src/examtwin/assessment/answering_agent/`](../../backend/src/examtwin/assessment/answering_agent/)、[`backend/src/examtwin/platform/providers.py`](../../backend/src/examtwin/platform/providers.py) |
+| 整卷任务、评分与复核 | [`backend/src/examtwin/assessment/paper_jobs.py`](../../backend/src/examtwin/assessment/paper_jobs.py)、[`backend/src/examtwin/assessment/paper_worker.py`](../../backend/src/examtwin/assessment/paper_worker.py)、[`backend/src/examtwin/assessment/grading.py`](../../backend/src/examtwin/assessment/grading.py) |
 | 当前 Web 界面 | [`frontend/src/App.tsx`](../../frontend/src/App.tsx)、[`frontend/src/lib/api.ts`](../../frontend/src/lib/api.ts) |
 | 自动化证据 | [`backend/tests`](../../backend/tests)、[`frontend/package.json`](../../frontend/package.json) |
 

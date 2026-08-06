@@ -2,10 +2,10 @@ import logging
 import os
 
 import pytest
-from examtwin.api.errors import unhandled_api_error
-from examtwin.api.request_context import RequestContextMiddleware
-from examtwin.observability import JsonLogFormatter, configure_logging
-from examtwin.persistence.migrations import upgrade_database
+from examtwin.app.api.errors import unhandled_api_error
+from examtwin.app.api.request_context import RequestContextMiddleware
+from examtwin.platform.database.migrations import upgrade_database
+from examtwin.platform.observability import JsonLogFormatter, configure_logging
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 

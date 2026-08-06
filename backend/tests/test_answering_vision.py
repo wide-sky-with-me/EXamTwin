@@ -6,24 +6,24 @@ import time
 from typing import Any
 
 import pytest
-from examtwin.answering_agent import (
+from examtwin.assessment.answering_agent import (
     AnsweringAgentRuntime,
     AnswerTask,
     CapabilityRegistry,
 )
-from examtwin.answering_agent.contracts import (
+from examtwin.assessment.answering_agent.contracts import (
     AgentRunContext,
     QuestionImage,
     ToolReplayPayload,
 )
-from examtwin.answering_agent.policies import select_answering_tool_names
-from examtwin.answering_agent.tools import (
+from examtwin.assessment.answering_agent.policies import select_answering_tool_names
+from examtwin.assessment.answering_agent.tools import (
     KnowledgeSearchTool,
     LiteLLMQuestionVisionProvider,
     QuestionVisionTool,
 )
-from examtwin.config import Settings
-from examtwin.subject_packages import get_subject_package
+from examtwin.platform.config import Settings
+from examtwin.subjects.packages import get_subject_package
 from llama_index.core.llms import (
     ImageBlock,
     MockLLM,
@@ -106,7 +106,7 @@ def test_answering_policy_exposes_only_task_relevant_conditional_tools() -> None
 def test_factory_uses_paper_vision_model_without_changing_main_model(
     monkeypatch,
 ) -> None:
-    from examtwin.answering_agent import factory
+    from examtwin.assessment.answering_agent import factory
 
     calls: list[dict[str, Any]] = []
     vision_settings: list[Settings] = []
@@ -190,7 +190,7 @@ def test_litellm_question_vision_uses_images_and_strict_schema(
         )()
 
     monkeypatch.setattr(
-        "examtwin.answering_agent.tools.question_vision.completion",
+        "examtwin.assessment.answering_agent.tools.question_vision.completion",
         fake_completion,
     )
     provider = LiteLLMQuestionVisionProvider(
@@ -256,7 +256,7 @@ def test_gpt56_question_vision_uses_reasoning_without_qwen_parameters(
         )()
 
     monkeypatch.setattr(
-        "examtwin.answering_agent.tools.question_vision.completion",
+        "examtwin.assessment.answering_agent.tools.question_vision.completion",
         fake_completion,
     )
     provider = LiteLLMQuestionVisionProvider(

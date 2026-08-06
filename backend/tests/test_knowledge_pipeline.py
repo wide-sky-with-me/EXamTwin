@@ -6,15 +6,15 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 import pytest
-from examtwin.agent_harness import HarnessMessage
-from examtwin.config import Settings
-from examtwin.services import knowledge_pipeline
-from examtwin.services.difficulty_assessment import (
+from examtwin.knowledge import pipeline as knowledge_pipeline
+from examtwin.knowledge.difficulty_assessment import (
     LiteLLMDifficultyAssessmentProvider,
     ModelDifficultyAssessment,
 )
-from examtwin.services.knowledge_pipeline import KnowledgeBuildPipeline
-from examtwin.services.subject_context import subject_context
+from examtwin.knowledge.pipeline import KnowledgeBuildPipeline
+from examtwin.platform.agent_runtime import HarnessMessage
+from examtwin.platform.config import Settings
+from examtwin.subjects.public import subject_context
 from pydantic import BaseModel
 
 StructuredResultT = TypeVar("StructuredResultT", bound=BaseModel)

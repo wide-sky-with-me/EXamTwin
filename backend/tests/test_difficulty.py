@@ -1,4 +1,4 @@
-from examtwin.services.difficulty import difficulty_label
+from examtwin.knowledge.difficulty import difficulty_label
 
 
 def test_direct_model_scores_use_fixed_label_boundaries() -> None:

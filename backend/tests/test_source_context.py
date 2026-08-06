@@ -2,11 +2,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from examtwin.answering_agent.contracts import AgentRunContext, AnswerTask
-from examtwin.answering_agent.tools.source_read import SourceReadTool
-from examtwin.config import Settings
-from examtwin.schemas import Citation
-from examtwin.services.source_context import source_context
+from examtwin.assessment.answering_agent.contracts import AgentRunContext, AnswerTask
+from examtwin.assessment.answering_agent.tools.source_read import SourceReadTool
+from examtwin.contracts import Citation
+from examtwin.knowledge.source_context import source_context
+from examtwin.platform.config import Settings
 
 
 class FakeDocumentReader:
@@ -170,7 +170,7 @@ def test_source_context_prefers_s3_after_legacy_cache_migration(
             raise LookupError("missing")
 
     monkeypatch.setattr(
-        "examtwin.services.cache_paths.build_storage_backend",
+        "examtwin.platform.cache_paths.build_storage_backend",
         lambda _settings: FakeS3Backend(),
     )
     settings = Settings(

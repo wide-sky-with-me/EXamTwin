@@ -3,17 +3,17 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from examtwin.config import get_settings
-from examtwin.persistence.graph_repository import GraphRepository
-from examtwin.persistence.migrations import upgrade_database
-from examtwin.persistence.models import (
+from examtwin.contracts.graphs import GraphVersionSummary
+from examtwin.knowledge.graph_repository import GraphRepository
+from examtwin.platform.config import get_settings
+from examtwin.platform.database.migrations import upgrade_database
+from examtwin.platform.database.models import (
     GraphEdgeModel,
     GraphNodeModel,
     GraphVersionModel,
     SubjectModel,
 )
-from examtwin.persistence.session import create_session_factory, utcnow
-from examtwin.schemas.graphs import GraphVersionSummary
+from examtwin.platform.database.session import create_session_factory, utcnow
 from sqlalchemy import func, select
 
 

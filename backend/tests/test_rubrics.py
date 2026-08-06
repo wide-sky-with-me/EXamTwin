@@ -5,10 +5,12 @@ from collections.abc import Sequence
 from typing import Any, TypeVar, cast
 
 import pytest
-from examtwin.agent_harness import HarnessMessage
-from examtwin.config import Settings, get_settings
-from examtwin.persistence.migrations import upgrade_database
-from examtwin.persistence.models import (
+from examtwin.assessment.rubric_repository import RubricRepository
+from examtwin.assessment.rubrics import RubricService
+from examtwin.platform.agent_runtime import HarnessMessage
+from examtwin.platform.config import Settings, get_settings
+from examtwin.platform.database.migrations import upgrade_database
+from examtwin.platform.database.models import (
     PaperJobModel,
     RubricCriterionModel,
     RubricCriterionReviewModel,
@@ -16,10 +18,8 @@ from examtwin.persistence.models import (
     SourceDocumentModel,
     SubjectModel,
 )
-from examtwin.persistence.rubric_repository import RubricRepository
-from examtwin.persistence.session import create_session_factory, utcnow
-from examtwin.services.rubrics import RubricService
-from examtwin.services.subject_context import subject_context
+from examtwin.platform.database.session import create_session_factory, utcnow
+from examtwin.subjects.public import subject_context
 from pydantic import BaseModel
 
 StructuredResultT = TypeVar("StructuredResultT", bound=BaseModel)

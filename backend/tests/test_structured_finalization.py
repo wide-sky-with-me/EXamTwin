@@ -4,13 +4,13 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from examtwin.answering_agent.finalization import (
+from examtwin.assessment.answering_agent.finalization import (
     AgentFinalPayload,
     FinalAnswerProviderUnavailable,
     LiteLLMFinalAnswerProvider,
 )
-from examtwin.config import Settings
-from examtwin.services.providers import build_final_answer_provider
+from examtwin.assessment.providers import build_final_answer_provider
+from examtwin.platform.config import Settings
 from llama_index.core.base.llms.types import ChatMessage, MessageRole
 from pydantic import ValidationError
 
@@ -96,7 +96,7 @@ async def test_finalize_routes_openai_compatible_model_and_forwards_schema(
         return _completion_message(content=json.dumps(_valid_payload()))
 
     monkeypatch.setattr(
-        "examtwin.answering_agent.finalization.acompletion",
+        "examtwin.assessment.answering_agent.finalization.acompletion",
         fake_acompletion,
     )
     provider = LiteLLMFinalAnswerProvider(
@@ -128,7 +128,7 @@ async def test_gpt56_finalizer_uses_reasoning_without_unsupported_temperature(
         return _completion_message(content=json.dumps(_valid_payload()))
 
     monkeypatch.setattr(
-        "examtwin.answering_agent.finalization.acompletion",
+        "examtwin.assessment.answering_agent.finalization.acompletion",
         fake_acompletion,
     )
     provider = LiteLLMFinalAnswerProvider(
@@ -154,7 +154,7 @@ async def test_finalize_preserves_messages_and_appends_draft_for_public_finaliza
         return _completion_message(content=json.dumps(_valid_payload()))
 
     monkeypatch.setattr(
-        "examtwin.answering_agent.finalization.acompletion",
+        "examtwin.assessment.answering_agent.finalization.acompletion",
         fake_acompletion,
     )
     provider = LiteLLMFinalAnswerProvider(
@@ -193,7 +193,7 @@ async def test_finalize_validates_json_content_with_pydantic(
         return _completion_message(content=json.dumps(_valid_payload(warnings=["Check units."])))
 
     monkeypatch.setattr(
-        "examtwin.answering_agent.finalization.acompletion",
+        "examtwin.assessment.answering_agent.finalization.acompletion",
         fake_acompletion,
     )
     provider = LiteLLMFinalAnswerProvider(
@@ -226,7 +226,7 @@ async def test_finalize_prefers_raw_json_to_preserve_latex_backslashes(
         return _completion_message(content=raw_content, parsed=corrupted_parsed)
 
     monkeypatch.setattr(
-        "examtwin.answering_agent.finalization.acompletion",
+        "examtwin.assessment.answering_agent.finalization.acompletion",
         fake_acompletion,
     )
     provider = LiteLLMFinalAnswerProvider(
@@ -263,7 +263,7 @@ async def test_finalize_accepts_litellm_parsed_payload(
         return _completion_message(parsed=parsed)
 
     monkeypatch.setattr(
-        "examtwin.answering_agent.finalization.acompletion",
+        "examtwin.assessment.answering_agent.finalization.acompletion",
         fake_acompletion,
     )
     provider = LiteLLMFinalAnswerProvider(
@@ -306,7 +306,7 @@ async def test_finalize_rejects_invalid_payload_schema(
         return _completion_message(content=json.dumps(payload))
 
     monkeypatch.setattr(
-        "examtwin.answering_agent.finalization.acompletion",
+        "examtwin.assessment.answering_agent.finalization.acompletion",
         fake_acompletion,
     )
     provider = LiteLLMFinalAnswerProvider(
@@ -330,7 +330,7 @@ async def test_finalize_rejects_empty_or_non_json_content(
         return _completion_message(content=content)
 
     monkeypatch.setattr(
-        "examtwin.answering_agent.finalization.acompletion",
+        "examtwin.assessment.answering_agent.finalization.acompletion",
         fake_acompletion,
     )
     provider = LiteLLMFinalAnswerProvider(
@@ -367,7 +367,7 @@ async def test_finalize_rejects_citations_outside_server_contract(
         return _completion_message(content=json.dumps(payload))
 
     monkeypatch.setattr(
-        "examtwin.answering_agent.finalization.acompletion",
+        "examtwin.assessment.answering_agent.finalization.acompletion",
         fake_acompletion,
     )
     provider = LiteLLMFinalAnswerProvider(
@@ -399,7 +399,7 @@ async def test_finalize_ignores_reasoning_content(
         )
 
     monkeypatch.setattr(
-        "examtwin.answering_agent.finalization.acompletion",
+        "examtwin.assessment.answering_agent.finalization.acompletion",
         fake_acompletion,
     )
     provider = LiteLLMFinalAnswerProvider(
@@ -428,7 +428,7 @@ async def test_finalize_does_not_fall_back_to_reasoning_content(
         )
 
     monkeypatch.setattr(
-        "examtwin.answering_agent.finalization.acompletion",
+        "examtwin.assessment.answering_agent.finalization.acompletion",
         fake_acompletion,
     )
     provider = LiteLLMFinalAnswerProvider(
@@ -454,7 +454,7 @@ async def test_repeated_failures_open_shared_provider_circuit(
         raise RuntimeError("provider unavailable")
 
     monkeypatch.setattr(
-        "examtwin.answering_agent.finalization.acompletion",
+        "examtwin.assessment.answering_agent.finalization.acompletion",
         failing_acompletion,
     )
     provider = LiteLLMFinalAnswerProvider(
@@ -490,7 +490,7 @@ async def test_provider_owned_timeouts_open_shared_provider_circuit(
         raise AssertionError("provider timeout did not cancel the request")
 
     monkeypatch.setattr(
-        "examtwin.answering_agent.finalization.acompletion",
+        "examtwin.assessment.answering_agent.finalization.acompletion",
         slow_acompletion,
     )
     provider = LiteLLMFinalAnswerProvider(
@@ -530,7 +530,7 @@ async def test_external_task_cancellation_does_not_open_provider_circuit(
         return _completion_message(content=json.dumps(_valid_payload()))
 
     monkeypatch.setattr(
-        "examtwin.answering_agent.finalization.acompletion",
+        "examtwin.assessment.answering_agent.finalization.acompletion",
         cancellable_acompletion,
     )
     provider = LiteLLMFinalAnswerProvider(

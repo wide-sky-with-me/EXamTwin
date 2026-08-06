@@ -31,8 +31,8 @@ dependencies = [
 ]
 
 [project.scripts]
-examtwin = "examtwin.cli:app"
-examtwin-healthcheck = "examtwin.healthcheck:main"
+examtwin = "examtwin.app.cli:app"
+examtwin-healthcheck = "examtwin.app.healthcheck:main"
 
 [dependency-groups]
 dev = [

@@ -6,17 +6,17 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
-from examtwin.answering_agent.contracts import AnswerTask
-from examtwin.answering_agent.prompts import compose_system_prompt
-from examtwin.config import Settings
-from examtwin.persistence.models import KnowledgeBaseModel
-from examtwin.persistence.workspace_repository import WorkspaceRepository
-from examtwin.services.subject_context import subject_context
-from examtwin.subject_packages import (
+from examtwin.assessment.answering_agent.contracts import AnswerTask
+from examtwin.assessment.answering_agent.prompts import compose_system_prompt
+from examtwin.platform.config import Settings
+from examtwin.platform.database.models import KnowledgeBaseModel
+from examtwin.subjects.packages import (
     DEFAULT_SUBJECT_PACKS_ROOT,
     SubjectPackageRegistry,
     get_subject_package,
 )
+from examtwin.subjects.public import subject_context
+from examtwin.subjects.workspace_repository import WorkspaceRepository
 
 
 def test_bundled_subject_packages_load_reviewed_math_and_economics_skills() -> None:
@@ -62,7 +62,7 @@ def test_subject_context_switches_runtime_bindings_without_mutating_global_setti
 def test_managed_subject_without_published_version_keeps_collection_and_alias_distinct(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from examtwin.services import subject_context as subject_context_module
+    from examtwin.subjects import public as subject_context_module
 
     class WorkspaceRepository:
         def __init__(self, _sessions: object) -> None:
@@ -92,7 +92,7 @@ def test_managed_subject_without_published_version_keeps_collection_and_alias_di
     assert runtime.qdrant_collection == "examtwin_oxfordaqa_mathematics_9660_core"
     assert runtime.qdrant_collection_alias == "examtwin_oxfordaqa_mathematics_9660_core_live"
 
-    from examtwin.api import system as system_api
+    from examtwin.app.api import system as system_api
 
     class MetadataWorkspaceRepository:
         def __init__(self, _sessions: object) -> None:

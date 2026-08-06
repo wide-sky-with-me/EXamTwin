@@ -2,9 +2,9 @@ from types import SimpleNamespace
 from typing import cast
 
 import pytest
-from examtwin.answering_agent.finalization import AgentFinalPayload
-from examtwin.config import Settings
-from examtwin.services import providers
+from examtwin.assessment import providers
+from examtwin.assessment.answering_agent.finalization import AgentFinalPayload
+from examtwin.platform.config import Settings
 
 
 class _FinalAnswerProvider:

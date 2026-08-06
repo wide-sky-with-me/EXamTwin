@@ -1,20 +1,20 @@
 import json
 
-from examtwin.answering_agent.contracts import (
+from examtwin.assessment.answering_agent.contracts import (
     AnswerAgentResult,
     AnswerTask,
     QuestionImage,
 )
-from examtwin.config import Settings
-from examtwin.schemas import AskRequest, Citation
-from examtwin.services.model_json import parse_json_response
-from examtwin.services.rag import (
+from examtwin.assessment.rag import (
     RagService,
     _card_node,
     calibrate_evidence_confidence,
     relevant_node_excerpt,
 )
-from examtwin.services.subject_context import subject_context
+from examtwin.contracts import AskRequest, Citation
+from examtwin.platform.config import Settings
+from examtwin.platform.model_json import parse_json_response
+from examtwin.subjects.public import subject_context
 from llama_index.core.schema import NodeWithScore, TextNode
 
 
@@ -205,7 +205,7 @@ def test_rag_carries_question_images_into_answer_task(monkeypatch) -> None:
             )
 
     monkeypatch.setattr(
-        "examtwin.services.rag.build_answering_runtime",
+        "examtwin.assessment.rag.build_answering_runtime",
         lambda *_args, **_kwargs: CapturingRuntime(),
     )
     image = QuestionImage(page_number=4, content=b"\xff\xd8page-4")

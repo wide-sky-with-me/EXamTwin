@@ -1,7 +1,7 @@
 import zipfile
 from pathlib import Path
 
-from examtwin.services.inventory import classify_source, page_count, parse_exam_identity
+from examtwin.knowledge.inventory import classify_source, page_count, parse_exam_identity
 from examtwin.subjects import get_subject_pack
 
 OXFORDAQA_MATHEMATICS_9660 = get_subject_pack("oxfordaqa-mathematics-9660")

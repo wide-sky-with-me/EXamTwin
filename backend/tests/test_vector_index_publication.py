@@ -4,10 +4,10 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from examtwin.config import Settings
-from examtwin.services.ingestion import build_vector_index
-from examtwin.services.subject_context import subject_context
-from examtwin.services.vector_index_publication import QdrantIndexPublisher
+from examtwin.knowledge.ingestion import build_vector_index
+from examtwin.knowledge.vector_index_publication import QdrantIndexPublisher
+from examtwin.platform.config import Settings
+from examtwin.subjects.public import subject_context
 
 
 class FakeQdrantClient:

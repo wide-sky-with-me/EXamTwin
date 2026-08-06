@@ -4,13 +4,13 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from examtwin.config import Settings
-from examtwin.schemas import (
+from examtwin.assessment.paper_classification import PaperDocumentClassification
+from examtwin.assessment.paper_worker import PaperWorker
+from examtwin.contracts import (
     PaperQuestionAnswer,
 )
-from examtwin.services.paper_classification import PaperDocumentClassification
-from examtwin.services.paper_worker import PaperWorker
-from examtwin.services.subject_context import subject_context
+from examtwin.platform.config import Settings
+from examtwin.subjects.public import subject_context
 
 from backend.tests.paper_job_support import (
     FakeAnswerService,
@@ -98,7 +98,7 @@ def test_worker_activates_the_subject_persisted_on_each_job(
             return {"collections": ["economics-collection-1"]}
 
     monkeypatch.setattr(
-        "examtwin.services.paper_worker.WorkspaceRepository",
+        "examtwin.assessment.paper_worker.WorkspaceRepository",
         SnapshotRepository,
     )
     settings = Settings(object_store_local_root=tmp_path)

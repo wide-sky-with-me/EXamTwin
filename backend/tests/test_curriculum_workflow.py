@@ -4,7 +4,7 @@ import hashlib
 from pathlib import Path
 
 import pytest
-from examtwin.services.curriculum import (
+from examtwin.knowledge.curriculum import (
     MINERU_MARKDOWN_PROJECTION,
     PDF_TEXT_PROJECTION,
     get_curriculum_extractor,

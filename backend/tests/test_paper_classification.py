@@ -4,13 +4,13 @@ from collections.abc import Sequence
 from typing import TypeVar
 
 import pytest
-from examtwin.agent_harness.model import HarnessMessage
-from examtwin.config import Settings
-from examtwin.services.paper_classification import (
+from examtwin.assessment.paper_classification import (
     PaperDocumentClassification,
     PaperDocumentClassifier,
     require_question_paper,
 )
+from examtwin.platform.agent_runtime.model import HarnessMessage
+from examtwin.platform.config import Settings
 from pydantic import BaseModel
 
 StructuredResultT = TypeVar("StructuredResultT", bound=BaseModel)
