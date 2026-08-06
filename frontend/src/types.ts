@@ -38,6 +38,7 @@ export type SourceDocument = Schemas["SourceDocumentResponse"];
 export type GradingPaper = Schemas["GradingPaperSummary"];
 export type RubricSetSummary = Schemas["RubricSetSummary"];
 export type RubricSet = Schemas["RubricSetResponse"];
+export type RubricCriterionPatch = Schemas["RubricCriterionPatch"];
 export type PaperAssessment = Schemas["PaperAssessmentResponse"];
 export type GraphVersion = Schemas["GraphVersionResponse"];
 export type GraphVersionSummary = Schemas["GraphVersionSummary"];

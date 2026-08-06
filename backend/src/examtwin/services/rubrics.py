@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Literal
 
@@ -159,13 +160,20 @@ class RubricService:
             raise LookupError("评分方案文档不存在")
         if document.get("source_type") != "mark_scheme":
             raise ValueError("所选文档不是 Mark Scheme")
-        job_pair = str(
-            parse_exam_identity(Path(str(job["filename"])), "question_paper", self.subject.pack)[
-                "pair_key"
-            ]
-        )
+        job_pair = str(job.get("pair_key") or "")
+        if not job_pair:
+            job_identity = parse_exam_identity(
+                Path(str(job.get("filename") or "")),
+                "question_paper",
+                self.subject.pack,
+            )
+            job_pair = str(job_identity.get("pair_key") or "")
         document_pair = str(document.get("pair_key") or "")
-        if job_pair and document_pair and job_pair != document_pair:
+        if not job_pair:
+            raise ValueError("Question Paper 缺少完整考试身份，无法验证评分方案配对")
+        if document.get("identity_status") != "complete" or not document_pair:
+            raise ValueError("Mark Scheme 缺少完整考试身份，无法验证评分方案配对")
+        if job_pair != document_pair:
             raise ValueError("Mark Scheme 与试卷的年份、考季或 Unit 不匹配")
 
         questions = self.papers.questions(paper_job_id)
@@ -235,6 +243,36 @@ class RubricService:
     def list_for_paper(self, paper_job_id: str) -> list[dict[str, object]]:
         return self.rubrics.list_for_paper(paper_job_id, subject_id=self.subject.id)
 
+    def get(self, rubric_id: str) -> dict[str, object]:
+        return self.rubrics.get(rubric_id, subject_id=self.subject.id)
+
+    def review_criterion(
+        self,
+        rubric_id: str,
+        criterion_id: str,
+        *,
+        review_status: str,
+        reviewer: str,
+        note: str | None,
+        updates: Mapping[str, object],
+    ) -> dict[str, object]:
+        return self.rubrics.review_criterion(
+            rubric_id,
+            criterion_id,
+            subject_id=self.subject.id,
+            review_status=review_status,
+            reviewer=reviewer,
+            note=note,
+            updates=updates,
+        )
+
+    def confirm(self, rubric_id: str, *, reviewer: str) -> dict[str, object]:
+        return self.rubrics.confirm(
+            rubric_id,
+            subject_id=self.subject.id,
+            reviewer=reviewer,
+        )
+
     def grade_question(
         self,
         paper_job_id: str,
@@ -245,7 +283,7 @@ class RubricService:
         job = self.papers.get(paper_job_id)
         if job is None or job["subject_code"] != self.subject.subject_code:
             raise LookupError("试卷作答任务不存在")
-        rubric = self.rubrics.get(rubric_set_id)
+        rubric = self.rubrics.get(rubric_set_id, subject_id=self.subject.id)
         if rubric["paper_job_id"] != paper_job_id or rubric["subject_id"] != self.subject.id:
             raise ValueError("评分规则不属于当前试卷")
         if rubric["status"] != "confirmed":
@@ -259,7 +297,11 @@ class RubricService:
         if question["status"] != "completed" or not question.get("answer_json"):
             raise ValueError("该题尚无可评分的完整作答")
         answer = PaperQuestionAnswer.model_validate_json(str(question["answer_json"]))
-        criteria = self.rubrics.accepted_for_question(rubric_set_id, str(question["number"]))
+        criteria = self.rubrics.accepted_for_question(
+            rubric_set_id,
+            str(question["number"]),
+            subject_id=self.subject.id,
+        )
         if not criteria:
             raise ValueError("该题没有已接受的评分原子")
         max_marks = sum(float(item["max_marks"]) for item in criteria)

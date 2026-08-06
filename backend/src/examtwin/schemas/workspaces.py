@@ -51,6 +51,7 @@ class SourceDocumentResponse(SerializedResponse):
     license_confirmed: bool
     status: str
     checksum: str
+    object_key: str | None = None
     page_count: int | None = None
     error: str | None = None
 

@@ -5,18 +5,18 @@ from fastapi import APIRouter, Depends, HTTPException
 from examtwin.api.dependencies import get_grading_service, get_rubric_service
 from examtwin.api.errors import upstream_http_error
 from examtwin.schemas.grading import (
-    GradeRequest,
     GradeResponse,
     ReviewDecisionResponse,
     ReviewQueueItem,
     ReviewRequest,
 )
 from examtwin.schemas.rubrics import (
+    ConfirmRubricRequest,
     CreateRubricRequest,
     GradePaperQuestionRequest,
     GradingPaperSummary,
     PaperAssessmentResponse,
-    ReviewAllRubricRequest,
+    ReviewRubricCriterionRequest,
     RubricSetResponse,
     RubricSetSummary,
 )
@@ -24,23 +24,6 @@ from examtwin.services.grading import GradingService
 from examtwin.services.rubrics import RubricService
 
 router = APIRouter()
-
-
-@router.post("/grading/assess", response_model=GradeResponse)
-def assess(
-    request: GradeRequest,
-    service: GradingService = Depends(get_grading_service),
-) -> GradeResponse:
-    try:
-        return service.grade(request)
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
-    except Exception as error:
-        raise upstream_http_error(
-            "GRADING_PROVIDER_FAILED",
-            "评分服务暂时不可用，请稍后重试",
-            error,
-        ) from error
 
 
 @router.post("/grading/rubrics", response_model=RubricSetResponse)
@@ -88,20 +71,34 @@ def rubric_detail(
     service: RubricService = Depends(get_rubric_service),
 ) -> RubricSetResponse:
     try:
-        return RubricSetResponse.model_validate(service.rubrics.get(rubric_id))
+        return RubricSetResponse.model_validate(service.get(rubric_id))
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 
 
-@router.post("/grading/rubrics/{rubric_id}/review-all", response_model=RubricSetResponse)
-def review_all_rubric(
+@router.post(
+    "/grading/rubrics/{rubric_id}/criteria/{criterion_id}/review",
+    response_model=RubricSetResponse,
+)
+def review_rubric_criterion(
     rubric_id: str,
-    request: ReviewAllRubricRequest,
+    criterion_id: str,
+    request: ReviewRubricCriterionRequest,
     service: RubricService = Depends(get_rubric_service),
 ) -> RubricSetResponse:
     try:
+        updates = (
+            request.updates.model_dump(exclude_unset=True) if request.updates is not None else {}
+        )
         return RubricSetResponse.model_validate(
-            service.rubrics.review_all(rubric_id, request.review_status)
+            service.review_criterion(
+                rubric_id,
+                criterion_id,
+                review_status=request.review_status,
+                reviewer=request.reviewer,
+                note=request.note,
+                updates=updates,
+            )
         )
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
@@ -112,10 +109,13 @@ def review_all_rubric(
 @router.post("/grading/rubrics/{rubric_id}/confirm", response_model=RubricSetResponse)
 def confirm_rubric(
     rubric_id: str,
+    request: ConfirmRubricRequest,
     service: RubricService = Depends(get_rubric_service),
 ) -> RubricSetResponse:
     try:
-        return RubricSetResponse.model_validate(service.rubrics.confirm(rubric_id))
+        return RubricSetResponse.model_validate(
+            service.confirm(rubric_id, reviewer=request.reviewer)
+        )
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     except ValueError as error:

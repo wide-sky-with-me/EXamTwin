@@ -27,6 +27,8 @@ class RubricCriterionResponse(SerializedResponse):
     source_excerpt: str
     confidence: float
     review_status: Literal["pending", "accepted", "rejected"]
+    reviewed_by: str | None = None
+    reviewed_at: datetime | None = None
 
 
 class RubricSetSummary(SerializedResponse):
@@ -43,6 +45,7 @@ class RubricSetSummary(SerializedResponse):
     created_at: datetime
     updated_at: datetime
     confirmed_at: datetime | None = None
+    confirmed_by: str | None = None
 
 
 class RubricSetResponse(RubricSetSummary):
@@ -54,8 +57,29 @@ class CreateRubricRequest(BaseModel):
     source_document_id: str
 
 
-class ReviewAllRubricRequest(BaseModel):
+class RubricCriterionPatch(BaseModel):
+    scoring_mode: Literal["point_based", "levels_based"] | None = None
+    mark_type: str | None = None
+    max_marks: float | None = Field(default=None, gt=0)
+    description: str | None = Field(default=None, min_length=1)
+    dependencies: list[str] | None = None
+    alternatives: list[str] | None = None
+    accuracy_requirement: str | None = None
+    units: list[str] | None = None
+    follow_through_policy: str | None = None
+    source_page: int | None = Field(default=None, ge=1)
+    source_excerpt: str | None = None
+
+
+class ReviewRubricCriterionRequest(BaseModel):
     review_status: Literal["accepted", "rejected"]
+    reviewer: str = Field(min_length=1)
+    note: str | None = None
+    updates: RubricCriterionPatch | None = None
+
+
+class ConfirmRubricRequest(BaseModel):
+    reviewer: str = Field(min_length=1)
 
 
 class GradePaperQuestionRequest(BaseModel):

@@ -41,3 +41,13 @@ def test_health_and_knowledge_graph() -> None:
         points = client.get("/api/v1/knowledge/points", headers=headers)
         assert points.status_code == 200
         assert isinstance(points.json(), list)
+
+        assert client.post("/api/v1/grading/assess", json={}).status_code == 404
+        assert (
+            client.post(
+                "/api/v1/grading/rubrics/missing/review-all",
+                json={"review_status": "accepted"},
+                headers=headers,
+            ).status_code
+            == 404
+        )

@@ -8,6 +8,7 @@ import {
   LoaderCircle,
   RefreshCw,
   ShieldCheck,
+  XCircle,
   TriangleAlert,
   UploadCloud,
 } from "lucide-react";
@@ -25,12 +26,167 @@ import type {
   PaperAssessment,
   PaperJobQuestion,
   PaperJobResult,
+  RubricCriterionPatch,
   RubricSet,
   RubricSetSummary,
   SourceDocument,
   SubjectPack,
 } from "../types";
 type GradingStep = 1 | 2 | 3;
+
+const REVIEWER_STORAGE_KEY = "examtwin.reviewerName";
+type RubricCriterion = RubricSet["criteria"][number];
+
+function RubricCriterionEditor({
+  criterion,
+  disabled,
+  onReview,
+}: {
+  criterion: RubricCriterion;
+  disabled: boolean;
+  onReview: (
+    criterionId: string,
+    reviewStatus: "accepted" | "rejected",
+    note: string,
+    updates: RubricCriterionPatch | undefined,
+  ) => Promise<void>;
+}) {
+  const [description, setDescription] = useState(criterion.description);
+  const [maxMarks, setMaxMarks] = useState(String(criterion.max_marks));
+  const [markType, setMarkType] = useState(criterion.mark_type ?? "");
+  const [sourceExcerpt, setSourceExcerpt] = useState(criterion.source_excerpt);
+  const [note, setNote] = useState("");
+
+  useEffect(() => {
+    setDescription(criterion.description);
+    setMaxMarks(String(criterion.max_marks));
+    setMarkType(criterion.mark_type ?? "");
+    setSourceExcerpt(criterion.source_excerpt);
+    setNote("");
+  }, [criterion]);
+
+  const parsedMarks = Number(maxMarks);
+  const invalid = !description.trim() || !Number.isFinite(parsedMarks) || parsedMarks <= 0;
+  const changed = (
+    description.trim() !== criterion.description
+    || parsedMarks !== criterion.max_marks
+    || markType.trim() !== (criterion.mark_type ?? "")
+    || sourceExcerpt !== criterion.source_excerpt
+  );
+
+  function updates(): RubricCriterionPatch | undefined {
+    if (!changed) return undefined;
+    return {
+      accuracy_requirement: criterion.accuracy_requirement,
+      alternatives: criterion.alternatives,
+      dependencies: criterion.dependencies,
+      description: description.trim(),
+      follow_through_policy: criterion.follow_through_policy,
+      mark_type: markType.trim() || null,
+      max_marks: parsedMarks,
+      scoring_mode: criterion.scoring_mode,
+      source_excerpt: sourceExcerpt,
+      source_page: criterion.source_page,
+      units: criterion.units,
+    };
+  }
+  return (
+    <article className={`rubric-criterion-card ${criterion.review_status}`}>
+      <header>
+        <div>
+          <strong>Q{criterion.question_number} · {criterion.criterion_id}</strong>
+          <span>{criterion.subpart === "whole" ? "整题" : `小问 ${criterion.subpart}`}</span>
+        </div>
+        <div className="rubric-criterion-score">
+          <span className={`criterion-status ${criterion.review_status}`}>
+            {criterion.review_status === "accepted"
+              ? "已接受"
+              : criterion.review_status === "rejected" ? "已拒绝" : "待审核"}
+          </span>
+          <b>{criterion.max_marks} 分</b>
+        </div>
+      </header>
+      <div className="rubric-criterion-fields">
+        <label className="rubric-description-field">
+          判分描述
+          <textarea
+            disabled={disabled}
+            onChange={(event) => setDescription(event.target.value)}
+            rows={3}
+            value={description}
+          />
+        </label>
+        <label>
+          分值
+          <input
+            disabled={disabled}
+            min="0.1"
+            onChange={(event) => setMaxMarks(event.target.value)}
+            step="0.1"
+            type="number"
+            value={maxMarks}
+          />
+        </label>
+        <label>
+          标记类型
+          <input
+            disabled={disabled}
+            onChange={(event) => setMarkType(event.target.value)}
+            placeholder="例如 M1 / A1 / B1"
+            value={markType}
+          />
+        </label>
+        <label className="rubric-source-field">
+          官方原文依据
+          <textarea
+            disabled={disabled}
+            onChange={(event) => setSourceExcerpt(event.target.value)}
+            rows={2}
+            value={sourceExcerpt}
+          />
+        </label>
+        <label className="rubric-note-field">
+          审核说明
+          <input
+            disabled={disabled}
+            onChange={(event) => setNote(event.target.value)}
+            placeholder="可选；修改或拒绝时建议填写"
+            value={note}
+          />
+        </label>
+      </div>
+      {criterion.reviewed_by && (
+        <small className="rubric-review-meta">
+          最近由 {criterion.reviewed_by} 于{" "}
+          {criterion.reviewed_at
+            ? new Date(criterion.reviewed_at).toLocaleString("zh-CN")
+            : "未知时间"}审核
+        </small>
+      )}
+      {!disabled && (
+        <footer>
+          <button
+            className="secondary danger"
+            onClick={() => void onReview(criterion.id, "rejected", note, undefined)}
+            type="button"
+          >
+            <XCircle size={16} />
+            拒绝
+          </button>
+          <button
+            className="secondary"
+            disabled={invalid}
+            onClick={() => void onReview(criterion.id, "accepted", note, updates())}
+            type="button"
+          >
+            <CheckCircle2 size={16} />
+            {changed ? "保存修改并接受" : "接受"}
+          </button>
+        </footer>
+      )}
+    </article>
+  );
+}
 
 
 function GradingSubmission({
@@ -95,17 +251,25 @@ export function Grading({
   const [step, setStep] = useState<GradingStep>(1);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reviewer, setReviewer] = useState(() =>
+    window.localStorage.getItem(REVIEWER_STORAGE_KEY) ?? ""
+  );
+  const [rubricQuestionFilter, setRubricQuestionFilter] = useState("ALL");
+  const [rubricStatusFilter, setRubricStatusFilter] = useState("all");
   const paperRequestRef = useRef(0);
   const { notify } = useToast();
 
   const loadSources = useCallback(async () => {
     const rows = await unwrapApi(
       apiClient.GET("/api/v1/corpus/documents", {
-        params: { query: { source_type: "mark_scheme", status: "converted", limit: 100 } },
+        params: { query: { source_type: "mark_scheme", limit: 100 } },
       }),
     );
-    setDocuments(rows as SourceDocument[]);
-    if (!documentId && rows.length) setDocumentId(String(rows[0].id));
+    const readyRows = (rows as SourceDocument[]).filter(
+      (item) => item.status === "converted" || item.status === "indexed",
+    );
+    setDocuments(readyRows);
+    if (!documentId && readyRows.length) setDocumentId(String(readyRows[0].id));
   }, [documentId]);
 
   const loadPapers = useCallback(async () => {
@@ -202,6 +366,19 @@ export function Grading({
     : 0;
   const acceptedCriteria = rubric?.criteria.filter((item) => item.review_status === "accepted").length ?? 0;
   const pendingCriteria = rubric?.criteria.filter((item) => item.review_status === "pending").length ?? 0;
+  const rejectedCriteria = rubric?.criteria.filter((item) => item.review_status === "rejected").length ?? 0;
+  const rubricQuestions = useMemo(
+    () => Array.from(new Set(rubric?.criteria.map((item) => item.question_number) ?? [])),
+    [rubric],
+  );
+  const visibleCriteria = useMemo(
+    () => (rubric?.criteria ?? []).filter(
+      (item) =>
+        (rubricQuestionFilter === "ALL" || item.question_number === rubricQuestionFilter)
+        && (rubricStatusFilter === "all" || item.review_status === rubricStatusFilter),
+    ),
+    [rubric, rubricQuestionFilter, rubricStatusFilter],
+  );
   const selectedPaperSummary = papers.find((item) => item.job_id === paperId) ?? null;
   const selectedDocument = documents.find((item) => item.id === documentId) ?? null;
 
@@ -281,23 +458,63 @@ export function Grading({
     }
   }
 
-  async function reviewAndConfirm() {
+  async function reviewCriterion(
+    criterionId: string,
+    reviewStatus: "accepted" | "rejected",
+    note: string,
+    updates: RubricCriterionPatch | undefined,
+  ) {
     if (!rubric) return;
-    setBusy("confirm-rubric");
+    const reviewerName = reviewer.trim();
+    if (!reviewerName) {
+      setError("请先填写审核人名称。");
+      return;
+    }
+    setBusy(`review-${criterionId}`);
     setError(null);
     try {
       const reviewed = await unwrapApi(
-        apiClient.POST("/api/v1/grading/rubrics/{rubric_id}/review-all", {
-          params: { path: { rubric_id: rubric.id } },
-          body: { review_status: "accepted" },
+        apiClient.POST("/api/v1/grading/rubrics/{rubric_id}/criteria/{criterion_id}/review", {
+          params: { path: { rubric_id: rubric.id, criterion_id: criterionId } },
+          body: {
+            note: note.trim() || null,
+            review_status: reviewStatus,
+            reviewer: reviewerName,
+            updates,
+          },
         }),
       );
+      setRubric(reviewed);
+      window.localStorage.setItem(REVIEWER_STORAGE_KEY, reviewerName);
+      notify(reviewStatus === "accepted" ? "评分原子已接受并写入审计记录。" : "评分原子已拒绝并写入审计记录。");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "评分原子审核失败");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function confirmRubric() {
+    if (!rubric) return;
+    const reviewerName = reviewer.trim();
+    if (!reviewerName) {
+      setError("请先填写审核人名称。");
+      return;
+    }
+    setBusy("confirm-rubric");
+    setError(null);
+    try {
       const confirmed = await unwrapApi(
         apiClient.POST("/api/v1/grading/rubrics/{rubric_id}/confirm", {
-          params: { path: { rubric_id: reviewed.id } },
+          params: { path: { rubric_id: rubric.id } },
+          body: { reviewer: reviewerName },
         }),
       );
       setRubric(confirmed);
+      setRubrics((items) => items.map(
+        (item) => item.id === confirmed.id ? { ...item, ...confirmed } : item,
+      ));
+      window.localStorage.setItem(REVIEWER_STORAGE_KEY, reviewerName);
       notify("评分规则已确认，现可对既有答案记录评分。");
       setStep(3);
     } catch (cause) {
@@ -494,7 +711,9 @@ export function Grading({
                   <div>
                     <strong>{selectedDocument.filename}</strong>
                     <span>
-                      {selectedDocument.status === "converted" ? "已转换，可解析得分点" : selectedDocument.status}
+                      {["converted", "indexed"].includes(selectedDocument.status)
+                        ? "内容已就绪，可解析得分点"
+                        : selectedDocument.status}
                       {selectedDocument.page_count ? ` · ${selectedDocument.page_count} 页` : ""}
                     </span>
                   </div>
@@ -569,7 +788,46 @@ export function Grading({
               <div className="rubric-stats">
                 <span><b>{rubric.criteria.length}</b> 条规则</span>
                 <span><b>{acceptedCriteria}</b> 已接受</span>
+                <span><b>{rejectedCriteria}</b> 已拒绝</span>
                 <span><b>{pendingCriteria}</b> 待审核</span>
+              </div>
+              <div className="rubric-review-toolbar">
+                <label>
+                  审核人
+                  <input
+                    disabled={rubric.status !== "draft"}
+                    onChange={(event) => setReviewer(event.target.value)}
+                    placeholder="填写教师或复核人名称"
+                    required
+                    value={reviewer}
+                  />
+                </label>
+                <label>
+                  题号
+                  <select
+                    onChange={(event) => setRubricQuestionFilter(event.target.value)}
+                    value={rubricQuestionFilter}
+                  >
+                    <option value="ALL">全部题目</option>
+                    {rubricQuestions.map((questionNumber) => (
+                      <option key={questionNumber} value={questionNumber}>
+                        Q{questionNumber}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  审核状态
+                  <select
+                    onChange={(event) => setRubricStatusFilter(event.target.value)}
+                    value={rubricStatusFilter}
+                  >
+                    <option value="all">全部状态</option>
+                    <option value="pending">待审核</option>
+                    <option value="accepted">已接受</option>
+                    <option value="rejected">已拒绝</option>
+                  </select>
+                </label>
               </div>
               {rubric.warnings.map((warning) => (
                 <p className="inline-warning" key={warning}>
@@ -577,16 +835,21 @@ export function Grading({
                   {warning}
                 </p>
               ))}
-              <div className="rubric-preview rubric-preview-full">
-                {rubric.criteria.map((item) => (
-                  <div key={item.id}>
-                    <span>Q{item.question_number} · {item.mark_type ?? item.scoring_mode}</span>
-                    <b>{item.max_marks}</b>
-                    <div className="rubric-preview-description">
-                      <Markdown>{item.description}</Markdown>
-                    </div>
-                  </div>
+              <div className="rubric-criterion-list">
+                {visibleCriteria.map((item) => (
+                  <RubricCriterionEditor
+                    criterion={item}
+                    disabled={rubric.status !== "draft" || busy !== null}
+                    key={item.id}
+                    onReview={reviewCriterion}
+                  />
                 ))}
+                {visibleCriteria.length === 0 && (
+                  <div className="empty compact-empty">
+                    <BookOpenCheck size={26} />
+                    <p>当前筛选条件下没有评分原子。</p>
+                  </div>
+                )}
               </div>
             </>
           )}
@@ -600,14 +863,19 @@ export function Grading({
             {rubric?.status === "draft" ? (
               <button
                 className="primary"
-                disabled={busy !== null}
-                onClick={() => void reviewAndConfirm()}
+                disabled={
+                  busy !== null
+                  || pendingCriteria > 0
+                  || acceptedCriteria === 0
+                  || !reviewer.trim()
+                }
+                onClick={() => void confirmRubric()}
                 type="button"
               >
                 {busy === "confirm-rubric"
                   ? <LoaderCircle className="spin" size={17} />
                   : <CheckCircle2 size={17} />}
-                接受全部并进入评分
+                确认已审核规则并进入评分
               </button>
             ) : (
               <button

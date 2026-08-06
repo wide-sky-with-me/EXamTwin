@@ -123,23 +123,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/grading/assess": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Assess */
-        post: operations["assess_api_v1_grading_assess_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/grading/papers": {
         parameters: {
             query?: never;
@@ -277,7 +260,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/grading/rubrics/{rubric_id}/review-all": {
+    "/api/v1/grading/rubrics/{rubric_id}/criteria/{criterion_id}/review": {
         parameters: {
             query?: never;
             header?: never;
@@ -286,8 +269,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Review All Rubric */
-        post: operations["review_all_rubric_api_v1_grading_rubrics__rubric_id__review_all_post"];
+        /** Review Rubric Criterion */
+        post: operations["review_rubric_criterion_api_v1_grading_rubrics__rubric_id__criteria__criterion_id__review_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -935,6 +918,11 @@ export interface components {
             /** Source Type */
             source_type: string | null;
         };
+        /** ConfirmRubricRequest */
+        ConfirmRubricRequest: {
+            /** Reviewer */
+            reviewer: string;
+        };
         /** ConvertRequest */
         ConvertRequest: {
             /** Authority Tiers */
@@ -1063,38 +1051,10 @@ export interface components {
              */
             tone: "default" | "primary" | "secondary" | "tertiary" | "muted";
         };
-        /** ExpectedExpression */
-        ExpectedExpression: {
-            /** Expected */
-            expected: string;
-            /** Student */
-            student: string;
-            /** Variable */
-            variable?: string | null;
-        };
         /** GradePaperQuestionRequest */
         GradePaperQuestionRequest: {
             /** Rubric Set Id */
             rubric_set_id: string;
-        };
-        /** GradeRequest */
-        GradeRequest: {
-            /** Answer Markdown */
-            answer_markdown: string;
-            /** Expected Expressions */
-            expected_expressions?: components["schemas"]["ExpectedExpression"][];
-            /** Knowledge Codes */
-            knowledge_codes?: string[];
-            /** Mark Scheme Markdown */
-            mark_scheme_markdown?: string | null;
-            /** Max Marks */
-            max_marks?: number | null;
-            /** Question Markdown */
-            question_markdown?: string | null;
-            /** Question Ref */
-            question_ref?: string | null;
-            /** Unit Code */
-            unit_code?: string | null;
         };
         /** GradeResponse */
         GradeResponse: {
@@ -1762,14 +1722,6 @@ export interface components {
              */
             review_status: "accepted" | "rejected";
         };
-        /** ReviewAllRubricRequest */
-        ReviewAllRubricRequest: {
-            /**
-             * Review Status
-             * @enum {string}
-             */
-            review_status: "accepted" | "rejected";
-        };
         /** ReviewDecisionResponse */
         ReviewDecisionResponse: {
             /** Assessment Id */
@@ -1852,6 +1804,19 @@ export interface components {
             /** Reviewer */
             reviewer: string;
         };
+        /** ReviewRubricCriterionRequest */
+        ReviewRubricCriterionRequest: {
+            /** Note */
+            note?: string | null;
+            /**
+             * Review Status
+             * @enum {string}
+             */
+            review_status: "accepted" | "rejected";
+            /** Reviewer */
+            reviewer: string;
+            updates?: components["schemas"]["RubricCriterionPatch"] | null;
+        };
         /** RubricAward */
         RubricAward: {
             /** Awarded */
@@ -1878,6 +1843,31 @@ export interface components {
             source_ref: string | null;
             /** Student Evidence */
             student_evidence: string | null;
+        };
+        /** RubricCriterionPatch */
+        RubricCriterionPatch: {
+            /** Accuracy Requirement */
+            accuracy_requirement: string | null;
+            /** Alternatives */
+            alternatives: string[] | null;
+            /** Dependencies */
+            dependencies: string[] | null;
+            /** Description */
+            description: string | null;
+            /** Follow Through Policy */
+            follow_through_policy: string | null;
+            /** Mark Type */
+            mark_type: string | null;
+            /** Max Marks */
+            max_marks: number | null;
+            /** Scoring Mode */
+            scoring_mode: ("point_based" | "levels_based") | null;
+            /** Source Excerpt */
+            source_excerpt: string | null;
+            /** Source Page */
+            source_page: number | null;
+            /** Units */
+            units: string[] | null;
         };
         /** RubricCriterionResponse */
         RubricCriterionResponse: {
@@ -1908,6 +1898,10 @@ export interface components {
              * @enum {string}
              */
             review_status: "pending" | "accepted" | "rejected";
+            /** Reviewed At */
+            reviewed_at: string | null;
+            /** Reviewed By */
+            reviewed_by: string | null;
             /**
              * Scoring Mode
              * @enum {string}
@@ -1926,6 +1920,8 @@ export interface components {
         RubricSetResponse: {
             /** Confirmed At */
             confirmed_at: string | null;
+            /** Confirmed By */
+            confirmed_by: string | null;
             /**
              * Created At
              * Format: date-time
@@ -1968,6 +1964,8 @@ export interface components {
         RubricSetSummary: {
             /** Confirmed At */
             confirmed_at: string | null;
+            /** Confirmed By */
+            confirmed_by: string | null;
             /**
              * Created At
              * Format: date-time
@@ -2036,6 +2034,8 @@ export interface components {
             knowledge_base_id: string | null;
             /** License Confirmed */
             license_confirmed: boolean;
+            /** Object Key */
+            object_key: string | null;
             /** Page Count */
             page_count: number | null;
             /** Source Role */
@@ -2463,43 +2463,6 @@ export interface operations {
             };
         };
     };
-    assess_api_v1_grading_assess_post: {
-        parameters: {
-            query?: {
-                subject?: string | null;
-            };
-            header?: {
-                "X-ExamTwin-Subject"?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["GradeRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["GradeResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     grading_papers_api_v1_grading_papers_get: {
         parameters: {
             query?: {
@@ -2799,7 +2762,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfirmRubricRequest"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -2821,7 +2788,7 @@ export interface operations {
             };
         };
     };
-    review_all_rubric_api_v1_grading_rubrics__rubric_id__review_all_post: {
+    review_rubric_criterion_api_v1_grading_rubrics__rubric_id__criteria__criterion_id__review_post: {
         parameters: {
             query?: {
                 subject?: string | null;
@@ -2831,12 +2798,13 @@ export interface operations {
             };
             path: {
                 rubric_id: string;
+                criterion_id: string;
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ReviewAllRubricRequest"];
+                "application/json": components["schemas"]["ReviewRubricCriterionRequest"];
             };
         };
         responses: {

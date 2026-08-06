@@ -5,10 +5,14 @@ import uuid
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from examtwin.persistence.models import RubricCriterionModel, RubricSetModel
+from examtwin.persistence.models import (
+    RubricCriterionModel,
+    RubricCriterionReviewModel,
+    RubricSetModel,
+)
 from examtwin.persistence.session import utcnow
 
 
@@ -27,6 +31,7 @@ def _set_dict(row: RubricSetModel) -> dict[str, Any]:
         "created_at": row.created_at,
         "updated_at": row.updated_at,
         "confirmed_at": row.confirmed_at,
+        "confirmed_by": row.confirmed_by,
     }
 
 
@@ -49,11 +54,17 @@ def _criterion_dict(row: RubricCriterionModel) -> dict[str, Any]:
         "source_excerpt": row.source_excerpt,
         "confidence": row.confidence,
         "review_status": row.review_status,
+        "reviewed_by": row.reviewed_by,
+        "reviewed_at": row.reviewed_at,
     }
 
 
+def _snapshot(row: RubricCriterionModel) -> str:
+    return json.dumps(_criterion_dict(row), ensure_ascii=False, default=str)
+
+
 class RubricRepository:
-    """Own versioned, human-reviewable mark-scheme rubric sets."""
+    """Own versioned, subject-scoped, human-reviewable mark-scheme rubric sets."""
 
     def __init__(self, sessions: sessionmaker[Session]) -> None:
         self.sessions = sessions
@@ -126,7 +137,7 @@ class RubricRepository:
                         review_status="pending",
                     )
                 )
-        return self.get(rubric_id)
+        return self.get(rubric_id, subject_id=subject_id)
 
     def list_for_paper(self, paper_job_id: str, *, subject_id: str) -> list[dict[str, Any]]:
         statement = (
@@ -141,9 +152,14 @@ class RubricRepository:
             rows = list(session.scalars(statement))
         return [_set_dict(row) for row in rows]
 
-    def get(self, rubric_id: str) -> dict[str, Any]:
+    def get(self, rubric_id: str, *, subject_id: str) -> dict[str, Any]:
         with self.sessions() as session:
-            rubric = session.get(RubricSetModel, rubric_id)
+            rubric = session.scalar(
+                select(RubricSetModel).where(
+                    RubricSetModel.id == rubric_id,
+                    RubricSetModel.subject_id == subject_id,
+                )
+            )
             if rubric is None:
                 raise LookupError("评分规则版本不存在")
             criteria = list(
@@ -161,28 +177,105 @@ class RubricRepository:
         result["criteria"] = [_criterion_dict(row) for row in criteria]
         return result
 
-    def review_all(self, rubric_id: str, review_status: str) -> dict[str, Any]:
+    def review_criterion(
+        self,
+        rubric_id: str,
+        criterion_id: str,
+        *,
+        subject_id: str,
+        review_status: str,
+        reviewer: str,
+        note: str | None,
+        updates: Mapping[str, Any],
+    ) -> dict[str, Any]:
         if review_status not in {"accepted", "rejected"}:
             raise ValueError("无效的审核状态")
+        reviewer = reviewer.strip()
+        if not reviewer:
+            raise ValueError("必须填写审核人")
         now = utcnow()
         with self.sessions.begin() as session:
-            rubric = session.get(RubricSetModel, rubric_id)
+            rubric = session.scalar(
+                select(RubricSetModel)
+                .where(
+                    RubricSetModel.id == rubric_id,
+                    RubricSetModel.subject_id == subject_id,
+                )
+                .with_for_update()
+            )
             if rubric is None:
                 raise LookupError("评分规则版本不存在")
             if rubric.status != "draft":
                 raise ValueError("只有草稿评分规则可以审核")
-            session.execute(
-                update(RubricCriterionModel)
-                .where(RubricCriterionModel.rubric_set_id == rubric_id)
-                .values(review_status=review_status)
+            criterion = session.scalar(
+                select(RubricCriterionModel)
+                .where(
+                    RubricCriterionModel.id == criterion_id,
+                    RubricCriterionModel.rubric_set_id == rubric_id,
+                )
+                .with_for_update()
             )
+            if criterion is None:
+                raise LookupError("评分原子不存在")
+            before_json = _snapshot(criterion)
+            list_fields = {
+                "dependencies": "dependencies_json",
+                "alternatives": "alternatives_json",
+                "units": "units_json",
+            }
+            required_fields = {
+                "scoring_mode",
+                "max_marks",
+                "description",
+                "dependencies",
+                "alternatives",
+                "units",
+                "source_excerpt",
+            }
+            for field, value in updates.items():
+                if field in required_fields and value is None:
+                    raise ValueError(f"{field} 不能设为空")
+                if field in list_fields:
+                    setattr(
+                        criterion,
+                        list_fields[field],
+                        json.dumps(value, ensure_ascii=False),
+                    )
+                else:
+                    setattr(criterion, field, value)
+            criterion.review_status = review_status
+            criterion.reviewed_by = reviewer
+            criterion.reviewed_at = now
             rubric.updated_at = now
-        return self.get(rubric_id)
+            session.flush()
+            session.add(
+                RubricCriterionReviewModel(
+                    rubric_set_id=rubric_id,
+                    criterion_id=criterion_id,
+                    action=(f"edited_and_{review_status}" if updates else review_status),
+                    reviewer=reviewer,
+                    before_json=before_json,
+                    after_json=_snapshot(criterion),
+                    note=note,
+                    created_at=now,
+                )
+            )
+        return self.get(rubric_id, subject_id=subject_id)
 
-    def confirm(self, rubric_id: str) -> dict[str, Any]:
+    def confirm(self, rubric_id: str, *, subject_id: str, reviewer: str) -> dict[str, Any]:
+        reviewer = reviewer.strip()
+        if not reviewer:
+            raise ValueError("必须填写审核人")
         now = utcnow()
         with self.sessions.begin() as session:
-            rubric = session.get(RubricSetModel, rubric_id)
+            rubric = session.scalar(
+                select(RubricSetModel)
+                .where(
+                    RubricSetModel.id == rubric_id,
+                    RubricSetModel.subject_id == subject_id,
+                )
+                .with_for_update()
+            )
             if rubric is None:
                 raise LookupError("评分规则版本不存在")
             if rubric.status != "draft":
@@ -210,9 +303,16 @@ class RubricRepository:
             rubric.status = "confirmed"
             rubric.updated_at = now
             rubric.confirmed_at = now
-        return self.get(rubric_id)
+            rubric.confirmed_by = reviewer
+        return self.get(rubric_id, subject_id=subject_id)
 
-    def accepted_for_question(self, rubric_id: str, question_number: str) -> list[dict[str, Any]]:
+    def accepted_for_question(
+        self,
+        rubric_id: str,
+        question_number: str,
+        *,
+        subject_id: str,
+    ) -> list[dict[str, Any]]:
         statement = (
             select(RubricCriterionModel)
             .join(RubricSetModel, RubricSetModel.id == RubricCriterionModel.rubric_set_id)
@@ -221,6 +321,7 @@ class RubricRepository:
                 RubricCriterionModel.question_number == question_number,
                 RubricCriterionModel.review_status == "accepted",
                 RubricSetModel.status == "confirmed",
+                RubricSetModel.subject_id == subject_id,
             )
             .order_by(RubricCriterionModel.subpart, RubricCriterionModel.criterion_id)
         )

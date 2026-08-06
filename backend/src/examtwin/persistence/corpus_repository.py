@@ -54,6 +54,7 @@ class CorpusRepository:
             "exam_session": None,
             "page_count": None,
             "status": "discovered",
+            "object_key": None,
             "markdown_path": None,
             "metadata_json": "{}",
             "error": None,
@@ -113,6 +114,7 @@ class CorpusRepository:
                     "source_role",
                     "license_confirmed",
                     "checksum",
+                    "object_key",
                     "pair_key",
                     "unit_code",
                     "exam_year",
@@ -160,6 +162,27 @@ class CorpusRepository:
                 )
             )
         return str(document_id)
+
+    def find_by_checksum(
+        self,
+        *,
+        subject_code: str,
+        source_type: str,
+        checksum: str,
+    ) -> dict[str, Any] | None:
+        statement = (
+            select(SourceDocumentModel)
+            .where(
+                SourceDocumentModel.subject_code == subject_code,
+                SourceDocumentModel.source_type == source_type,
+                SourceDocumentModel.checksum == checksum,
+            )
+            .order_by(SourceDocumentModel.id)
+            .limit(1)
+        )
+        with self.sessions() as session:
+            row = session.scalar(statement)
+            return _document_dict(row) if row is not None else None
 
     def finish_scan(self, subject_code: str, current_paths: set[str]) -> None:
         with self.sessions.begin() as session:

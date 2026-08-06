@@ -157,6 +157,7 @@ class SourceDocumentModel(Base):
     identity_error: Mapped[str | None] = mapped_column(Text)
     page_count: Mapped[int | None] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(Text)
+    object_key: Mapped[str | None] = mapped_column(Text)
     markdown_path: Mapped[str | None] = mapped_column(Text)
     metadata_json: Mapped[str] = mapped_column(Text, default="{}")
     error: Mapped[str | None] = mapped_column(Text)
@@ -676,6 +677,7 @@ class RubricSetModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    confirmed_by: Mapped[str | None] = mapped_column(Text)
 
 
 class RubricCriterionModel(Base):
@@ -702,6 +704,26 @@ class RubricCriterionModel(Base):
     source_excerpt: Mapped[str] = mapped_column(Text, default="")
     confidence: Mapped[float] = mapped_column(Float)
     review_status: Mapped[str] = mapped_column(Text, default="pending")
+    reviewed_by: Mapped[str | None] = mapped_column(Text)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class RubricCriterionReviewModel(Base):
+    __tablename__ = "rubric_criterion_reviews"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    rubric_set_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("rubric_sets.id", ondelete="CASCADE")
+    )
+    criterion_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("rubric_criteria.id", ondelete="CASCADE")
+    )
+    action: Mapped[str] = mapped_column(Text)
+    reviewer: Mapped[str] = mapped_column(Text)
+    before_json: Mapped[str] = mapped_column(Text)
+    after_json: Mapped[str] = mapped_column(Text)
+    note: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class AssessmentRunModel(Base):

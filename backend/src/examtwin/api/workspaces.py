@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
@@ -11,6 +10,7 @@ from examtwin.api.dependencies import get_subject_context
 from examtwin.api.system import _subject_response
 from examtwin.composition import (
     build_corpus_ingestor,
+    build_object_store,
     corpus_repository,
     knowledge_repository,
     vector_index_repository,
@@ -30,7 +30,9 @@ from examtwin.schemas.workspaces import (
     SourceDocumentResponse,
 )
 from examtwin.services.ingestion import build_vector_index
+from examtwin.services.inventory import parse_exam_identity
 from examtwin.services.subject_context import SubjectContext, subject_context
+from examtwin.storage import ObjectMetadata
 from examtwin.subject_packages import subject_package_registry
 
 router = APIRouter()
@@ -159,48 +161,101 @@ def upload_workspace_document(
     if suffix not in SUPPORTED_UPLOAD_SUFFIXES:
         raise HTTPException(status_code=422, detail="仅支持 PDF、Markdown、PPT 或 PPTX 资料")
 
-    upload_dir = subject.corpus_dir / "uploads"
-    upload_dir.mkdir(parents=True, exist_ok=True)
-    target = upload_dir / f"{uuid.uuid4()}-{filename}"
     digest = hashlib.sha256()
     size = 0
+    while chunk := file.file.read(1024 * 1024):
+        size += len(chunk)
+        if size > settings.knowledge_upload_max_bytes:
+            raise HTTPException(status_code=422, detail="资料文件超过允许的上传大小")
+        digest.update(chunk)
+    if size == 0:
+        raise HTTPException(status_code=422, detail="上传文件为空")
+    checksum = digest.hexdigest()
+    file.file.seek(0)
+
+    repository = corpus_repository(settings)
+    existing = repository.find_by_checksum(
+        subject_code=subject.subject_code,
+        source_type=source_type,
+        checksum=checksum,
+    )
+    identity = {
+        "pair_key": None,
+        "unit_code": None,
+        "exam_year": None,
+        "exam_session": None,
+        "identity_status": "not_applicable",
+        "identity_error": None,
+    }
+    if source_type in ASSESSMENT_SOURCE_TYPES:
+        identity = parse_exam_identity(Path(filename), source_type, subject.pack)
+        if existing is not None and existing.get("identity_status") == "complete":
+            incoming_pair = identity.get("pair_key")
+            existing_pair = existing.get("pair_key")
+            if identity.get("identity_status") == "complete" and incoming_pair != existing_pair:
+                raise HTTPException(
+                    status_code=422,
+                    detail="重复资料的考试身份与已有记录冲突",
+                )
+            identity = {
+                "pair_key": existing_pair,
+                "unit_code": existing.get("unit_code"),
+                "exam_year": existing.get("exam_year"),
+                "exam_session": existing.get("exam_session"),
+                "identity_status": existing.get("identity_status"),
+                "identity_error": existing.get("identity_error"),
+            }
+
+    object_key = f"corpus-sources/{subject.id}/{source_type}/{checksum}{suffix}"
+    object_store = build_object_store(settings)
+    object_already_existed = object_store.exists(object_key)
     try:
-        with target.open("xb") as output:
-            while chunk := file.file.read(1024 * 1024):
-                size += len(chunk)
-                if size > settings.knowledge_upload_max_bytes:
-                    raise ValueError("资料文件超过允许的上传大小")
-                digest.update(chunk)
-                output.write(chunk)
+        stored = object_store.put_stream(
+            object_key,
+            file.file,
+            max_bytes=settings.knowledge_upload_max_bytes,
+            metadata=ObjectMetadata(
+                purpose="corpus-source",
+                owner_type="source_document",
+                owner_id=hashlib.sha256(
+                    f"{subject.subject_code}:{source_type}:{checksum}".encode()
+                ).hexdigest(),
+                content_type=file.content_type,
+            ),
+        )
+        source_path = object_store.materialize(stored.key)
         page_count = None
         if suffix == ".pdf":
             try:
-                page_count = len(PdfReader(target).pages)
+                page_count = len(PdfReader(source_path).pages)
             except Exception:
                 page_count = None
-        repository = corpus_repository(settings)
+        object_uri = f"object://{stored.key}"
         document_id = repository.register_discovery(
             {
                 "subject_code": subject.subject_code,
                 "subject_id": workspace_id,
                 "knowledge_base_id": knowledge_base_id,
-                "path": str(target),
+                "path": object_uri,
+                "object_key": stored.key,
                 "filename": filename,
                 "source_type": source_type,
                 "source_role": role,
                 "authority_tier": _authority_tier(source_type, license_confirmed),
                 "license_confirmed": license_confirmed,
-                "checksum": digest.hexdigest(),
+                "checksum": stored.checksum_sha256,
                 "page_count": page_count,
+                **identity,
                 "metadata_json": {
                     "upload_name": filename,
                     "workspace_id": workspace_id,
                     "knowledge_base_id": knowledge_base_id,
+                    "object_key": stored.key,
                 },
             },
-            relative_path=str(target.relative_to(subject.corpus_dir)),
-            size_bytes=size,
-            current_paths={str(target)},
+            relative_path=stored.key,
+            size_bytes=stored.size_bytes,
+            current_paths={str(existing["path"]) if existing is not None else object_uri},
         )
         _workspaces(settings).assign_document(
             document_id,
@@ -214,10 +269,12 @@ def upload_workspace_document(
             raise RuntimeError("上传资料注册失败")
         return SourceDocumentResponse.model_validate(row)
     except (LookupError, ValueError) as error:
-        target.unlink(missing_ok=True)
+        if not object_already_existed:
+            object_store.delete(object_key)
         raise HTTPException(status_code=422, detail=str(error)) from error
     except Exception:
-        target.unlink(missing_ok=True)
+        if not object_already_existed:
+            object_store.delete(object_key)
         raise
 
 

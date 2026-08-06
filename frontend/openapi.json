@@ -632,6 +632,20 @@
         "title": "Citation",
         "type": "object"
       },
+      "ConfirmRubricRequest": {
+        "properties": {
+          "reviewer": {
+            "minLength": 1,
+            "title": "Reviewer",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reviewer"
+        ],
+        "title": "ConfirmRubricRequest",
+        "type": "object"
+      },
       "ConvertRequest": {
         "properties": {
           "authority_tiers": {
@@ -1033,35 +1047,6 @@
         "title": "DiagramLegendItem",
         "type": "object"
       },
-      "ExpectedExpression": {
-        "properties": {
-          "expected": {
-            "title": "Expected",
-            "type": "string"
-          },
-          "student": {
-            "title": "Student",
-            "type": "string"
-          },
-          "variable": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Variable"
-          }
-        },
-        "required": [
-          "student",
-          "expected"
-        ],
-        "title": "ExpectedExpression",
-        "type": "object"
-      },
       "GradePaperQuestionRequest": {
         "properties": {
           "rubric_set_id": {
@@ -1073,90 +1058,6 @@
           "rubric_set_id"
         ],
         "title": "GradePaperQuestionRequest",
-        "type": "object"
-      },
-      "GradeRequest": {
-        "properties": {
-          "answer_markdown": {
-            "minLength": 1,
-            "title": "Answer Markdown",
-            "type": "string"
-          },
-          "expected_expressions": {
-            "items": {
-              "$ref": "#/components/schemas/ExpectedExpression"
-            },
-            "title": "Expected Expressions",
-            "type": "array"
-          },
-          "knowledge_codes": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Knowledge Codes",
-            "type": "array"
-          },
-          "mark_scheme_markdown": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Mark Scheme Markdown"
-          },
-          "max_marks": {
-            "anyOf": [
-              {
-                "exclusiveMinimum": 0.0,
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Max Marks"
-          },
-          "question_markdown": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Question Markdown"
-          },
-          "question_ref": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Question Ref"
-          },
-          "unit_code": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Unit Code"
-          }
-        },
-        "required": [
-          "answer_markdown"
-        ],
-        "title": "GradeRequest",
         "type": "object"
       },
       "GradeResponse": {
@@ -2944,23 +2845,6 @@
         "title": "ReviewAllRequest",
         "type": "object"
       },
-      "ReviewAllRubricRequest": {
-        "properties": {
-          "review_status": {
-            "enum": [
-              "accepted",
-              "rejected"
-            ],
-            "title": "Review Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "review_status"
-        ],
-        "title": "ReviewAllRubricRequest",
-        "type": "object"
-      },
       "ReviewDecisionResponse": {
         "properties": {
           "assessment_id": {
@@ -3220,6 +3104,50 @@
         "title": "ReviewRequest",
         "type": "object"
       },
+      "ReviewRubricCriterionRequest": {
+        "properties": {
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "review_status": {
+            "enum": [
+              "accepted",
+              "rejected"
+            ],
+            "title": "Review Status",
+            "type": "string"
+          },
+          "reviewer": {
+            "minLength": 1,
+            "title": "Reviewer",
+            "type": "string"
+          },
+          "updates": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RubricCriterionPatch"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "review_status",
+          "reviewer"
+        ],
+        "title": "ReviewRubricCriterionRequest",
+        "type": "object"
+      },
       "RubricAward": {
         "properties": {
           "awarded": {
@@ -3333,6 +3261,149 @@
         "title": "RubricAward",
         "type": "object"
       },
+      "RubricCriterionPatch": {
+        "properties": {
+          "accuracy_requirement": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accuracy Requirement"
+          },
+          "alternatives": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alternatives"
+          },
+          "dependencies": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dependencies"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "follow_through_policy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Follow Through Policy"
+          },
+          "mark_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mark Type"
+          },
+          "max_marks": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Marks"
+          },
+          "scoring_mode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "point_based",
+                  "levels_based"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scoring Mode"
+          },
+          "source_excerpt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Excerpt"
+          },
+          "source_page": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Page"
+          },
+          "units": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Units"
+          }
+        },
+        "title": "RubricCriterionPatch",
+        "type": "object"
+      },
       "RubricCriterionResponse": {
         "properties": {
           "accuracy_requirement": {
@@ -3415,6 +3486,29 @@
             "title": "Review Status",
             "type": "string"
           },
+          "reviewed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed At"
+          },
+          "reviewed_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed By"
+          },
           "scoring_mode": {
             "enum": [
               "point_based",
@@ -3467,7 +3561,9 @@
           "source_page",
           "source_excerpt",
           "confidence",
-          "review_status"
+          "review_status",
+          "reviewed_by",
+          "reviewed_at"
         ],
         "title": "RubricCriterionResponse",
         "type": "object"
@@ -3485,6 +3581,17 @@
               }
             ],
             "title": "Confirmed At"
+          },
+          "confirmed_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmed By"
           },
           "created_at": {
             "format": "date-time",
@@ -3575,6 +3682,7 @@
           "created_at",
           "updated_at",
           "confirmed_at",
+          "confirmed_by",
           "criteria"
         ],
         "title": "RubricSetResponse",
@@ -3593,6 +3701,17 @@
               }
             ],
             "title": "Confirmed At"
+          },
+          "confirmed_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmed By"
           },
           "created_at": {
             "format": "date-time",
@@ -3675,7 +3794,8 @@
           "warnings",
           "created_at",
           "updated_at",
-          "confirmed_at"
+          "confirmed_at",
+          "confirmed_by"
         ],
         "title": "RubricSetSummary",
         "type": "object"
@@ -3765,6 +3885,17 @@
             "title": "License Confirmed",
             "type": "boolean"
           },
+          "object_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Object Key"
+          },
           "page_count": {
             "anyOf": [
               {
@@ -3799,6 +3930,7 @@
           "license_confirmed",
           "status",
           "checksum",
+          "object_key",
           "page_count",
           "error"
         ],
@@ -4760,78 +4892,6 @@
         "summary": "Inventory"
       }
     },
-    "/api/v1/grading/assess": {
-      "post": {
-        "operationId": "assess_api_v1_grading_assess_post",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "subject",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Subject"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-ExamTwin-Subject",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Examtwin-Subject"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/GradeRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GradeResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Assess"
-      }
-    },
     "/api/v1/grading/papers": {
       "get": {
         "operationId": "grading_papers_api_v1_grading_papers_get",
@@ -5472,6 +5532,16 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmRubricRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -5497,9 +5567,9 @@
         "summary": "Confirm Rubric"
       }
     },
-    "/api/v1/grading/rubrics/{rubric_id}/review-all": {
+    "/api/v1/grading/rubrics/{rubric_id}/criteria/{criterion_id}/review": {
       "post": {
-        "operationId": "review_all_rubric_api_v1_grading_rubrics__rubric_id__review_all_post",
+        "operationId": "review_rubric_criterion_api_v1_grading_rubrics__rubric_id__criteria__criterion_id__review_post",
         "parameters": [
           {
             "in": "path",
@@ -5507,6 +5577,15 @@
             "required": true,
             "schema": {
               "title": "Rubric Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "criterion_id",
+            "required": true,
+            "schema": {
+              "title": "Criterion Id",
               "type": "string"
             }
           },
@@ -5547,7 +5626,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ReviewAllRubricRequest"
+                "$ref": "#/components/schemas/ReviewRubricCriterionRequest"
               }
             }
           },
@@ -5575,7 +5654,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Review All Rubric"
+        "summary": "Review Rubric Criterion"
       }
     },
     "/api/v1/health": {

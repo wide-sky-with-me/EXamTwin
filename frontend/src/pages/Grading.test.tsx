@@ -28,7 +28,10 @@ function response(payload: unknown) {
   }));
 }
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  window.localStorage.clear();
+  vi.unstubAllGlobals();
+});
 
 describe("Grading", () => {
   test("explains the independent grading workflow when no paper records exist", async () => {
@@ -57,13 +60,14 @@ describe("Grading", () => {
         }]);
       }
       if (url.includes("/corpus/documents")) {
+        if (url.includes("status=converted")) return response([]);
         return response([{
           id: "ms-1",
           filename: "mark-scheme.pdf",
           source_type: "mark_scheme",
           source_role: "assessment_context",
           authority_tier: "official",
-          status: "converted",
+          status: "indexed",
           checksum: "abc",
           knowledge_base_id: null,
           license_confirmed: false,
@@ -109,6 +113,7 @@ describe("Grading", () => {
     render(<Grading subject={subject} onCreated={vi.fn()} />);
 
     await waitFor(() => expect(screen.getByText("paper.pdf · 1/1 题")).toBeInTheDocument());
+    expect(await screen.findByRole("option", { name: "mark-scheme.pdf · indexed" })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByLabelText("所选答卷内容")).toHaveTextContent("Q1答案已保存"));
     expect(screen.queryByPlaceholderText("粘贴学生作答内容")).not.toBeInTheDocument();
   });
@@ -350,7 +355,7 @@ describe("Grading", () => {
         }]);
       }
       if (url.pathname === "/api/v1/corpus/documents") {
-        expect(url.searchParams.get("status")).toBe("converted");
+        expect(url.searchParams.get("status")).toBeNull();
         return response([{
           id: "ms-1",
           filename: "mark-scheme.pdf",
@@ -453,5 +458,185 @@ describe("Grading", () => {
       "src",
       "https://example.com/substitution.png",
     );
+  });
+
+  test("requires per-criterion review records before confirming a rubric", async () => {
+    const criterion = {
+      id: "criterion-1",
+      question_number: "1",
+      subpart: "whole",
+      criterion_id: "1-B1",
+      scoring_mode: "point_based",
+      mark_type: "B1",
+      max_marks: 1,
+      description: "Original criterion.",
+      dependencies: [],
+      alternatives: [],
+      accuracy_requirement: null,
+      units: [],
+      follow_through_policy: null,
+      source_page: 1,
+      source_excerpt: "Official B1 wording.",
+      confidence: 1,
+      review_status: "pending",
+      reviewed_by: null,
+      reviewed_at: null,
+    };
+    const rubric = {
+      id: "rubric-1",
+      subject_id: subject.id,
+      paper_job_id: "job-1",
+      source_document_id: "ms-1",
+      version_number: 1,
+      status: "draft",
+      identity: {},
+      parser_model: "test-model",
+      parser_version: "test",
+      warnings: [],
+      created_at: "2026-08-05T00:00:00Z",
+      updated_at: "2026-08-05T00:00:00Z",
+      confirmed_at: null,
+      confirmed_by: null,
+      criteria: [criterion],
+    };
+    const paper = {
+      job_id: "job-1",
+      filename: "paper.pdf",
+      subject_pack_id: subject.id,
+      subject_code: subject.subject_code,
+      knowledge_base_version_ids: [],
+      graph_version_id: null,
+      unit_code: "P2",
+      status: "completed",
+      stage: "completed",
+      total_pages: 1,
+      parsed_pages: 1,
+      total_questions: 1,
+      completed_questions: 1,
+      failed_questions: 0,
+      created_at: "2026-08-05T00:00:00Z",
+      updated_at: "2026-08-05T00:00:00Z",
+      chunks: [],
+      questions: [{
+        position: 1,
+        number: "1",
+        question_markdown: "Question",
+        answer_markdown: "Answer",
+        diagrams: [],
+        images: [],
+        citations: [],
+        knowledge_points: [],
+        confidence: 1,
+        grounded: true,
+        warnings: [],
+        attempts: 1,
+        source_pages: [1],
+        source_warnings: [],
+        answer_requirements: [],
+        agent_steps: [],
+        status: "completed",
+        total_marks: 1,
+        error: null,
+      }],
+      error: null,
+    };
+    const reviewBodies: unknown[] = [];
+    const confirmBodies: unknown[] = [];
+    const paths: string[] = [];
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const request = input instanceof Request ? input : new Request(String(input));
+      const url = new URL(request.url);
+      paths.push(url.pathname);
+      if (url.pathname === "/api/v1/grading/papers") {
+        return response([{
+          job_id: "job-1",
+          filename: "paper.pdf",
+          unit_code: "P2",
+          status: "completed",
+          total_questions: 1,
+          completed_questions: 1,
+          failed_questions: 0,
+          updated_at: "2026-08-05T00:00:00Z",
+        }]);
+      }
+      if (url.pathname === "/api/v1/corpus/documents") {
+        return response([{
+          id: "ms-1",
+          filename: "mark-scheme.pdf",
+          source_type: "mark_scheme",
+          source_role: "assessment_only",
+          authority_tier: "official",
+          status: "converted",
+          checksum: "abc",
+          object_key: "corpus-sources/ms.pdf",
+          knowledge_base_id: null,
+          license_confirmed: false,
+          page_count: 1,
+          error: null,
+        }]);
+      }
+      if (url.pathname === "/api/v1/papers/jobs/job-1") return response(paper);
+      if (url.pathname === "/api/v1/grading/rubrics" && request.method === "GET") {
+        return response([rubric]);
+      }
+      if (url.pathname === "/api/v1/grading/rubrics/rubric-1" && request.method === "GET") {
+        return response(rubric);
+      }
+      if (url.pathname === "/api/v1/grading/papers/job-1/assessments") return response([]);
+      if (url.pathname.endsWith("/criteria/criterion-1/review")) {
+        reviewBodies.push(await request.clone().json());
+        return response({
+          ...rubric,
+          criteria: [{
+            ...criterion,
+            description: "Edited criterion.",
+            review_status: "accepted",
+            reviewed_by: "Teacher",
+            reviewed_at: "2026-08-05T01:00:00Z",
+          }],
+        });
+      }
+      if (url.pathname.endsWith("/rubrics/rubric-1/confirm")) {
+        confirmBodies.push(await request.clone().json());
+        return response({
+          ...rubric,
+          status: "confirmed",
+          confirmed_at: "2026-08-05T01:01:00Z",
+          confirmed_by: "Teacher",
+          criteria: [{
+            ...criterion,
+            description: "Edited criterion.",
+            review_status: "accepted",
+            reviewed_by: "Teacher",
+            reviewed_at: "2026-08-05T01:00:00Z",
+          }],
+        });
+      }
+      return response([]);
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    const user = userEvent.setup();
+    render(<Grading subject={subject} onCreated={vi.fn()} />);
+    await user.click(await screen.findByRole("button", { name: "查看已解析得分点" }));
+    await user.type(screen.getByPlaceholderText("填写教师或复核人名称"), "Teacher");
+    const description = screen.getByLabelText("判分描述");
+    await user.clear(description);
+    await user.type(description, "Edited criterion.");
+    await user.click(screen.getByRole("button", { name: "保存修改并接受" }));
+    await waitFor(() => expect(
+      screen.getByRole("button", { name: "确认已审核规则并进入评分" }),
+    ).toBeEnabled());
+
+    expect(reviewBodies).toHaveLength(1);
+    expect(reviewBodies[0]).toMatchObject({
+      review_status: "accepted",
+      reviewer: "Teacher",
+      updates: { description: "Edited criterion.", max_marks: 1 },
+    });
+    expect(paths.some((path) => path.endsWith("/review-all"))).toBe(false);
+    await user.click(screen.getByRole("button", { name: "确认已审核规则并进入评分" }));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "生成并复核评分建议" })).toBeInTheDocument());
+    expect(confirmBodies).toEqual([{ reviewer: "Teacher" }]);
   });
 });

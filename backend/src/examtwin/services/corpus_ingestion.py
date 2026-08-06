@@ -56,6 +56,7 @@ class CorpusIngestor:
         self.documents = documents
         self.settings = settings
         self.subject = subject
+        self.object_store = object_store
         self.cache = MarkdownCacheStore(object_store or settings.markdown_dir)
 
     def _reader(self, *, pages: str | None = None, split_pages: bool = False) -> MinerUReader:
@@ -92,7 +93,13 @@ class CorpusIngestor:
 
     def convert(self, row: dict[str, Any], *, force: bool = False) -> tuple[str, bool]:
         self.subject.require(str(row.get("subject_code") or ""))
-        source = Path(row["path"])
+        object_key = row.get("object_key")
+        if object_key:
+            if self.object_store is None:
+                raise RuntimeError("对象存储来源需要配置 ManagedObjectStore")
+            source = self.object_store.materialize(str(object_key))
+        else:
+            source = Path(row["path"])
         document_id = str(row["id"])
         if self.cache.exists(document_id) and not force:
             target = self.cache.resolve(document_id)

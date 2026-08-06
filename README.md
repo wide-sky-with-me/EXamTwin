@@ -249,18 +249,21 @@ LiteLLM 只存在于服务层 provider adapter。每题先根据 `QuestionSpec`�
 
 ## 评分契约
 
-`POST /api/v1/grading/assess` 接收学生 Markdown 答案。题目和 mark scheme
-可以直接传 Markdown，也可以给出已入库的严格配对引用。没有 mark scheme 时
-服务拒绝给分。响应包含：
+`POST /api/v1/grading/rubrics` 只能为已完成的 Question Paper 作答任务创建评分规则，
+且所选 Mark Scheme 必须具有完整、完全相等的年份、考季与 Unit 身份。模型抽取出的每个
+M/A/B/FT 评分原子最初都是 `pending`：
 
-- 每个 M/A/B rubric 原子的满分、建议分和学生答案证据；
-- 总分与模型置信度；
-- 可选的受限符号等价检查；
-- 来源和风险警告；
-- `pending_review` 状态。
+- 教师通过
+  `POST /api/v1/grading/rubrics/{rubric_id}/criteria/{criterion_id}/review`
+  逐条接受、拒绝或编辑后接受；请求必须包含审核人，操作前后内容与说明写入不可变审计记录；
+- 所有原子均已明确处理、且至少一条被接受后，才能通过
+  `POST /api/v1/grading/rubrics/{rubric_id}/confirm` 确认整个版本；
+- `POST /api/v1/grading/papers/{paper_job_id}/questions/{position}/assess`
+  只使用该试卷已确认版本中当前题目的已接受原子，不接受客户端直接提交任意 Mark Scheme。
 
-教师通过 `POST /api/v1/grading/reviews/{assessment_id}` 确认或改分，之后状态
-才变为 `confirmed` 或 `overridden`。
+逐题自动结果仍进入 `pending_review`。教师最后通过
+`POST /api/v1/grading/reviews/{assessment_id}` 确认或改分，之后状态才变为
+`confirmed` 或 `overridden`。
 
 ## 测试
 
