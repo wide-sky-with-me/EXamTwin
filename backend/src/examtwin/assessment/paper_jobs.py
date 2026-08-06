@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
+from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 from typing import Any, BinaryIO
@@ -23,8 +25,11 @@ from examtwin.contracts.papers import (
     AgentStepSummary,
     PaperJobChunk,
     PaperJobCreated,
+    PaperJobFilterStatus,
+    PaperJobListResponse,
     PaperJobQuestion,
     PaperJobResponse,
+    PaperJobSummary,
     PaperQuestionAnswer,
 )
 from examtwin.knowledge.public import classify_source, parse_exam_identity
@@ -36,7 +41,7 @@ from examtwin.subjects.public import (
     mathematics_source_plot_overlay_mode,
 )
 
-ACTIVE_JOB_STATUSES = ("queued", "parsing", "splitting", "answering")
+ACTIVE_JOB_STATUSES = ("queued", "parsing", "vision_review", "splitting", "answering")
 TERMINAL_JOB_STATUSES = ("completed", "partial_failed", "failed")
 
 
@@ -71,6 +76,64 @@ class PaperJobService:
         except ValueError as error:
             raise LookupError("试卷任务不属于当前科目上下文") from error
         return job
+
+    def list_jobs(
+        self,
+        *,
+        status: PaperJobFilterStatus | None = None,
+        unit_code: str | None = None,
+        query: str | None = None,
+        created_after: datetime | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> PaperJobListResponse:
+        statuses = (
+            ACTIVE_JOB_STATUSES if status == "active" else (status,) if status is not None else None
+        )
+        rows, total = self.repository.list_for_subject(
+            self.subject.subject_code,
+            statuses=statuses,
+            unit_code=unit_code,
+            query=query,
+            created_after=created_after,
+            limit=limit,
+            offset=offset,
+        )
+        return PaperJobListResponse(
+            items=[
+                PaperJobSummary(
+                    job_id=row["id"],
+                    filename=row["filename"],
+                    unit_code=row["unit_code"],
+                    status=row["status"],
+                    stage=row["stage"],
+                    total_questions=row["total_questions"],
+                    completed_questions=row["completed_questions"],
+                    failed_questions=row["failed_questions"],
+                    created_at=str(row["created_at"]),
+                    updated_at=str(row["updated_at"]),
+                )
+                for row in rows
+            ],
+            total=total,
+            limit=limit,
+            offset=offset,
+        )
+
+    def delete_jobs(self, job_ids: Sequence[str]) -> int:
+        unique_ids = tuple(dict.fromkeys(job_ids))
+        if not unique_ids:
+            raise ValueError("至少选择一条试卷作答记录")
+        if len(unique_ids) != len(job_ids):
+            raise ValueError("批量删除不能包含重复的试卷任务")
+        return self.repository.delete_terminals(
+            unique_ids,
+            self.subject.subject_code,
+            terminal_statuses=TERMINAL_JOB_STATUSES,
+        )
+
+    def delete_job(self, job_id: str) -> None:
+        self.delete_jobs((job_id,))
 
     def create_job(
         self,

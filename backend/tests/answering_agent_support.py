@@ -209,6 +209,7 @@ class CapturingFinalAnswerProvider:
         self.messages: list[HarnessMessage] = []
         self.draft: str | None = None
         self.finalize_timeout: float | None = None
+        self.required_subpart_labels: tuple[str, ...] = ()
 
     async def finalize(
         self,
@@ -216,9 +217,10 @@ class CapturingFinalAnswerProvider:
         *,
         draft: str | None = None,
         allowed_citation_ids: tuple[str, ...] | None = None,
+        required_subpart_labels: tuple[str, ...] = (),
         timeout: float | None = None,
     ) -> AgentFinalPayload:
-        del allowed_citation_ids
+        self.required_subpart_labels = required_subpart_labels
         self.calls += 1
         self.messages = messages
         self.draft = draft

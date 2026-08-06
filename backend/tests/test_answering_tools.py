@@ -411,7 +411,8 @@ async def test_math_plot_calibrates_curve_to_trusted_blank_axes() -> None:
         task=AnswerTask(
             subject_code="9660",
             question=(
-                "On Figure 1 sketch the graph of y=3cos(x-60 degrees) for 0 <= x <= 360 degrees."
+                "On **Figure 1** sketch the graph of y=3cos(x-60 degrees) "
+                "for 0 <= x <= 360 degrees."
             ),
             question_images=(QuestionImage(page_number=7, content=buffer.getvalue()),),
         )

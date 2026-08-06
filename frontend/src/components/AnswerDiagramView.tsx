@@ -6,6 +6,7 @@ import {
   Shrink,
 } from "lucide-react";
 import { useId, useLayoutEffect, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import rehypeKatex from "rehype-katex";
 import ReactMarkdown from "react-markdown";
 import remarkMath from "remark-math";
@@ -308,6 +309,10 @@ function DiagramScene({
   );
 }
 
+const MIN_ZOOM = 0.75;
+const MAX_ZOOM = 2.5;
+const ZOOM_STEP = 0.25;
+
 export function AnswerDiagramView({
   diagram,
   jobId,
@@ -322,9 +327,18 @@ export function AnswerDiagramView({
   const [expanded, setExpanded] = useState(false);
   const toolName = diagram.tool_name ?? "math_diagram";
   const containerRef = useModalFocus(expanded, setExpanded);
+  const [, , viewBoxWidth, viewBoxHeight] = diagram.view_box;
+  const diagramInlineSize = Math.min(
+    720,
+    Math.round(520 * viewBoxWidth / viewBoxHeight),
+  );
+  const diagramStyle = {
+    "--diagram-inline-size": `${diagramInlineSize}px`,
+  } as CSSProperties;
+
 
   const updateZoom = (next: number) => {
-    setZoom(Math.min(2.5, Math.max(1, Number(next.toFixed(2)))));
+    setZoom(Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Number(next.toFixed(2)))));
   };
 
   return (
@@ -333,6 +347,7 @@ export function AnswerDiagramView({
       aria-labelledby={titleId}
       className={`answer-diagram${diagram.source ? " is-source-backed" : ""}${expanded ? " is-expanded" : ""}`}
       ref={containerRef}
+      style={diagramStyle}
       role={expanded ? "dialog" : undefined}
       tabIndex={expanded ? -1 : undefined}
     >
@@ -345,62 +360,66 @@ export function AnswerDiagramView({
               : `${TOOL_LABELS[toolName]} · 安全矢量图`}
           </span>
         </div>
-        <div
-          aria-label="图形查看控制"
-          className="answer-diagram-controls"
-          role="group"
-        >
-          <button
-            aria-label="缩小图形"
-            disabled={zoom <= 1}
-            onClick={() => updateZoom(zoom - 0.25)}
-            title="缩小"
-            type="button"
-          >
-            <Minus size={15} />
-          </button>
-          <output aria-live="polite">{Math.round(zoom * 100)}%</output>
-          <button
-            aria-label="放大图形"
-            disabled={zoom >= 2.5}
-            onClick={() => updateZoom(zoom + 0.25)}
-            title="放大"
-            type="button"
-          >
-            <Plus size={15} />
-          </button>
-          <button
-            aria-label="重置图形缩放"
-            disabled={zoom === 1}
-            onClick={() => setZoom(1)}
-            title="重置缩放"
-            type="button"
-          >
-            <RotateCcw size={14} />
-          </button>
-          <button
-            aria-label={expanded ? "退出全屏查看" : "全屏查看图形"}
-            aria-pressed={expanded}
-            data-modal-close={expanded ? "" : undefined}
-            onClick={() => setExpanded((value) => !value)}
-            title={expanded ? "退出全屏" : "全屏查看"}
-            type="button"
-          >
-            {expanded ? <Shrink size={15} /> : <Expand size={15} />}
-          </button>
-        </div>
       </div>
-      <div className="answer-diagram-viewport" tabIndex={0}>
-        <div
-          className="answer-diagram-canvas"
-          style={{ transform: `scale(${zoom})` }}
-        >
-          <DiagramScene
-            descriptionId={descriptionId}
-            diagram={diagram}
-            jobId={jobId}
-            titleId={titleId}
-          />
+      <div className="answer-diagram-stage">
+        <div className="answer-diagram-viewport" tabIndex={0}>
+          <div
+            className="answer-diagram-canvas"
+            style={{ inlineSize: `${zoom * 100}%` }}
+          >
+            <DiagramScene
+              descriptionId={descriptionId}
+              diagram={diagram}
+              jobId={jobId}
+              titleId={titleId}
+            />
+          </div>
+        </div>
+        <div className="answer-diagram-toolbar">
+          <div
+            aria-label="图形查看控制"
+            className="answer-diagram-controls"
+            role="group"
+          >
+            <button
+              aria-label="缩小图形"
+              disabled={zoom <= MIN_ZOOM}
+              onClick={() => updateZoom(zoom - ZOOM_STEP)}
+              title="缩小"
+              type="button"
+            >
+              <Minus size={15} />
+            </button>
+            <output aria-live="polite">{Math.round(zoom * 100)}%</output>
+            <button
+              aria-label="放大图形"
+              disabled={zoom >= MAX_ZOOM}
+              onClick={() => updateZoom(zoom + ZOOM_STEP)}
+              title="放大"
+              type="button"
+            >
+              <Plus size={15} />
+            </button>
+            <button
+              aria-label="重置图形缩放"
+              disabled={zoom === 1}
+              onClick={() => setZoom(1)}
+              title="重置缩放"
+              type="button"
+            >
+              <RotateCcw size={14} />
+            </button>
+            <button
+              aria-label={expanded ? "退出全屏查看" : "全屏查看图形"}
+              aria-pressed={expanded}
+              data-modal-close={expanded ? "" : undefined}
+              onClick={() => setExpanded((value) => !value)}
+              title={expanded ? "退出全屏" : "全屏查看"}
+              type="button"
+            >
+              {expanded ? <Shrink size={15} /> : <Expand size={15} />}
+            </button>
+          </div>
         </div>
       </div>
       {(diagram.legend ?? []).length > 0 && (

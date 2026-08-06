@@ -4,6 +4,7 @@ import asyncio
 import json
 from collections.abc import AsyncIterator
 from contextlib import suppress
+from datetime import datetime
 
 from fastapi import (
     APIRouter,
@@ -11,6 +12,8 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Query,
+    Response,
     UploadFile,
     WebSocket,
     WebSocketDisconnect,
@@ -30,7 +33,14 @@ from examtwin.app.composition import build_paper_job_service
 from examtwin.assessment.answering_agent.tools.image_generate import AnswerImageStore
 from examtwin.assessment.paper_jobs import PaperJobService
 from examtwin.assessment.task_events import PostgresTaskEvents, TaskEvent
-from examtwin.contracts.papers import PaperJobCreated, PaperJobResponse
+from examtwin.contracts.papers import (
+    PaperJobBulkDeleteRequest,
+    PaperJobBulkDeleteResponse,
+    PaperJobCreated,
+    PaperJobFilterStatus,
+    PaperJobListResponse,
+    PaperJobResponse,
+)
 from examtwin.platform.config import Settings, get_settings
 from examtwin.platform.database.session import create_session_factory
 from examtwin.subjects.public import SubjectContext
@@ -114,6 +124,40 @@ async def answer_paper(
         ) from error
 
 
+@router.get("/papers/jobs", response_model=PaperJobListResponse)
+def paper_jobs(
+    status_filter: PaperJobFilterStatus | None = Query(default=None, alias="status"),
+    unit_code: str | None = Query(default=None, max_length=32),
+    query: str | None = Query(default=None, alias="q", max_length=200),
+    created_after: datetime | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    jobs: PaperJobService = Depends(get_paper_jobs),
+) -> PaperJobListResponse:
+    return jobs.list_jobs(
+        status=status_filter,
+        unit_code=unit_code,
+        query=query,
+        created_after=created_after,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.post("/papers/jobs/bulk-delete", response_model=PaperJobBulkDeleteResponse)
+def bulk_delete_paper_jobs(
+    request: PaperJobBulkDeleteRequest,
+    jobs: PaperJobService = Depends(get_paper_jobs),
+) -> PaperJobBulkDeleteResponse:
+    try:
+        deleted_count = jobs.delete_jobs(request.job_ids)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    return PaperJobBulkDeleteResponse(deleted_count=deleted_count)
+
+
 @router.get("/papers/jobs/{job_id}", response_model=PaperJobResponse)
 def paper_job(
     job_id: str,
@@ -123,6 +167,23 @@ def paper_job(
         return jobs.get_job(job_id)
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@router.delete(
+    "/papers/jobs/{job_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_paper_job(
+    job_id: str,
+    jobs: PaperJobService = Depends(get_paper_jobs),
+) -> Response:
+    try:
+        jobs.delete_job(job_id)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.websocket("/papers/jobs/{job_id}/events")

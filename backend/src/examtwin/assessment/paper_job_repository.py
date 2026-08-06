@@ -45,6 +45,66 @@ class PaperJobRepository:
             row = session.get(PaperJobModel, job_id)
         return None if row is None else _row_dict(row)
 
+    def list_for_subject(
+        self,
+        subject_code: str,
+        *,
+        statuses: Sequence[str] | None = None,
+        unit_code: str | None = None,
+        query: str | None = None,
+        created_after: datetime | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[dict[str, Any]], int]:
+        conditions = [PaperJobModel.subject_code == subject_code]
+        if statuses:
+            conditions.append(PaperJobModel.status.in_(statuses))
+        if unit_code:
+            conditions.append(PaperJobModel.unit_code == unit_code)
+        if query:
+            conditions.append(PaperJobModel.filename.ilike(f"%{query.strip()}%"))
+        if created_after:
+            conditions.append(PaperJobModel.created_at >= created_after)
+        statement = (
+            select(PaperJobModel)
+            .where(*conditions)
+            .order_by(PaperJobModel.created_at.desc(), PaperJobModel.id.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        count_statement = select(func.count(PaperJobModel.id)).where(*conditions)
+        with self.sessions() as session:
+            rows = list(session.scalars(statement))
+            total = int(session.scalar(count_statement) or 0)
+        return [_row_dict(row) for row in rows], total
+
+    def delete_terminals(
+        self,
+        job_ids: Sequence[str],
+        subject_code: str,
+        *,
+        terminal_statuses: Sequence[str],
+    ) -> int:
+        with self.sessions.begin() as session:
+            rows = list(
+                session.scalars(
+                    select(PaperJobModel)
+                    .where(
+                        PaperJobModel.id.in_(job_ids),
+                        PaperJobModel.subject_code == subject_code,
+                    )
+                    .order_by(PaperJobModel.id)
+                    .with_for_update()
+                )
+            )
+            if len(rows) != len(job_ids):
+                raise LookupError("部分试卷任务不存在或不属于当前科目")
+            if any(row.status not in terminal_statuses for row in rows):
+                raise ValueError("选中的记录包含正在处理的试卷任务，不能删除")
+            for row in rows:
+                session.delete(row)
+        return len(rows)
+
     def recent_for_subject(
         self,
         subject_code: str,

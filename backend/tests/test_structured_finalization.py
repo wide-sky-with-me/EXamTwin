@@ -8,6 +8,7 @@ from examtwin.assessment.answering_agent.finalization import (
     AgentFinalPayload,
     FinalAnswerProviderUnavailable,
     LiteLLMFinalAnswerProvider,
+    materialize_final_answer,
 )
 from examtwin.assessment.providers import build_final_answer_provider
 from examtwin.platform.config import Settings
@@ -37,6 +38,7 @@ def _completion_message(
 def _valid_payload(**overrides: Any) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "answer_markdown": "Therefore, $x=2$. [S1]",
+        "subparts": [],
         "citation_ids": ["S1"],
         "confidence": 0.91,
         "grounded": True,
@@ -57,6 +59,44 @@ def test_payload_defaults_to_not_grounded_when_model_omits_the_claim() -> None:
     )
 
     assert payload.grounded is False
+
+
+def test_materialize_final_answer_renders_trusted_printed_subpart_labels() -> None:
+    payload = AgentFinalPayload(
+        answer_markdown="",
+        subparts=[
+            {"label": "(a)", "answer_markdown": "The proof follows from congruence. [S1]"},
+            {"label": "(b)", "answer_markdown": "Therefore the length is $4.2$ cm. [S1]"},
+        ],
+        citation_ids=["S1"],
+    )
+
+    result = materialize_final_answer(
+        payload,
+        required_subpart_labels=("(a)", "(b)"),
+    )
+
+    assert result.answer_markdown == (
+        "### (a)\n\nThe proof follows from congruence. [S1]\n\n"
+        "### (b)\n\nTherefore the length is $4.2$ cm. [S1]"
+    )
+    assert result.subparts == []
+
+
+def test_materialize_final_answer_rejects_renumbered_subparts() -> None:
+    payload = AgentFinalPayload(
+        answer_markdown="",
+        subparts=[
+            {"label": "1", "answer_markdown": "First answer."},
+            {"label": "2", "answer_markdown": "Second answer."},
+        ],
+    )
+
+    with pytest.raises(ValueError, match="must exactly match"):
+        materialize_final_answer(
+            payload,
+            required_subpart_labels=("(a)", "(b)"),
+        )
 
 
 def test_build_final_answer_provider_maps_settings_and_caps_timeout() -> None:
@@ -184,6 +224,44 @@ async def test_finalize_preserves_messages_and_appends_draft_for_public_finaliza
     instruction = sent[4]["content"].lower()
     assert "public" in instruction
     assert "final" in instruction
+
+
+async def test_finalize_requires_structured_bodies_for_printed_subparts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+    response_payload = _valid_payload(
+        answer_markdown="",
+        subparts=[
+            {"label": "(a)", "answer_markdown": "First result. [S1]"},
+            {"label": "(b)", "answer_markdown": "Second result. [S1]"},
+        ],
+    )
+
+    async def fake_acompletion(**kwargs: Any) -> SimpleNamespace:
+        captured.update(kwargs)
+        return _completion_message(content=json.dumps(response_payload))
+
+    monkeypatch.setattr(
+        "examtwin.assessment.answering_agent.finalization.acompletion",
+        fake_acompletion,
+    )
+    provider = LiteLLMFinalAnswerProvider(
+        model="gpt-5.6-sol",
+        api_base="https://models.invalid/v1",
+        api_key="test-key",
+    )
+
+    result = await provider.finalize(
+        [ChatMessage(role=MessageRole.USER, content="Answer both parts.")],
+        allowed_citation_ids=("S1",),
+        required_subpart_labels=("(a)", "(b)"),
+    )
+
+    assert [part.label for part in result.subparts] == ["(a)", "(b)"]
+    instruction = captured["messages"][0]["content"]
+    assert '["(a)", "(b)"]' in instruction
+    assert "server owns final heading rendering" in instruction
 
 
 async def test_finalize_validates_json_content_with_pydantic(

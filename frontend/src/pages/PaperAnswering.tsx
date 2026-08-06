@@ -20,6 +20,7 @@ import { createPortal } from "react-dom";
 
 import { AnswerDiagramView } from "../components/AnswerDiagramView";
 import { AnswerImageView } from "../components/AnswerImageView";
+import { PaperJobHistory } from "../components/PaperJobHistory";
 import {
   CitationMarkdown,
   CitationReferenceList,
@@ -68,6 +69,7 @@ export function PaperAnswering({
   const [streamVersion, setStreamVersion] = useState(0);
   const [streamState, setStreamState] = useState<TaskStreamState>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [historyVersion, setHistoryVersion] = useState(0);
   const [sourcePreviewOpen, setSourcePreviewOpen] = useState(false);
   const sourcePreviewButtonRef = useRef<HTMLButtonElement>(null);
   const sourcePreviewDialogRef = useRef<HTMLDivElement>(null);
@@ -95,6 +97,9 @@ export function PaperAnswering({
         }
         if (next.status === "completed") {
           window.localStorage.removeItem(jobStorageKey);
+        }
+        if (["completed", "partial_failed", "failed"].includes(next.status)) {
+          setHistoryVersion((version) => version + 1);
         }
       },
       isTerminal: (next) =>
@@ -197,6 +202,7 @@ export function PaperAnswering({
       setJobId(created.job_id);
       setStreamVersion((version) => version + 1);
       setSelectedIndex(0);
+      setHistoryVersion((version) => version + 1);
       notify("试卷已保存，后台开始解析与逐题作答。");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "试卷任务创建失败");
@@ -256,6 +262,21 @@ export function PaperAnswering({
     setError(null);
   }
 
+  function openHistoryJob(nextJobId: string) {
+    terminalNoticeRef.current = null;
+    window.localStorage.setItem(jobStorageKey, nextJobId);
+    setJob(null);
+    setJobId(nextJobId);
+    setSelectedIndex(0);
+    setStreamState("idle");
+    setStreamVersion((version) => version + 1);
+    setError(null);
+  }
+
+  function handleHistoryDeleted(deletedJobId: string) {
+    if (jobId === deletedJobId || job?.job_id === deletedJobId) resetPaper();
+  }
+
   const selected = job?.questions[selectedIndex] ?? null;
   const selectedAgentSteps = selected
     ? selected.agent_steps.filter((step) => step.run_attempt === selected.attempts)
@@ -285,6 +306,13 @@ export function PaperAnswering({
           </p>
         </div>
       </div>
+      <PaperJobHistory
+        currentJobId={job?.job_id ?? jobId}
+        onDeleted={handleHistoryDeleted}
+        onOpen={openHistoryJob}
+        refreshKey={historyVersion}
+        subject={subject}
+      />
       {(!job || !terminal) && (
       <form className="panel paper-upload" onSubmit={submit}>
         <label

@@ -482,6 +482,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/papers/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Paper Jobs */
+        get: operations["paper_jobs_api_v1_papers_jobs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/papers/jobs/bulk-delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Bulk Delete Paper Jobs */
+        post: operations["bulk_delete_paper_jobs_api_v1_papers_jobs_bulk_delete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/papers/jobs/{job_id}": {
         parameters: {
             query?: never;
@@ -493,7 +527,8 @@ export interface paths {
         get: operations["paper_job_api_v1_papers_jobs__job_id__get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /** Delete Paper Job */
+        delete: operations["delete_paper_job_api_v1_papers_jobs__job_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1537,6 +1572,16 @@ export interface components {
             /** Width */
             width: number;
         };
+        /** PaperJobBulkDeleteRequest */
+        PaperJobBulkDeleteRequest: {
+            /** Job Ids */
+            job_ids: string[];
+        };
+        /** PaperJobBulkDeleteResponse */
+        PaperJobBulkDeleteResponse: {
+            /** Deleted Count */
+            deleted_count: number;
+        };
         /** PaperJobChunk */
         PaperJobChunk: {
             /** Attempts */
@@ -1569,6 +1614,17 @@ export interface components {
              * @constant
              */
             status: "queued";
+        };
+        /** PaperJobListResponse */
+        PaperJobListResponse: {
+            /** Items */
+            items: components["schemas"]["PaperJobSummary"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
         };
         /** PaperJobQuestion */
         PaperJobQuestion: {
@@ -1666,6 +1722,35 @@ export interface components {
             subject_pack_id: string;
             /** Total Pages */
             total_pages: number;
+            /** Total Questions */
+            total_questions: number;
+            /** Unit Code */
+            unit_code: string | null;
+            /** Updated At */
+            updated_at: string;
+        };
+        /** PaperJobSummary */
+        PaperJobSummary: {
+            /** Completed Questions */
+            completed_questions: number;
+            /** Created At */
+            created_at: string;
+            /** Failed Questions */
+            failed_questions: number;
+            /** Filename */
+            filename: string;
+            /** Job Id */
+            job_id: string;
+            /**
+             * Stage
+             * @enum {string}
+             */
+            stage: "queued" | "parsing" | "vision_review" | "splitting" | "answering" | "completed";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "parsing" | "vision_review" | "splitting" | "answering" | "completed" | "partial_failed" | "failed";
             /** Total Questions */
             total_questions: number;
             /** Unit Code */
@@ -3281,6 +3366,82 @@ export interface operations {
             };
         };
     };
+    paper_jobs_api_v1_papers_jobs_get: {
+        parameters: {
+            query?: {
+                status?: ("active" | "queued" | "parsing" | "vision_review" | "splitting" | "answering" | "completed" | "partial_failed" | "failed") | null;
+                unit_code?: string | null;
+                q?: string | null;
+                created_after?: string | null;
+                limit?: number;
+                offset?: number;
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaperJobListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    bulk_delete_paper_jobs_api_v1_papers_jobs_bulk_delete_post: {
+        parameters: {
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PaperJobBulkDeleteRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaperJobBulkDeleteResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     paper_job_api_v1_papers_jobs__job_id__get: {
         parameters: {
             query?: {
@@ -3304,6 +3465,39 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["PaperJobResponse"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_paper_job_api_v1_papers_jobs__job_id__delete: {
+        parameters: {
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

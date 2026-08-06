@@ -55,6 +55,14 @@ _ECONOMICS_VISUAL_REQUEST = re.compile(
     r"cost|revenue|externalit|tariff|welfare)\b[^.!?\n]{0,120}\b(?:curve|diagram|graph)?",
     re.IGNORECASE,
 )
+_MARKDOWN_WRAPPER = re.compile(r"(?<!\\)(?:\*{1,3}|_{1,3}|~~|`{1,3})")
+_HTML_TAG = re.compile(r"</?[A-Za-z][^>\n]{0,200}>")
+
+
+def _classification_text(question: str) -> str:
+    """Remove presentation-only wrappers before applying wording policies."""
+
+    return _MARKDOWN_WRAPPER.sub("", _HTML_TAG.sub("", question))
 
 
 def _request_context(question: str, request: re.Match[str]) -> str:
@@ -69,6 +77,7 @@ def _request_context(question: str, request: re.Match[str]) -> str:
 
 def select_mathematics_answer_visual_tool(question: str) -> str | None:
     """Choose the exact vector tool only for an explicit answer-drawing instruction."""
+    question = _classification_text(question)
 
     requests = tuple(_ANSWER_VISUAL_REQUEST.finditer(question))
     if not requests:
@@ -80,6 +89,7 @@ def select_mathematics_answer_visual_tool(question: str) -> str | None:
 
 def mathematics_source_plot_overlay_mode(question: str) -> str | None:
     """Return the deterministic paper-overlay mode required by the wording."""
+    question = _classification_text(question)
 
     if not _SOURCE_FIGURE_DRAWING.search(question):
         return None
@@ -92,6 +102,7 @@ def mathematics_source_plot_overlay_mode(question: str) -> str | None:
 
 def select_economics_answer_visual_tool(question: str) -> str | None:
     """Require the reviewed economics template tool for explicit diagram answers."""
+    question = _classification_text(question)
 
     return "economics_diagram" if _ECONOMICS_VISUAL_REQUEST.search(question) else None
 

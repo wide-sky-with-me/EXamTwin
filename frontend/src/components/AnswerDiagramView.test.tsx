@@ -90,6 +90,11 @@ describe("AnswerDiagramView", () => {
   test("renders provenance, semantic legend, math labels and accessible SVG text", () => {
     const { container } = render(<AnswerDiagramView diagram={diagram} />);
 
+    expect(
+      (container.querySelector(".answer-diagram") as HTMLElement).style.getPropertyValue(
+        "--diagram-inline-size",
+      ),
+    ).toBe("720px");
     expect(screen.getByText("函数与坐标绘图 · 安全矢量图")).toBeInTheDocument();
     expect(screen.getByRole("img", { name: /Two quadratic curves/ })).toBeInTheDocument();
     expect(screen.getByLabelText("图例")).toBeInTheDocument();
@@ -100,16 +105,25 @@ describe("AnswerDiagramView", () => {
     expect(container.querySelector("polyline.tone-primary")).toBeInTheDocument();
   });
 
-  test("supports bounded zoom, fullscreen and Escape recovery", async () => {
+  test("supports bounded zoom below the default, fullscreen and Escape recovery", async () => {
     const user = userEvent.setup();
     const { container } = render(<AnswerDiagramView diagram={diagram} />);
+    const stage = container.querySelector(".answer-diagram-stage") as HTMLElement;
+    const viewport = container.querySelector(".answer-diagram-viewport") as HTMLElement;
+    const canvas = container.querySelector(".answer-diagram-canvas") as HTMLElement;
+    const toolbar = container.querySelector(".answer-diagram-toolbar") as HTMLElement;
 
+    expect(stage).toContainElement(viewport);
+    expect(stage).toContainElement(toolbar);
+    expect(viewport.nextElementSibling).toBe(toolbar);
+    await user.click(screen.getByRole("button", { name: "缩小图形" }));
+    expect(screen.getByText("75%")).toBeInTheDocument();
+    expect(canvas.style.inlineSize).toBe("75%");
+
+    await user.click(screen.getByRole("button", { name: "重置图形缩放" }));
     await user.click(screen.getByRole("button", { name: "放大图形" }));
     expect(screen.getByText("125%")).toBeInTheDocument();
-    expect(
-      (container.querySelector(".answer-diagram-canvas") as HTMLElement).style.transform,
-    ).toBe("scale(1.25)");
-
+    expect(canvas.style.inlineSize).toBe("125%");
     await user.click(screen.getByRole("button", { name: "全屏查看图形" }));
     expect(container.querySelector(".answer-diagram")).toHaveClass("is-expanded");
     expect(screen.getByRole("dialog", { name: diagram.title })).toBeInTheDocument();
@@ -146,6 +160,11 @@ describe("AnswerDiagramView", () => {
     const { container } = render(
       <AnswerDiagramView diagram={sourceDiagram} jobId="paper-job-1" />,
     );
+    expect(
+      (container.querySelector(".answer-diagram") as HTMLElement).style.getPropertyValue(
+        "--diagram-inline-size",
+      ),
+    ).toBe("613px");
 
     expect(screen.getByText("原图校准矢量叠绘 · 原卷第 7 页")).toBeInTheDocument();
     const source = container.querySelector("image.paper-diagram-source");

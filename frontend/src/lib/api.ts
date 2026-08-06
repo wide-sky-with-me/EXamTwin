@@ -3,10 +3,12 @@ import createClient from "openapi-fetch";
 import type { paths } from "../generated/openapi";
 import type {
   PaperJobCreated,
+  PaperJobBulkDeleteResult,
+  PaperJobHistoryStatus,
+  PaperJobList,
   SourceContextResult,
   SourceDocument,
 } from "../types";
-
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api/v1";
 export const SUBJECT_STORAGE_KEY = "examtwin.subject";
 let activeSubject = window.localStorage.getItem(SUBJECT_STORAGE_KEY) || null;
@@ -96,6 +98,42 @@ export async function unwrapApi<Data, ErrorPayload>(
   }
   return data;
 }
+export type PaperJobHistoryFilters = {
+  status?: PaperJobHistoryStatus;
+  unitCode?: string;
+  query?: string;
+  createdAfter?: string;
+  limit?: number;
+  offset?: number;
+};
+
+export async function listPaperJobs(
+  filters: PaperJobHistoryFilters = {},
+): Promise<PaperJobList> {
+  return unwrapApi(
+    apiClient.GET("/api/v1/papers/jobs", {
+      params: {
+        query: {
+          status: filters.status,
+          unit_code: filters.unitCode,
+          q: filters.query,
+          created_after: filters.createdAfter,
+          limit: filters.limit,
+          offset: filters.offset,
+        },
+      },
+    }),
+  );
+}
+
+export async function deletePaperJobs(jobIds: string[]): Promise<PaperJobBulkDeleteResult> {
+  return unwrapApi(
+    apiClient.POST("/api/v1/papers/jobs/bulk-delete", {
+      body: { job_ids: jobIds },
+    }),
+  );
+}
+
 
 export async function uploadPaper(file: File, unitCode: string): Promise<PaperJobCreated> {
   const form = new FormData();

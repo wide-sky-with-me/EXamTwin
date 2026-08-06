@@ -6,6 +6,7 @@ from typing import Protocol
 from examtwin.assessment.answering_agent.contracts import AgentRunContext, AnswerTask, SubjectSkill
 from examtwin.assessment.answering_agent.finalization import (
     FinalAnswerProvider,
+    materialize_final_answer,
     validate_citation_contract,
 )
 from examtwin.assessment.answering_agent.llama_index_adapter import LlamaIndexReActProtocolAdapter
@@ -190,12 +191,18 @@ class ReActHarnessRunner:
             allowed_citation_ids = tuple(
                 f"S{index}" for index in range(1, len(context.citations) + 1)
             )
+            required_subpart_labels = task.question_spec.labelled_subparts
             try:
                 payload = await self.final_answer_provider.finalize(
                     formatted_messages(),
                     draft=draft,
                     allowed_citation_ids=allowed_citation_ids,
+                    required_subpart_labels=required_subpart_labels,
                     timeout=structured_budget,
+                )
+                payload = materialize_final_answer(
+                    payload,
+                    required_subpart_labels=required_subpart_labels,
                 )
                 validate_citation_contract(
                     payload,

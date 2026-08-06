@@ -12,6 +12,36 @@ from examtwin.contracts.knowledge import (
     KnowledgeRelationSummary,
 )
 
+PaperJobStatus = Literal[
+    "queued",
+    "parsing",
+    "vision_review",
+    "splitting",
+    "answering",
+    "completed",
+    "partial_failed",
+    "failed",
+]
+PaperJobFilterStatus = Literal[
+    "active",
+    "queued",
+    "parsing",
+    "vision_review",
+    "splitting",
+    "answering",
+    "completed",
+    "partial_failed",
+    "failed",
+]
+PaperJobStage = Literal[
+    "queued",
+    "parsing",
+    "vision_review",
+    "splitting",
+    "answering",
+    "completed",
+]
+
 
 class PaperKnowledgeReference(SerializedResponse):
     code: str
@@ -99,6 +129,34 @@ class PaperJobChunk(SerializedResponse):
     error: str | None = None
 
 
+class PaperJobBulkDeleteRequest(SerializedResponse):
+    job_ids: list[str] = Field(min_length=1)
+
+
+class PaperJobBulkDeleteResponse(SerializedResponse):
+    deleted_count: int = Field(ge=1)
+
+
+class PaperJobSummary(SerializedResponse):
+    job_id: str
+    filename: str
+    unit_code: str | None
+    status: PaperJobStatus
+    stage: PaperJobStage
+    total_questions: int
+    completed_questions: int
+    failed_questions: int
+    created_at: str
+    updated_at: str
+
+
+class PaperJobListResponse(SerializedResponse):
+    items: list[PaperJobSummary] = Field(default_factory=list)
+    total: int = Field(ge=0)
+    limit: int = Field(ge=1, le=100)
+    offset: int = Field(ge=0)
+
+
 class PaperJobResponse(SerializedResponse):
     job_id: str
     filename: str
@@ -107,17 +165,8 @@ class PaperJobResponse(SerializedResponse):
     unit_code: str | None
     knowledge_base_version_ids: list[str] = Field(default_factory=list)
     graph_version_id: str | None = None
-    status: Literal[
-        "queued",
-        "parsing",
-        "vision_review",
-        "splitting",
-        "answering",
-        "completed",
-        "partial_failed",
-        "failed",
-    ]
-    stage: Literal["queued", "parsing", "vision_review", "splitting", "answering", "completed"]
+    status: PaperJobStatus
+    stage: PaperJobStage
     total_pages: int
     parsed_pages: int
     total_questions: int

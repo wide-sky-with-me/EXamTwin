@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -673,3 +674,66 @@ def test_failed_question_is_automatically_retried(tmp_path: Path) -> None:
         assert answer_service.calls == 3
     finally:
         database.execute("DELETE FROM paper_jobs WHERE id=?", (created.job_id,))
+
+
+@pytest.mark.integration
+def test_paper_job_history_filters_and_only_deletes_terminal_jobs(tmp_path: Path) -> None:
+    database = _test_database()
+    settings = Settings(object_store_local_root=tmp_path, database_url=database.database_url)
+    jobs = _job_service(database, settings)
+    completed = jobs.create_job(
+        "history-completed-paper.md",
+        b"# Question 1\nCalculate 2+2.",
+        unit_code="P1",
+    )
+    active = jobs.create_job(
+        "history-active-paper.md",
+        b"# Question 1\nCalculate 3+3.",
+        unit_code="P2",
+    )
+    completed_second = jobs.create_job(
+        "history-completed-paper-2.md",
+        b"# Question 1\nCalculate 4+4.",
+        unit_code="P1",
+    )
+    now = datetime.now(UTC)
+    database.execute(
+        "UPDATE paper_jobs SET status=?, stage=?, completed_at=?, updated_at=? WHERE id IN (?, ?)",
+        (
+            "completed",
+            "completed",
+            now,
+            now,
+            completed.job_id,
+            completed_second.job_id,
+        ),
+    )
+    try:
+        listed = jobs.list_jobs(
+            status="completed",
+            unit_code="P1",
+            query="completed-paper",
+            created_after=now - timedelta(days=1),
+            limit=10,
+            offset=0,
+        )
+        assert listed.total == 2
+        assert {item.job_id for item in listed.items} == {
+            completed.job_id,
+            completed_second.job_id,
+        }
+
+        active_jobs = jobs.list_jobs(status="active", limit=10, offset=0)
+        assert active.job_id in {item.job_id for item in active_jobs.items}
+        with pytest.raises(ValueError, match="正在处理"):
+            jobs.delete_jobs((completed.job_id, active.job_id))
+        assert jobs.repository.get(completed.job_id) is not None
+
+        assert jobs.delete_jobs((completed.job_id, completed_second.job_id)) == 2
+        assert jobs.repository.get(completed.job_id) is None
+        assert jobs.repository.get(completed_second.job_id) is None
+    finally:
+        database.execute(
+            "DELETE FROM paper_jobs WHERE id IN (?, ?, ?)",
+            (completed.job_id, completed_second.job_id, active.job_id),
+        )

@@ -12,6 +12,7 @@ from examtwin.assessment.answering_agent import (
 )
 from examtwin.assessment.answering_agent.contracts import (
     AgentRunContext,
+    QuestionSpec,
     SubjectSkill,
     ToolReplayPayload,
 )
@@ -21,6 +22,7 @@ from examtwin.assessment.answering_agent.tools import (
     MathDiagramTool,
     MathPlotTool,
 )
+from examtwin.contracts import SubpartRequirement
 from examtwin.subjects.packages import get_subject_package
 from llama_index.core.llms import (
     CustomLLM,
@@ -519,6 +521,48 @@ def test_react_loop_uses_structured_finalizer_and_discards_hidden_reasoning() ->
     assert finalizer.calls == 1
     assert finalizer.draft is not None
     assert "private chain-of-thought" not in finalizer.draft
+
+
+def test_react_loop_renders_exact_question_contract_labels_from_structured_bodies() -> None:
+    llm = ScriptedReActLLM(
+        responses=(
+            (
+                "Thought: I need grounded evidence.\n"
+                "Action: knowledge_search\n"
+                'Action Input: {"query": "triangle congruence", "top_k": 3}'
+            ),
+            "Answer: The two requested results follow from the evidence.",
+        )
+    )
+    finalizer = CapturingFinalAnswerProvider(
+        AgentFinalPayload(
+            answer_markdown="",
+            subparts=[
+                {"label": "(a)", "answer_markdown": "The triangles are congruent. [S1]"},
+                {"label": "(b)", "answer_markdown": "Hence $CD=4.2$ cm. [S1]"},
+            ],
+            citation_ids=["S1"],
+            confidence=0.9,
+            grounded=True,
+        )
+    )
+    task = AnswerTask(
+        subject_code="9660",
+        question="Prove the result in (a), then calculate the length in (b).",
+        question_spec=QuestionSpec(
+            subparts=(
+                SubpartRequirement(label="(a)", marks=2, answer_kind="proof"),
+                SubpartRequirement(label="(b)", marks=5, answer_kind="numeric"),
+            ),
+            total_marks=7,
+        ),
+    )
+
+    result = _scripted_runtime(llm, final_answer_provider=finalizer).solve(task)
+
+    assert result.answer_markdown.startswith("### (a)\n\n")
+    assert "\n\n### (b)\n\n" in result.answer_markdown
+    assert finalizer.required_subpart_labels == ("(a)", "(b)")
 
 
 def test_react_loop_falls_back_once_when_structured_finalizer_fails() -> None:

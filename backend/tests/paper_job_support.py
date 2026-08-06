@@ -16,7 +16,9 @@ from examtwin.contracts import (
     Citation,
     DiagramElement,
     PaperJobCreated,
+    PaperJobListResponse,
     PaperJobResponse,
+    PaperJobSummary,
     PaperQuestionAnswer,
 )
 from examtwin.platform.config import Settings
@@ -40,6 +42,39 @@ class FakePaperJobs:
     def __init__(self) -> None:
         self.created: tuple[str, bytes, str | None] | None = None
         self.reads = 0
+        self.deleted: list[str] = []
+        self.list_filters: dict[str, Any] | None = None
+
+    def list_jobs(self, **filters: Any) -> PaperJobListResponse:
+        self.list_filters = filters
+        return PaperJobListResponse(
+            items=[
+                PaperJobSummary(
+                    job_id="job-1",
+                    filename="paper.md",
+                    unit_code="P2",
+                    status="completed",
+                    stage="completed",
+                    total_questions=2,
+                    completed_questions=2,
+                    failed_questions=0,
+                    created_at="2026-07-29T00:00:00+00:00",
+                    updated_at="2026-07-29T00:05:00+00:00",
+                )
+            ],
+            total=1,
+            limit=int(filters["limit"]),
+            offset=int(filters["offset"]),
+        )
+
+    def delete_jobs(self, job_ids: list[str] | tuple[str, ...]) -> int:
+        if any(job_id != "job-1" for job_id in job_ids):
+            raise LookupError("试卷任务不存在")
+        self.deleted.extend(job_ids)
+        return len(job_ids)
+
+    def delete_job(self, job_id: str) -> None:
+        self.delete_jobs((job_id,))
 
     def create_job(
         self,

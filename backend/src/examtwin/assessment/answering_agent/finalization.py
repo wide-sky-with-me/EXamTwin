@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import threading
 import time
@@ -14,6 +15,7 @@ from pydantic import (
     Field,
     StringConstraints,
     field_validator,
+    model_validator,
 )
 
 from examtwin.platform.agent_runtime.model import HarnessMessage
@@ -23,13 +25,22 @@ from examtwin.platform.model_json import (
 )
 
 CitationId = Annotated[str, StringConstraints(pattern=r"^S[1-9][0-9]*$")]
+MAX_ANSWER_MARKDOWN_CHARS = 60_000
 AnswerMarkdown = Annotated[
     str,
-    StringConstraints(strip_whitespace=True, min_length=1, max_length=60_000),
+    StringConstraints(
+        strip_whitespace=True,
+        min_length=1,
+        max_length=MAX_ANSWER_MARKDOWN_CHARS,
+    ),
 ]
 WarningText = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1, max_length=500),
+]
+SubpartLabel = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=32),
 ]
 _PRIVATE_PROTOCOL_MARKER = re.compile(
     r"(?:<\s*/?\s*(?:think|analysis)\b|"
@@ -59,12 +70,55 @@ and tool-call syntax. Obey the response schema and citation rules exactly.
 """.strip()
 
 
+def _subpart_instruction(required_subpart_labels: Sequence[str]) -> str:
+    if not required_subpart_labels:
+        return (
+            "This question has no labelled subparts. Set subparts=[] and put the complete "
+            "public answer in answer_markdown."
+        )
+    labels = json.dumps(list(required_subpart_labels), ensure_ascii=False)
+    return (
+        f"The required printed subpart labels, in order, are {labels}. "
+        "Set answer_markdown to an empty string. Return exactly one subparts item for each "
+        "required label, in that order, copying each label exactly. Put only that subpart's "
+        "public answer and assessable working in its answer_markdown. The server owns final "
+        "heading rendering; do not merge, rename, renumber, omit, or add subparts."
+    )
+
+
+def _validated_public_markdown(value: str) -> str:
+    if _PRIVATE_PROTOCOL_MARKER.search(value):
+        raise ValueError("answer_markdown contains private reasoning or tool protocol")
+    return repair_markdown_latex(value)
+
+
+class AgentSubpartAnswer(BaseModel):
+    """One labelled answer body; the server renders the trusted printed label."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    label: SubpartLabel
+    answer_markdown: AnswerMarkdown
+
+    @field_validator("answer_markdown")
+    @classmethod
+    def reject_private_protocol(cls, value: str) -> str:
+        return _validated_public_markdown(value)
+
+
+PublicAnswerMarkdown = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, max_length=MAX_ANSWER_MARKDOWN_CHARS),
+]
+
+
 class AgentFinalPayload(BaseModel):
     """Strict, public-only result produced at the answering Agent boundary."""
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    answer_markdown: AnswerMarkdown
+    answer_markdown: PublicAnswerMarkdown = ""
+    subparts: list[AgentSubpartAnswer] = Field(default_factory=list, max_length=32)
     citation_ids: list[CitationId] = Field(default_factory=list, max_length=32)
     confidence: float = Field(default=0.5, ge=0, le=1)
     grounded: bool = False
@@ -73,9 +127,43 @@ class AgentFinalPayload(BaseModel):
     @field_validator("answer_markdown")
     @classmethod
     def reject_private_protocol(cls, value: str) -> str:
-        if _PRIVATE_PROTOCOL_MARKER.search(value):
-            raise ValueError("answer_markdown contains private reasoning or tool protocol")
-        return repair_markdown_latex(value)
+        return _validated_public_markdown(value) if value else value
+
+    @model_validator(mode="after")
+    def require_public_answer(self) -> AgentFinalPayload:
+        if not self.answer_markdown and not self.subparts:
+            raise ValueError("final answer must contain answer_markdown or labelled subparts")
+        return self
+
+
+def materialize_final_answer(
+    payload: AgentFinalPayload,
+    *,
+    required_subpart_labels: Sequence[str],
+) -> AgentFinalPayload:
+    """Render trusted labels around model-produced bodies and enforce exact coverage."""
+
+    expected = tuple(label.strip() for label in required_subpart_labels)
+    if any(not label for label in expected) or len(set(expected)) != len(expected):
+        raise ValueError("required subpart labels must be non-empty and unique")
+    if not expected:
+        if payload.subparts:
+            raise ValueError("final answer returned labelled subparts for an unlabelled question")
+        return payload
+
+    if payload.answer_markdown:
+        raise ValueError("labelled questions must return structured subpart answer bodies")
+    actual = tuple(subpart.label for subpart in payload.subparts)
+    if actual != expected:
+        raise ValueError(
+            f"final answer subpart labels must exactly match {expected}; received {actual}"
+        )
+    answer_markdown = "\n\n".join(
+        f"### {subpart.label}\n\n{subpart.answer_markdown}" for subpart in payload.subparts
+    )
+    if len(answer_markdown) > MAX_ANSWER_MARKDOWN_CHARS:
+        raise ValueError("materialized final answer exceeds the public Markdown limit")
+    return payload.model_copy(update={"answer_markdown": answer_markdown, "subparts": []})
 
 
 def citation_ids_in_markdown(answer_markdown: str) -> list[str]:
@@ -111,6 +199,7 @@ class FinalAnswerProvider(Protocol):
         *,
         draft: str | None = None,
         allowed_citation_ids: Sequence[str] | None = None,
+        required_subpart_labels: Sequence[str] = (),
         timeout: float | None = None,
     ) -> AgentFinalPayload: ...
 
@@ -178,6 +267,7 @@ class LiteLLMFinalAnswerProvider:
         messages: Sequence[HarnessMessage],
         *,
         draft: str | None = None,
+        required_subpart_labels: Sequence[str] = (),
         allowed_citation_ids: Sequence[str] | None = None,
         timeout: float | None = None,
     ) -> AgentFinalPayload:
@@ -186,7 +276,12 @@ class LiteLLMFinalAnswerProvider:
         effective_timeout = self.timeout if timeout is None else min(self.timeout, timeout)
         self._ensure_circuit_closed()
         request_messages = [
-            {"role": "system", "content": _FINALIZER_INSTRUCTION},
+            {
+                "role": "system",
+                "content": (
+                    f"{_FINALIZER_INSTRUCTION}\n\n{_subpart_instruction(required_subpart_labels)}"
+                ),
+            },
             *(_message_dict(message) for message in messages),
         ]
         if draft and draft.strip():
@@ -224,8 +319,12 @@ class LiteLLMFinalAnswerProvider:
                     request_options["temperature"] = 0.1
                 response = await acompletion(**request_options)
                 payload = self._validated_payload(response)
-                validate_citation_contract(
+                materialized = materialize_final_answer(
                     payload,
+                    required_subpart_labels=required_subpart_labels,
+                )
+                validate_citation_contract(
+                    materialized,
                     allowed_citation_ids=allowed_citation_ids,
                 )
         except Exception:

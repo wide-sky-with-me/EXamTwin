@@ -7,7 +7,10 @@ import pytest
 from examtwin.app.api.dependencies import get_paper_jobs, get_task_events
 from examtwin.app.api.papers import (
     answer_paper,
+    bulk_delete_paper_jobs,
+    delete_paper_job,
     paper_job,
+    paper_jobs,
     retry_paper_job,
 )
 from examtwin.app.api.papers import router as paper_router
@@ -17,6 +20,7 @@ from examtwin.assessment.paper_jobs import (
     _question_source_warnings,
 )
 from examtwin.assessment.task_events import PostgresTaskEvents
+from examtwin.contracts import PaperJobBulkDeleteRequest
 from examtwin.platform.config import Settings
 from examtwin.subjects.public import subject_context
 
@@ -132,6 +136,55 @@ async def test_paper_upload_api_returns_a_persistent_job_receipt(
     )
     assert upload_route.status_code == 202
     assert retry_route.status_code == 202
+
+
+def test_paper_history_api_lists_filters_and_deletes_terminal_jobs() -> None:
+    jobs = FakePaperJobs()
+
+    listed = paper_jobs(
+        status_filter="completed",
+        unit_code="P2",
+        query="paper",
+        created_after=None,
+        limit=20,
+        offset=0,
+        jobs=jobs,  # type: ignore[arg-type]
+    )
+
+    assert listed.total == 1
+    assert listed.items[0].filename == "paper.md"
+    assert jobs.list_filters == {
+        "status": "completed",
+        "unit_code": "P2",
+        "query": "paper",
+        "created_after": None,
+        "limit": 20,
+        "offset": 0,
+    }
+    response = delete_paper_job("job-1", jobs=jobs)  # type: ignore[arg-type]
+    assert response.status_code == 204
+    assert jobs.deleted == ["job-1"]
+    bulk = bulk_delete_paper_jobs(
+        PaperJobBulkDeleteRequest(job_ids=["job-1"]),
+        jobs=jobs,  # type: ignore[arg-type]
+    )
+    assert bulk.deleted_count == 1
+    assert jobs.deleted == ["job-1", "job-1"]
+
+    list_route = next(route for route in paper_router.routes if route.path == "/papers/jobs")
+    delete_route = next(
+        route
+        for route in paper_router.routes
+        if route.path == "/papers/jobs/{job_id}" and "DELETE" in route.methods
+    )
+    bulk_delete_route = next(
+        route
+        for route in paper_router.routes
+        if route.path == "/papers/jobs/bulk-delete" and "POST" in route.methods
+    )
+    assert "GET" in list_route.methods
+    assert delete_route.status_code == 204
+    assert "POST" in bulk_delete_route.methods
 
 
 @pytest.mark.integration
