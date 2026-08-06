@@ -63,7 +63,7 @@ class GraphVersionSummary(SerializedResponse):
     subject_id: str
     knowledge_base_version_id: str | None = None
     version_number: int
-    status: Literal["draft", "published", "failed"]
+    status: Literal["building", "draft", "published", "failed"]
     model_name: str | None = None
     created_at: datetime
     updated_at: datetime

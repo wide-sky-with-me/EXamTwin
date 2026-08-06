@@ -20,6 +20,7 @@ import type { GraphEdge, GraphNode } from "../types";
 
 const NODE_WIDTH = 224;
 const NODE_HEIGHT = 88;
+const FORMULA_NODE_HEIGHT = 112;
 
 const nodeColors: Record<string, string> = {
   unit: "#2563eb",
@@ -64,6 +65,36 @@ function nodeTypeLabel(type: string) {
   return labels[type] ?? type;
 }
 
+function graphFormulaMarkdown(node: GraphNode) {
+  if (node.node_type !== "formula") return null;
+  const candidates = [...node.aliases, node.title, node.description];
+  for (const candidate of candidates) {
+    const value = candidate.trim();
+    if (!value) continue;
+    if (/(?:^|[^\\])(?:\${1,2}|\\\(|\\\[)/.test(value)) return value;
+    const parenthesized = /\(([^()]*(?:=|≤|≥|<|>|\+|−|×|÷|\/|\^)[^()]*)\)/.exec(value);
+    if (parenthesized) return `$${parenthesized[1].trim()}$`;
+    if (
+      value.length <= 120
+      && /(?:=|≤|≥|<|>|\+|−|×|÷|\/|\^)/.test(value)
+      && /^[A-Za-z0-9\\{}_[\]^=+\-*/×÷≤≥<>.,:%() ]+$/.test(value)
+    ) {
+      return `$${value}$`;
+    }
+  }
+  return null;
+}
+
+export function GraphNodeFormula({ node }: { node: GraphNode }) {
+  const formula = graphFormulaMarkdown(node);
+  if (!formula) return null;
+  return <span className="knowledge-graph-formula"><InlineMarkdown>{formula}</InlineMarkdown></span>;
+}
+
+function graphNodeHeight(node: GraphNode) {
+  return graphFormulaMarkdown(node) ? FORMULA_NODE_HEIGHT : NODE_HEIGHT;
+}
+
 function KnowledgeNodeCard({ data, selected }: NodeProps<KnowledgeFlowNode>) {
   const { node, relationCount } = data;
   return (
@@ -76,6 +107,7 @@ function KnowledgeNodeCard({ data, selected }: NodeProps<KnowledgeFlowNode>) {
         <em>{nodeTypeLabel(node.node_type)}</em>
       </div>
       <strong><InlineMarkdown>{node.title}</InlineMarkdown></strong>
+      <GraphNodeFormula node={node} />
       <div className="knowledge-graph-node-meta">
         <span>{Math.round(node.confidence * 100)}% 置信度</span>
         <span>{relationCount} 条关系</span>
@@ -108,21 +140,22 @@ function layoutGraph(nodes: GraphNode[], edges: GraphEdge[]) {
     relationCounts.set(edge.target_key, (relationCounts.get(edge.target_key) ?? 0) + 1);
   }
   for (const node of nodes) {
-    graph.setNode(node.stable_key, { width: NODE_WIDTH, height: NODE_HEIGHT });
+    graph.setNode(node.stable_key, { width: NODE_WIDTH, height: graphNodeHeight(node) });
   }
   Dagre.layout(graph);
 
   const flowNodes: KnowledgeFlowNode[] = nodes.map((node) => {
     const position = graph.node(node.stable_key) as { x: number; y: number };
+    const height = graphNodeHeight(node);
     return {
       id: node.stable_key,
       type: "knowledge",
       width: NODE_WIDTH,
-      height: NODE_HEIGHT,
+      height,
       data: { node, relationCount: relationCounts.get(node.stable_key) ?? 0 },
       position: {
         x: position.x - NODE_WIDTH / 2,
-        y: position.y - NODE_HEIGHT / 2,
+        y: position.y - height / 2,
       },
       sourcePosition: Position.Right,
       targetPosition: Position.Left,
@@ -281,6 +314,7 @@ export function KnowledgeGraphCanvas({
             <em>{nodeTypeLabel(hovered.node.node_type)}</em>
           </div>
           <h3><InlineMarkdown>{hovered.node.title}</InlineMarkdown></h3>
+          <GraphNodeFormula node={hovered.node} />
           {hovered.node.description && (
             <div className="knowledge-graph-hover-description">
               <Markdown>{hovered.node.description}</Markdown>

@@ -161,6 +161,26 @@ class GraphRepository:
         result["edges"] = [_edge_dict(row) for row in edges]
         return result
 
+    def delete(self, version_id: str, *, subject_id: str) -> None:
+        with self.sessions.begin() as session:
+            version = session.scalar(
+                select(GraphVersionModel)
+                .where(
+                    GraphVersionModel.id == version_id,
+                    GraphVersionModel.subject_id == subject_id,
+                )
+                .with_for_update()
+            )
+            if version is None:
+                raise LookupError("知识图谱版本不存在")
+            subject = session.get(SubjectModel, subject_id)
+            if subject is None:
+                raise LookupError("科目工作区不存在")
+            if subject.active_graph_version_id == version_id:
+                subject.active_graph_version_id = None
+                subject.updated_at = utcnow()
+            session.delete(version)
+
     def review_node(
         self,
         version_id: str,

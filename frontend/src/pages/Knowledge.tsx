@@ -11,12 +11,13 @@ import {
   RefreshCw,
   Save,
   Sparkles,
+  Trash2,
   UploadCloud,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ErrorBanner } from "../components/Feedback";
-import { KnowledgeGraphCanvas } from "../components/KnowledgeGraphCanvas";
+import { GraphNodeFormula, KnowledgeGraphCanvas } from "../components/KnowledgeGraphCanvas";
 import { InlineMarkdown } from "../components/Markdown";
 import { apiClient, unwrapApi, uploadWorkspaceDocument } from "../lib/api";
 import { difficultyOf, relationLabels, sourceLabels } from "../lib/evidence";
@@ -45,8 +46,6 @@ export function Knowledge({
   const [unit, setUnit] = useState("ALL");
   const [selectedCode, setSelectedCode] = useState<string | null>(null);
   const [expandedTopics, setExpandedTopics] = useState<Set<string>>(() => new Set());
-  const [fullscreen, setFullscreen] = useState(false);
-  const fullscreenRef = useModalFocus(fullscreen, setFullscreen);
   const units = [
     "ALL",
     ...points
@@ -116,14 +115,7 @@ export function Knowledge({
         };
 
   return (
-    <section
-      aria-label={fullscreen ? heading.title : undefined}
-      aria-modal={fullscreen || undefined}
-      className={`knowledge-page ${fullscreen ? "is-fullscreen" : ""}`}
-      ref={fullscreenRef}
-      role={fullscreen ? "dialog" : undefined}
-      tabIndex={fullscreen ? -1 : undefined}
-    >
+    <section className="knowledge-page">
       <div className="page-heading compact knowledge-heading">
         <div>
           <h1>{heading.title}</h1>
@@ -135,20 +127,9 @@ export function Knowledge({
             <button className={view === "graph" ? "active" : ""} onClick={() => setView("graph")} type="button"><GitBranch size={15} />图谱生产</button>
             <button className={view === "catalog" ? "active" : ""} onClick={() => setView("catalog")} type="button"><Network size={15} />层级浏览</button>
           </div>
-          <button
-            aria-label={fullscreen ? "退出知识库全屏" : "知识库全屏浏览"}
-            aria-pressed={fullscreen}
-            className="knowledge-fullscreen-button"
-            data-modal-close={fullscreen ? "" : undefined}
-            onClick={() => setFullscreen((current) => !current)}
-            type="button"
-          >
-            {fullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-            {fullscreen ? "退出全屏" : "全屏浏览"}
-          </button>
         </div>
       </div>
-      {view === "workspace" ? <WorkspaceView subject={subject} refresh={refresh} /> : view === "graph" ? <GraphWorkbench subject={subject} /> : (
+      {view === "workspace" ? <WorkspaceView subject={subject} refresh={refresh} /> : view === "graph" ? <GraphWorkbench subject={subject} refresh={refresh} /> : (
       <>
       <div className="unit-tabs">
         {units.map((item) => (
@@ -553,7 +534,13 @@ function WorkspaceView({
   );
 }
 
-function GraphWorkbench({ subject }: { subject: SubjectPack }) {
+function GraphWorkbench({
+  subject,
+  refresh,
+}: {
+  subject: SubjectPack;
+  refresh: () => Promise<void>;
+}) {
   const [versions, setVersions] = useState<GraphVersionSummary[]>([]);
   const [graph, setGraph] = useState<GraphVersion | null>(null);
   const [versionId, setVersionId] = useState(subject.active_graph_version_id ?? "");
@@ -568,9 +555,10 @@ function GraphWorkbench({ subject }: { subject: SubjectPack }) {
   const [relationType, setRelationType] = useState("related_to");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [fullscreen, setFullscreen] = useState(false);
+  const fullscreenRef = useModalFocus(fullscreen, setFullscreen);
   const graphRequestRef = useRef(0);
   const versionIdRef = useRef(versionId);
-
   const selectedNode = graph?.nodes.find((node) => node.id === selectedNodeId) ?? null;
   const selectedEdge = graph?.edges.find((edge) => edge.id === selectedEdgeId) ?? null;
 
@@ -762,6 +750,37 @@ function GraphWorkbench({ subject }: { subject: SubjectPack }) {
     }
   }
 
+  async function deleteGraph() {
+    if (!graph) return;
+    if (!window.confirm(`删除图谱 v${graph.version_number}？该版本的全部节点与关系将永久删除。`)) {
+      return;
+    }
+    setBusy("delete");
+    setError(null);
+    try {
+      const deleted = await apiClient.DELETE("/api/v1/knowledge-graphs/{version_id}", {
+        params: { path: { version_id: graph.id } },
+      });
+      if (!deleted.response.ok) {
+        const detail = deleted.error && typeof deleted.error === "object" && "detail" in deleted.error
+          ? String(deleted.error.detail)
+          : deleted.response.statusText;
+        throw new Error(detail || "知识图谱版本删除失败");
+      }
+      graphRequestRef.current += 1;
+      setFullscreen(false);
+      setGraph(null);
+      setSelectedNodeId(null);
+      setSelectedEdgeId(null);
+      await loadVersions();
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "知识图谱版本删除失败");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <>
       <article className="panel graph-toolbar">
@@ -778,21 +797,34 @@ function GraphWorkbench({ subject }: { subject: SubjectPack }) {
           {busy === "build" ? <LoaderCircle className="spin" size={16} /> : <Sparkles size={16} />}
           AI 生成新版本
         </button>
-        <label>
-          图谱版本
-          <select
-            value={versionId}
-            onChange={(event) => {
-              versionIdRef.current = event.target.value;
-              setVersionId(event.target.value);
-            }}
-          >
-            <option value="">尚无图谱版本</option>
-            {versions.map((item) => <option key={item.id} value={item.id}>v{item.version_number} · {item.status}</option>)}
-          </select>
-        </label>
+        <div className="graph-version-picker">
+          <span>图谱版本</span>
+          <div aria-label="图谱版本列表" className="graph-version-list" role="list">
+            {versions.length === 0 ? <small>尚无图谱版本</small> : versions.map((item) => {
+              const active = item.id === subject.active_graph_version_id;
+              return (
+                <button
+                  aria-label={`选择图谱 v${item.version_number} · ${item.status}${active ? " · 当前使用" : ""}`}
+                  className={item.id === versionId ? "selected" : ""}
+                  disabled={busy !== null}
+                  key={item.id}
+                  onClick={() => {
+                    versionIdRef.current = item.id;
+                    setVersionId(item.id);
+                  }}
+                  type="button"
+                >
+                  <b>v{item.version_number}</b>
+                  <span>{item.status}</span>
+                  {active && <small>当前使用</small>}
+                </button>
+              );
+            })}
+          </div>
+        </div>
         {graph?.status === "draft" && <button className="secondary" disabled={busy !== null} onClick={() => void reviewAll()} type="button"><CheckCircle2 size={16} />接受全部</button>}
         {graph?.status === "draft" && <button className="primary" disabled={busy !== null} onClick={() => void publishGraph()} type="button"><UploadCloud size={16} />发布图谱</button>}
+        {graph && <button className="secondary danger" disabled={busy !== null} onClick={() => void deleteGraph()} type="button"><Trash2 size={16} />删除当前图谱</button>}
         {graph?.status === "published" && <span className="graph-published"><CheckCircle2 size={15} />已发布并参与检索</span>}
       </article>
       <ErrorBanner message={error} />
@@ -800,7 +832,14 @@ function GraphWorkbench({ subject }: { subject: SubjectPack }) {
         <article className="panel empty"><Network size={36} /><p>选择已发布知识库版本，由 AI 生成第一版图谱。</p></article>
       ) : (
         <div className="graph-editor-layout">
-          <article className="panel graph-canvas">
+          <article
+            aria-label={fullscreen ? "图谱全屏预览" : undefined}
+            aria-modal={fullscreen || undefined}
+            className={`panel graph-canvas${fullscreen ? " is-fullscreen" : ""}`}
+            ref={fullscreenRef}
+            role={fullscreen ? "dialog" : undefined}
+            tabIndex={-1}
+          >
             <div className="graph-canvas-header">
               <div className="graph-canvas-meta">
                 <span><b>{graph.nodes.length}</b> 节点</span>
@@ -812,6 +851,17 @@ function GraphWorkbench({ subject }: { subject: SubjectPack }) {
                 <span className="type-formula">公式</span>
                 <span className="type-skill">技能 / 方法</span>
               </div>
+              <button
+                aria-label={fullscreen ? "退出图谱全屏" : "全屏预览图谱"}
+                className="graph-fullscreen-button"
+                data-modal-close={fullscreen ? "" : undefined}
+                onClick={() => setFullscreen((current) => !current)}
+                title={fullscreen ? "退出全屏" : "全屏预览"}
+                type="button"
+              >
+                {fullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+                {fullscreen ? "退出全屏" : "全屏"}
+              </button>
             </div>
             <KnowledgeGraphCanvas
               key={graph.id}
@@ -837,6 +887,7 @@ function GraphWorkbench({ subject }: { subject: SubjectPack }) {
                 <div className="graph-inspector-preview">
                   <code>{selectedNode.code}</code>
                   <h3><InlineMarkdown>{selectedNode.title}</InlineMarkdown></h3>
+                  <GraphNodeFormula node={selectedNode} />
                   {selectedNode.description && <div><InlineMarkdown>{selectedNode.description}</InlineMarkdown></div>}
                 </div>
                 <label>标题<input value={title} onChange={(event) => setTitle(event.target.value)} /></label>

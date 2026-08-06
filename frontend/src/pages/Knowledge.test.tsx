@@ -6,6 +6,7 @@ import type { GraphNode, SubjectPack } from "../types";
 import { Knowledge } from "./Knowledge";
 
 vi.mock("../components/KnowledgeGraphCanvas", () => ({
+  GraphNodeFormula: () => null,
   KnowledgeGraphCanvas: ({
     nodes,
     onSelectNode,
@@ -69,7 +70,10 @@ function response(payload: unknown) {
   }));
 }
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 describe("Knowledge graph workbench", () => {
   test("ignores stale graph loads and preserves the edited node after refresh", async () => {
@@ -138,7 +142,7 @@ describe("Knowledge graph workbench", () => {
     render(<Knowledge points={[]} relations={[]} subject={subject} refresh={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: "图谱生产" }));
     await waitFor(() => expect(requestedA).toBe(true));
-    await user.selectOptions(screen.getByLabelText("图谱版本"), "graph-b");
+    await user.click(await screen.findByRole("button", { name: "选择图谱 v2 · draft" }));
     expect(await screen.findByRole("button", { name: "Second node" })).toBeInTheDocument();
 
     await act(async () => {
@@ -159,5 +163,79 @@ describe("Knowledge graph workbench", () => {
     await waitFor(() => expect(graphBRequests).toBe(2));
     expect(screen.getByRole("button", { name: "Second node" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByLabelText("标题")).toHaveValue("Second node");
+  });
+  test("fullscreens only the graph canvas and deletes one coexisting version", async () => {
+    const graphA = {
+      id: "graph-a",
+      subject_id: subject.id,
+      knowledge_base_version_id: null,
+      version_number: 1,
+      status: "published",
+      extraction_model: "test",
+      extraction_prompt_version: "test",
+      nodes: [{ ...baseNode, id: "node-a", title: "Version one node" }],
+      edges: [],
+      created_at: "2026-08-05T00:00:00Z",
+      published_at: "2026-08-05T00:00:00Z",
+    };
+    const graphB = {
+      ...graphA,
+      id: "graph-b",
+      version_number: 2,
+      status: "draft",
+      nodes: [{ ...baseNode, id: "node-b", title: "Version two node" }],
+      published_at: null,
+    };
+    let versions = [
+      { id: "graph-b", version_number: 2, status: "draft" },
+      { id: "graph-a", version_number: 1, status: "published" },
+    ];
+    let deletedVersion: string | null = null;
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : null;
+      const url = new URL(String(request?.url ?? input));
+      const method = request?.method ?? init?.method ?? "GET";
+      if (url.pathname === "/api/v1/knowledge-graphs" && method === "GET") {
+        return response(versions);
+      }
+      if (url.pathname === "/api/v1/knowledge-graphs/graph-a" && method === "GET") {
+        return response(graphA);
+      }
+      if (url.pathname === "/api/v1/knowledge-graphs/graph-b" && method === "GET") {
+        return response(graphB);
+      }
+      if (url.pathname === "/api/v1/knowledge-graphs/graph-b" && method === "DELETE") {
+        deletedVersion = "graph-b";
+        versions = versions.filter((item) => item.id !== "graph-b");
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+      return response([]);
+    }));
+
+    const user = userEvent.setup();
+    const { container } = render(
+      <Knowledge points={[]} relations={[]} subject={subject} refresh={vi.fn()} />,
+    );
+    await user.click(screen.getByRole("button", { name: "图谱生产" }));
+
+    expect(await screen.findByRole("button", { name: "选择图谱 v2 · draft" }))
+      .toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "选择图谱 v1 · published · 当前使用" }))
+      .toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "选择图谱 v2 · draft" }));
+    expect(await screen.findByRole("button", { name: "Version two node" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "全屏预览图谱" }));
+    expect(container.querySelector(".graph-canvas")).toHaveClass("is-fullscreen");
+    expect(container.querySelector(".knowledge-page")).not.toHaveClass("is-fullscreen");
+    expect(screen.getByRole("heading", { name: "知识图谱生产与发布" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "退出图谱全屏" }));
+
+    await user.click(screen.getByRole("button", { name: "删除当前图谱" }));
+    await waitFor(() => expect(deletedVersion).toBe("graph-b"));
+    expect(screen.queryByRole("button", { name: "选择图谱 v2 · draft" }))
+      .not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Version one node" })).toBeInTheDocument();
   });
 });

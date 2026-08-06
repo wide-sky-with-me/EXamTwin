@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 
 from examtwin.api.dependencies import get_subject_context
 from examtwin.config import Settings, get_settings
@@ -88,6 +88,20 @@ def graph_version(
         return GraphVersionResponse.model_validate(_require_graph(graphs, version_id, subject.id))
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@router.delete("/knowledge-graphs/{version_id}", status_code=204)
+def delete_graph_version(
+    version_id: str,
+    settings: Settings = Depends(get_settings),
+    subject: SubjectContext = Depends(get_subject_context),
+) -> Response:
+    _, _, graphs = _repositories(settings)
+    try:
+        graphs.delete(version_id, subject_id=subject.id)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return Response(status_code=204)
 
 
 @router.patch(

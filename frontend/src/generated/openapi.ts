@@ -356,7 +356,8 @@ export interface paths {
         get: operations["graph_version_api_v1_knowledge_graphs__version_id__get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /** Delete Graph Version */
+        delete: operations["delete_graph_version_api_v1_knowledge_graphs__version_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1237,7 +1238,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "draft" | "published" | "failed";
+            status: "building" | "draft" | "published" | "failed";
             /** Subject Id */
             subject_id: string;
             /**
@@ -2976,6 +2977,39 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["GraphVersionResponse"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_graph_version_api_v1_knowledge_graphs__version_id__delete: {
+        parameters: {
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

@@ -1567,6 +1567,7 @@
           },
           "status": {
             "enum": [
+              "building",
               "draft",
               "published",
               "failed"
@@ -5885,6 +5886,68 @@
       }
     },
     "/api/v1/knowledge-graphs/{version_id}": {
+      "delete": {
+        "operationId": "delete_graph_version_api_v1_knowledge_graphs__version_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "title": "Version Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Graph Version"
+      },
       "get": {
         "operationId": "graph_version_api_v1_knowledge_graphs__version_id__get",
         "parameters": [

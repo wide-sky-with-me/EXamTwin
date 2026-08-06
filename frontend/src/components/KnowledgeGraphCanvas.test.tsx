@@ -51,7 +51,7 @@ const nodes: GraphNode[] = [
     unit_code: "U1",
   },
   {
-    aliases: ["$P = MC$"],
+    aliases: ["P = MC"],
     code: "KG-0002",
     confidence: 0.97,
     description: "The condition $P = MC$ identifies allocative efficiency.",
@@ -62,7 +62,7 @@ const nodes: GraphNode[] = [
     parent_key: null,
     review_status: "pending",
     stable_key: "formula:price-equals-marginal-cost",
-    title: "$P = MC$",
+    title: "Price equals marginal cost",
     unit_code: "U1",
   },
 ];
@@ -98,6 +98,8 @@ describe("KnowledgeGraphCanvas", () => {
 
     expect(screen.getByText("Allocative efficiency")).toBeInTheDocument();
     expect(screen.getAllByText("1 条关系")).toHaveLength(2);
+    expect(screen.getByText("公式").closest(".knowledge-graph-node")?.querySelector(".katex"))
+      .toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Allocative efficiency").closest(".react-flow__node")!);
     expect(onSelectNode).toHaveBeenCalledWith(nodes[0].id);
