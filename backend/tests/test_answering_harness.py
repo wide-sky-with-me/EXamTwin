@@ -52,6 +52,24 @@ async def test_probability_tool_uses_explicit_binomial_tail_contract() -> None:
     assert "cdf uses P(X <= k); sf uses P(X > k)" in result.content
 
 
+@pytest.mark.asyncio
+async def test_probability_tool_computes_normal_upper_tail_directly() -> None:
+    tool = ProbabilityCalculateTool().bind(
+        AgentRunContext(task=AnswerTask(subject_code="9660", question="Find P(X > 115)."))
+    )
+
+    result = await tool.acall(
+        operation="normal_sf",
+        mean=120,
+        standard_deviation=20 / 30**0.5,
+        value=115,
+    )
+
+    assert result.is_error is False
+    assert "event=P(X > 115.0)" in result.content
+    assert "result=0.914548239884601" in result.content
+
+
 def test_answer_contract_requires_every_subpart_and_visual_artifact() -> None:
     task = AnswerTask(
         subject_code="9660",

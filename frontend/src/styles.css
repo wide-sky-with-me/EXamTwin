@@ -559,6 +559,7 @@ textarea:focus, select:focus, input:focus { border-color: var(--blue); box-shado
 .paper-history-main { display: grid; gap: 4px; min-width: 0; }
 .paper-history-main strong { overflow: hidden; color: var(--text); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .paper-history-main small, .paper-history-counts { color: var(--text-secondary); font-size: 11px; }
+.paper-history-main .paper-history-integrity { color: #a04a12; font-weight: 700; }
 .paper-history-status {
   border-radius: 999px;
   padding: 4px 8px;
@@ -620,6 +621,22 @@ textarea:focus, select:focus, input:focus { border-color: var(--blue); box-shado
 .drop-zone strong { color: var(--text); font-size: 14px; max-width: 90%; overflow-wrap: anywhere; }
 .drop-zone span { color: var(--text-secondary); font-size: 12px; font-weight: 400; }
 .paper-options { display: flex; flex-direction: column; justify-content: center; gap: 12px; }
+.paper-integrity-warning {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+  padding: 12px 14px;
+  border: 1px solid #e5a66f;
+  border-radius: 12px;
+  background: #fff4e8;
+  color: #843c12;
+}
+.paper-integrity-warning > svg { align-self: start; margin-top: 2px; }
+.paper-integrity-warning strong { display: block; font-size: 13px; }
+.paper-integrity-warning p { margin: 3px 0 0; font-size: 12px; line-height: 1.5; }
+.paper-integrity-warning button { white-space: nowrap; }
 .paper-progress { position: relative; display: grid; grid-template-columns: minmax(150px, .35fr) minmax(220px, 1fr) auto; align-items: center; gap: 12px; margin-bottom: 10px; padding: 13px 15px; }
 .paper-progress > div:first-child { display: flex; flex-direction: column; gap: 3px; }
 .paper-progress > div:first-child span { color: var(--blue); font-size: 12px; font-weight: 700; letter-spacing: .25px; }
@@ -1340,6 +1357,12 @@ textarea:focus, select:focus, input:focus { border-color: var(--blue); box-shado
 :root[data-theme="dark"] .paper-history-status.completed { color: #6ee7b7; background: #17382d; }
 :root[data-theme="dark"] :is(.paper-history-status.partial_failed, .paper-history-status.failed) { color: #ffaaa3; background: #452522; }
 :root[data-theme="dark"] .paper-history-actions .paper-history-delete:hover { border-color: #6d3430; background: #452522; color: #ffaaa3; }
+:root[data-theme="dark"] .paper-history-main .paper-history-integrity { color: #ffb26b; }
+:root[data-theme="dark"] .paper-integrity-warning {
+  border-color: #764522;
+  background: #352416;
+  color: #ffbd83;
+}
 :root[data-theme="dark"] .grading-journey button.current { border-color: #2563a9; box-shadow: 0 8px 24px #0005; }
 :root[data-theme="dark"] .score-hero { border: 1px solid #2c5d88; background: #101e32; }
 :root[data-theme="dark"] .status-pill { color: #ffd479; background: #3a2e16; }
@@ -1380,6 +1403,8 @@ textarea:focus, select:focus, input:focus { border-color: var(--blue); box-shado
   .app-shell > main > header { padding: 0 18px; }
   .content { padding: 20px 14px; }
   .overview-grid, .work-grid, .grade-layout, .paper-upload, .paper-progress, .grading-paper-workspace { grid-template-columns: 1fr; }
+  .paper-integrity-warning { grid-template-columns: auto 1fr; }
+  .paper-integrity-warning button { grid-column: 2; justify-self: start; }
   .review-toolbar { grid-template-columns: 1fr; align-items: stretch; }
   .scheme-picker { grid-template-columns: 1fr; }
   .grading-question-nav { max-height: none; }

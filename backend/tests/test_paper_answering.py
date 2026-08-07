@@ -15,7 +15,9 @@ from examtwin.assessment.paper_answering import (
     _split_markdown_batches,
 )
 from examtwin.assessment.paper_parsing import (
+    question_has_unresolved_source_placeholder,
     question_requires_visual_context,
+    question_source_structures,
     reconcile_question_source_pages,
     upload_to_markdown,
 )
@@ -234,6 +236,371 @@ def test_split_merge_collapses_recovery_number_variants_before_source_reconcilia
     assert [item["number"] for item in reconciled] == ["01", "17"]
     assert [item["source_pages"] for item in reconciled] == [[1], [2]]
     assert "(b) Calculate the median payment." in reconciled[1]["question_markdown"]
+
+
+def test_split_merge_preserves_primary_stem_and_repairs_cross_batch_subparts() -> None:
+    primary_stem = {
+        "number": "8",
+        "question_markdown": (
+            "The continuous random variable $X$ has cumulative distribution function\n"
+            "$$F(x)=\\begin{cases}0,&x<1\\\\"
+            "\\dfrac{2x^3+3x}{90}+g,&1\\le x<3\\\\"
+            "\\dfrac{207x-25x^2-338}{h},&3\\le x<4\\\\"
+            "1,&x\\ge4\\end{cases}$$\n\n"
+            "(a) Find $h$. [2 marks]\n\n"
+            "(b) Find $g$. [2 marks]\n\n"
+            "(c) Find $f(x)$. [3 marks]"
+        ),
+        "answer_requirements": [
+            {"label": "(a)", "marks": 2, "answer_kind": "numeric"},
+            {"label": "(b)", "marks": 2, "answer_kind": "numeric"},
+            {"label": "(c)", "marks": 3, "answer_kind": "expression"},
+        ],
+        "_split_source": "primary",
+        "_split_batch_index": 1,
+    }
+    primary_continuation = {
+        "number": "8",
+        "question_markdown": (
+            "(c) Find $f(x)$. [3 marks]\n\n"
+            "(d) Find the exact value of $E(1/X)$. "
+            "Give your answer in the form "
+            "$p\\ln3+q\\ln4-\\dfrac{13}{45}$. [7 marks]"
+        ),
+        "answer_requirements": [
+            {"label": "(c)", "marks": 3, "answer_kind": "expression"},
+            {"label": "(d)", "marks": 7, "answer_kind": "expression"},
+        ],
+        "_split_source": "primary",
+        "_split_batch_index": 2,
+    }
+    recovery = {
+        "number": "8",
+        "question_markdown": (
+            "The continuous random variable $X$ has cumulative distribution function\n"
+            "$$F(x)=\\begin{cases}\\text{[piecewise definition as printed]},"
+            "&\\text{[ranges as printed]}\\end{cases}$$\n\n"
+            "(a) Find $h$. [2 marks]\n\n"
+            "(b) Find $g$. [2 marks]\n\n"
+            "(c) Find $f(x)$. [3 marks]\n\n"
+            "(d) Find the exact value of $E(1/X)$. [7 marks]"
+        ),
+        "answer_requirements": [
+            {"label": "(a)", "marks": 2, "answer_kind": "numeric"},
+            {"label": "(b)", "marks": 2, "answer_kind": "numeric"},
+            {"label": "(c)", "marks": 3, "answer_kind": "expression"},
+            {"label": "(d)", "marks": 7, "answer_kind": "expression"},
+        ],
+        "_split_source": "recovery",
+        "_split_batch_index": 5,
+    }
+
+    [merged] = _merge_split_questions([primary_stem, primary_continuation, recovery])
+
+    assert "\\dfrac{207x-25x^2-338}{h}" in merged["question_markdown"]
+    assert "p\\ln3+q\\ln4-\\dfrac{13}{45}" in merged["question_markdown"]
+    assert merged["question_markdown"].count("(c)") == 1
+    assert "piecewise definition as printed" not in merged["question_markdown"]
+    assert [part["label"] for part in merged["answer_requirements"]] == [
+        "(a)",
+        "(b)",
+        "(c)",
+        "(d)",
+    ]
+    assert merged["total_marks"] == 14
+    assert not any(key.startswith("_split_") for key in merged)
+
+
+def test_source_structure_reads_subparts_prefixed_by_question_number() -> None:
+    source = format_physical_page_markdown(
+        [
+            (
+                2,
+                "## 1\n\nA stem.\n\n"
+                "### 1 (a) (i)\n\nState a value. [1 mark]\n\n"
+                "### 1 (a) (ii)\n\nFind a value. [3 marks]\n\n"
+                "## 1 (b)\n\nFind another value. [3 marks]\n\nEND OF QUESTIONS",
+            )
+        ]
+    )
+
+    [structure] = question_source_structures(source)
+
+    assert structure.subpart_labels == ("(a)(i)", "(a)(ii)", "(b)")
+    assert structure.marks == (1, 3, 3)
+
+
+def test_source_structure_normalizes_escaped_breaks_and_stops_at_paper_end() -> None:
+    source = format_physical_page_markdown(
+        [
+            (
+                10,
+                "## 5\n\nA stem.\n\n"
+                "### 5 (a)\n\nFind a. [2 marks]\n\n"
+                "### 5 (b)\n\nFind b. [2 marks]",
+            ),
+            (
+                11,
+                "5 (c) Find c.\\n\\n[2 marks]\\n\\n"
+                "5 (d) Find d.\\n\\n[3 marks]\\n\\nEND OF QUESTIONS",
+            ),
+            (12, "There are no questions printed on this page."),
+        ]
+    )
+
+    [structure] = question_source_structures(source)
+
+    assert structure.subpart_labels == ("(a)", "(b)", "(c)", "(d)")
+    assert structure.marks == (2, 2, 2, 3)
+    assert structure.source_pages == (10, 11)
+
+
+def test_source_structure_ignores_clock_header_before_question_eight() -> None:
+    source = format_physical_page_markdown(
+        [
+            (1, "08:00 UK Time\n\n## 1\n\nFind $x$. [1 mark]"),
+            (16, "## 8\n\nFind $y$. [2 marks]\n\nEND OF QUESTIONS"),
+        ]
+    )
+
+    structures = question_source_structures(source)
+
+    assert [structure.number for structure in structures] == ["1", "8"]
+
+
+def test_split_merge_prefers_structural_superset_across_primary_batch_overlap() -> None:
+    partial = {
+        "number": "4",
+        "question_markdown": (
+            "A business makes smartphones.\n\n"
+            "(a) Find the probability. [2 marks]\n\n"
+            "(b)(i) State the approximation conditions. [2 marks]"
+        ),
+        "answer_requirements": [
+            {"label": "(a)", "marks": 2, "answer_kind": "numeric"},
+            {"label": "(b)(i)", "marks": 2, "answer_kind": "text"},
+        ],
+        "_split_source": "primary",
+        "_split_source_digest": "trusted-source",
+        "_split_batch_index": 0,
+    }
+    complete = {
+        "number": "4",
+        "question_markdown": (
+            "A business makes smartphones.\n\n"
+            "4 (a) Find the probability.\n\n"
+            "4 (b) (i) State the approximation conditions.\n\n"
+            "4 (b) (ii) Use the approximation. [3 marks]"
+        ),
+        "answer_requirements": [
+            {"label": "(a)", "marks": 2, "answer_kind": "numeric"},
+            {"label": "(b)(i)", "marks": 2, "answer_kind": "text"},
+            {"label": "(b)(ii)", "marks": 3, "answer_kind": "numeric"},
+        ],
+        "_split_source": "primary",
+        "_split_source_digest": "trusted-source",
+        "_split_batch_index": 1,
+    }
+
+    [merged] = _merge_split_questions([partial, complete])
+
+    assert "Use the approximation" in merged["question_markdown"]
+    assert [part["label"] for part in merged["answer_requirements"]] == [
+        "(a)",
+        "(b)(i)",
+        "(b)(ii)",
+    ]
+    assert merged["total_marks"] == 7
+
+
+def test_split_merge_rejects_conflicting_primary_stems() -> None:
+    candidates = [
+        {
+            "number": "8",
+            "question_markdown": (
+                "Correct printed definition $F(x)=x^2$.\n\n(a) Find $h$. [2 marks]"
+            ),
+            "answer_requirements": [{"label": "(a)", "marks": 2}],
+            "_split_source": "primary",
+            "_split_source_digest": "trusted-source",
+            "_split_batch_index": 0,
+        },
+        {
+            "number": "8",
+            "question_markdown": (
+                "Longer transcription that silently omits the printed definition.\n\n"
+                "(b) Find $g$. [2 marks]"
+            ),
+            "answer_requirements": [{"label": "(b)", "marks": 2}],
+            "_split_source": "primary",
+            "_split_source_digest": "trusted-source",
+            "_split_batch_index": 1,
+        },
+    ]
+
+    with pytest.raises(ValueError, match="主源题干冲突"):
+        _merge_split_questions(candidates)
+
+
+def test_split_contract_rejects_silent_subpart_omission() -> None:
+    source = format_physical_page_markdown(
+        [
+            (
+                16,
+                "8 The continuous random variable $X$ has distribution $F$.\n\n"
+                "(a) Find $h$. [2 marks]\n\n"
+                "(b) Find $g$. [3 marks]\n\nEND OF QUESTIONS",
+            )
+        ]
+    )
+    settings = Settings()
+    service = PaperAnswerService(
+        settings,
+        subject_context(settings),
+        splitter=lambda _markdown, _catalog: [
+            {
+                "number": "8",
+                "question_markdown": (
+                    "The continuous random variable $X$ has distribution $F$.\n\n"
+                    "(a) Find $h$. [2 marks]"
+                ),
+                "requires_visual_context": False,
+                "answer_requirements": [{"label": "(a)", "marks": 2, "answer_kind": "numeric"}],
+            }
+        ],
+        catalog_loader=fake_catalog,
+        rag=object(),
+    )
+
+    with pytest.raises(ValueError, match="子问结构与主源不一致"):
+        service.split_questions_checkpointed(
+            source,
+            source_markdown=source,
+            unit_code="P2",
+            load_checkpoint=lambda _index, _digest: None,
+            save_checkpoint=lambda _index, _count, _digest, _items, _duration: None,
+        )
+
+
+def test_split_contract_derives_visual_context_once_from_trusted_source() -> None:
+    source = format_physical_page_markdown(
+        [(5, "1 Figure 1 shows a shaded region. Find its area. [4 marks]\nEND OF QUESTIONS")]
+    )
+    settings = Settings()
+    service = PaperAnswerService(
+        settings,
+        subject_context(settings),
+        splitter=lambda _markdown, _catalog: [
+            {
+                "number": "1",
+                "question_markdown": "Find its area. [4 marks]",
+                "requires_visual_context": False,
+                "answer_requirements": [{"label": "whole", "marks": 4, "answer_kind": "numeric"}],
+            }
+        ],
+        catalog_loader=fake_catalog,
+        rag=object(),
+    )
+
+    [question] = service.split_questions_checkpointed(
+        source,
+        source_markdown=source,
+        unit_code="P2",
+        load_checkpoint=lambda _index, _digest: None,
+        save_checkpoint=lambda _index, _count, _digest, _items, _duration: None,
+    )
+
+    assert question["requires_visual_context"] is True
+    assert question["question_markdown"].startswith("Figure 1")
+    assert question["source_pages"] == [5]
+
+
+def test_checkpointed_split_keeps_recovery_from_overwriting_primary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    primary = format_physical_page_markdown(
+        [
+            (
+                16,
+                "8 The continuous random variable $X$ has cumulative distribution function "
+                "$F(x)=x^2$ for $0\\le x\\le1$.\n\n(a) Find $F(1)$. [2 marks]",
+            )
+        ]
+    )
+    recovery = "## PDF text-layer recovery appendix\n" + format_physical_page_markdown(
+        [
+            (
+                16,
+                "8 The continuous random variable X has a cumulative distribution "
+                "function with [piecewise definition as printed]. "
+                "(a) Find F(1). [2 marks]",
+            )
+        ]
+    )
+    source_roles: list[str] = []
+
+    class FakeLLM:
+        def complete(self, prompt: str) -> SimpleNamespace:
+            recovery_batch = "RECOVERY text-layer appendix" in prompt
+            source_roles.append("recovery" if recovery_batch else "primary")
+            question_markdown = (
+                "The continuous random variable $X$ has cumulative distribution function "
+                "with [piecewise definition as printed].\n\n(a) Find $F(1)$. [2 marks]"
+                if recovery_batch
+                else "The continuous random variable $X$ has cumulative distribution "
+                "function $F(x)=x^2$ for $0\\le x\\le1$.\n\n"
+                "(a) Find $F(1)$. [2 marks]"
+            )
+            return SimpleNamespace(
+                text=json.dumps(
+                    {
+                        "questions": [
+                            {
+                                "number": "8",
+                                "question_markdown": question_markdown,
+                                "source_pages": [16],
+                                "requires_visual_context": False,
+                                "total_marks": 2,
+                                "answer_requirements": [
+                                    {
+                                        "label": "(a)",
+                                        "marks": 2,
+                                        "answer_kind": "numeric",
+                                        "accuracy": None,
+                                        "units": [],
+                                        "required_tool": None,
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+                )
+            )
+
+    monkeypatch.setattr(
+        "examtwin.assessment.paper_answering.build_llm",
+        lambda *_args, **_kwargs: FakeLLM(),
+    )
+    settings = Settings(paper_split_max_chars=20_000)
+    service = PaperAnswerService(
+        settings,
+        subject_context(settings),
+        catalog_loader=fake_catalog,
+        rag=object(),
+    )
+
+    [question] = service.split_questions_checkpointed(
+        f"{primary}\n\n{recovery}",
+        source_markdown=primary,
+        unit_code="P2",
+        load_checkpoint=lambda _index, _digest: None,
+        save_checkpoint=lambda _index, _count, _digest, _items, _duration: None,
+    )
+
+    assert sorted(source_roles) == ["primary", "recovery"]
+    assert "$F(x)=x^2$" in question["question_markdown"]
+    assert "piecewise definition as printed" not in question["question_markdown"]
+    assert question["source_pages"] == [16]
 
 
 class FakeQuestionRepairModel:
@@ -638,6 +1005,44 @@ def test_visual_context_classification_skips_text_probability_but_keeps_graphs()
     assert question_requires_visual_context(
         "Figure 5 shows two curves and a finite shaded region. Find its area."
     )
+
+
+def test_unresolved_printed_source_placeholder_requires_repair() -> None:
+    placeholder = (
+        "$F(x)=\\begin{cases}"
+        "\\text{[piecewise definition as printed]},&"
+        "\\text{[ranges as printed]}"
+        "\\end{cases}$"
+    )
+
+    assert question_has_unresolved_source_placeholder(placeholder)
+    assert question_requires_visual_context(placeholder)
+    assert not question_has_unresolved_source_placeholder(
+        "$F(x)=\\begin{cases}0,&x<1\\\\x^2,&1\\le x<2\\end{cases}$"
+    )
+
+
+def test_split_rejects_unresolved_source_placeholder_before_persistence() -> None:
+    settings = Settings()
+    service = PaperAnswerService(
+        settings,
+        subject_context(settings),
+        splitter=lambda _markdown, _catalog: [
+            {
+                "number": "8",
+                "question_markdown": (
+                    "$F(x)=\\text{[piecewise definition as printed]}$. "
+                    "Find the value of $h$. [2 marks]"
+                ),
+                "answer_requirements": [{"label": "whole", "marks": 2, "answer_kind": "numeric"}],
+            }
+        ],
+        catalog_loader=fake_catalog,
+        rag=object(),
+    )
+
+    with pytest.raises(ValueError, match="未修复的原卷占位符"):
+        service.split_questions("8 " + ("source " * 10), unit_code="P2")
 
 
 def test_source_pages_match_markdown_heading_number_on_own_line() -> None:

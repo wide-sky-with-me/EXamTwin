@@ -193,6 +193,7 @@ def test_worker_carries_source_pages_and_trusted_jpegs_into_answer_service(
             "question_markdown": "Use the graph to find the probability.",
             "source_pages_json": "[2, 3]",
             "knowledge_codes_json": "[]",
+            "requires_visual_context": True,
         },
         "P2",
         event_sink=lambda _step: None,
@@ -258,6 +259,64 @@ def test_worker_skips_page_pixels_for_text_only_pdf_question(tmp_path: Path) -> 
     )
 
     assert answer_service.images == ()
+
+
+def test_worker_rejects_legacy_placeholder_instead_of_rederiving_visual_flag(
+    tmp_path: Path,
+) -> None:
+    job_id = "placeholder-pdf"
+
+    class PlaceholderPdfJobs:
+        def source_file(self, requested_job_id: str) -> tuple[Path, str, str]:
+            assert requested_job_id == job_id
+            return tmp_path / job_id / "source.pdf", "source.pdf", ".pdf"
+
+    worker = PaperWorker(
+        Settings(object_store_local_root=tmp_path),
+        subject_context(Settings(object_store_local_root=tmp_path)),
+        jobs=PlaceholderPdfJobs(),  # type: ignore[arg-type]
+        answer_service=FakeAnswerService(),  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(ValueError, match="来源完整性契约"):
+        worker._load_question_images(
+            {
+                "job_id": job_id,
+                "question_markdown": (
+                    "$F(x)=\\text{[piecewise definition as printed]}$. Find $h$."
+                ),
+                "source_pages_json": "[16]",
+                "requires_visual_context": False,
+            }
+        )
+
+
+def test_worker_rejects_pdf_question_without_persisted_visual_decision(
+    tmp_path: Path,
+) -> None:
+    job_id = "legacy-pdf"
+
+    class LegacyPdfJobs:
+        def source_file(self, requested_job_id: str) -> tuple[Path, str, str]:
+            assert requested_job_id == job_id
+            return tmp_path / job_id / "source.pdf", "source.pdf", ".pdf"
+
+    worker = PaperWorker(
+        Settings(object_store_local_root=tmp_path),
+        subject_context(Settings(object_store_local_root=tmp_path)),
+        jobs=LegacyPdfJobs(),  # type: ignore[arg-type]
+        answer_service=FakeAnswerService(),  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(ValueError, match="视觉上下文判定"):
+        worker._load_question_images(
+            {
+                "job_id": job_id,
+                "question_markdown": "Find the probability.",
+                "source_pages_json": "[8]",
+                "requires_visual_context": None,
+            }
+        )
 
 
 def test_worker_does_not_fabricate_question_images_for_markdown(
@@ -421,6 +480,7 @@ def test_question_vision_failure_is_retried_by_worker(tmp_path: Path) -> None:
                 "question_markdown": "Read the original graph.",
                 "source_pages_json": "[1]",
                 "knowledge_codes_json": "[]",
+                "requires_visual_context": True,
             },
             "P2",
         )

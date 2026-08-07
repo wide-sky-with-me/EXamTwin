@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import re
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -23,12 +25,221 @@ _VISUAL_CONTEXT = re.compile(
     r"\b(?:draw|sketch|shade)\b)",
     re.IGNORECASE,
 )
+_UNRESOLVED_SOURCE_PLACEHOLDER = re.compile(
+    r"(?:\\text\{\s*)?"
+    r"\[[^\]\n]{0,120}\b(?:as\s+printed|omitted|missing|not\s+captured)\b"
+    r"[^\]\n]{0,120}\]"
+    r"(?:\s*\})?",
+    re.IGNORECASE,
+)
+_TOP_LEVEL_QUESTION = re.compile(
+    r"(?im)^[ \t]*(?:#{1,6}[ \t]*)?(?:\*{1,2})?"
+    r"(?:question[ \t]+)?(?P<number>0*\d{1,3})(?:\*{1,2})?"
+    r"(?![ \t]*:[ \t]*\d)(?=[ \t]*(?:$|[.:\)]|\([a-zivx]+\)|[A-Za-z]))"
+)
+_STRUCTURE_SUBPART = re.compile(
+    r"(?im)^[ \t]*(?:#{1,6}[ \t]*)?(?:\*{1,2})?"
+    r"(?:0*\d{1,3}[ \t]*)?"
+    r"(?P<label>\([a-zivx]+\)(?:[ \t]*\([a-zivx]+\))*)"
+    r"(?:\*{1,2})?(?=[ \t.:]|$)"
+)
+_PRINTED_MARK = re.compile(r"[\[(][ \t]*(\d+)[ \t]+marks?[ \t]*[\])]", re.IGNORECASE)
+
+
+@dataclass(frozen=True)
+class QuestionSourceStructure:
+    number: str
+    question_markdown: str
+    source_pages: tuple[int, ...]
+    subpart_labels: tuple[str, ...]
+    marks: tuple[int, ...]
+    requires_visual_context: bool
+    source_digest: str
+
+
+class QuestionSourceStructureError(ValueError):
+    """Raised when a split question cannot be proven complete against its trusted source."""
+
+
+def question_has_unresolved_source_placeholder(markdown: str) -> bool:
+    """Return whether extraction left an instruction in place of printed source content."""
+
+    return bool(_UNRESOLVED_SOURCE_PLACEHOLDER.search(markdown))
 
 
 def question_requires_visual_context(markdown: str) -> bool:
-    """Conservative fallback when an older split result lacks the visual flag."""
+    """Require source-page review for spatial content or unresolved printed content."""
 
-    return bool(_VISUAL_CONTEXT.search(markdown))
+    return bool(
+        _VISUAL_CONTEXT.search(markdown) or question_has_unresolved_source_placeholder(markdown)
+    )
+
+
+def _canonical_question_number(value: object) -> str:
+    match = re.fullmatch(r"\s*0*(\d+)\s*", str(value))
+    return str(int(match.group(1))) if match else ""
+
+
+def _normalized_structure_label(value: object) -> str:
+    return re.sub(r"\s+", "", str(value)).lower()
+
+
+def question_source_structures(markdown: str) -> list[QuestionSourceStructure]:
+    """Derive the question structure once from visually reviewed source Markdown."""
+
+    physical_pages = parse_physical_page_markdown(markdown)
+    pages = physical_pages or [(1, markdown)]
+    combined_parts: list[str] = []
+    page_spans: list[tuple[int, int, int]] = []
+    cursor = 0
+    for page_number, body in pages:
+        body = body.replace("\\n\\n", "\n\n")
+        if combined_parts:
+            combined_parts.append("\n\n")
+            cursor += 2
+        start = cursor
+        combined_parts.append(body)
+        cursor += len(body)
+        page_spans.append((page_number, start, cursor))
+    combined = "".join(combined_parts)
+    matches = list(_TOP_LEVEL_QUESTION.finditer(combined))
+    if not matches:
+        return []
+
+    anchors: list[tuple[str, re.Match[str]]] = []
+    seen: set[str] = set()
+    for match in matches:
+        number = _canonical_question_number(match.group("number"))
+        if not number:
+            continue
+        if anchors and anchors[-1][0] == number:
+            continue
+        if number in seen:
+            raise QuestionSourceStructureError(f"主源题号不连续重复：{number}")
+        seen.add(number)
+        anchors.append((number, match))
+
+    source_digest = hashlib.sha256(markdown.encode("utf-8")).hexdigest()
+    structures: list[QuestionSourceStructure] = []
+    for index, (number, match) in enumerate(anchors):
+        span_start = match.start()
+        span_end = anchors[index + 1][1].start() if index + 1 < len(anchors) else len(combined)
+        raw_question = combined[match.end() : span_end]
+        end_marker = _END_OF_QUESTIONS_RE.search(raw_question)
+        if end_marker:
+            span_end = match.end() + end_marker.start()
+            raw_question = raw_question[: end_marker.start()]
+        question = raw_question.lstrip(" \t.:)").strip()
+        if not question:
+            raise QuestionSourceStructureError(f"主源第 {number} 题内容为空")
+        source_pages = tuple(
+            page_number
+            for page_number, page_start, page_end in page_spans
+            if span_start < page_end
+            and span_end > page_start
+            and _meaningful_page_text(
+                combined[max(span_start, page_start) : min(span_end, page_end)]
+            )
+        )
+        labels = tuple(
+            dict.fromkeys(
+                _normalized_structure_label(label) for label in _STRUCTURE_SUBPART.findall(question)
+            )
+        )
+        marks = tuple(int(value) for value in _PRINTED_MARK.findall(question))
+        structures.append(
+            QuestionSourceStructure(
+                number=number,
+                question_markdown=question,
+                source_pages=source_pages,
+                subpart_labels=labels,
+                marks=marks,
+                requires_visual_context=question_requires_visual_context(question),
+                source_digest=source_digest,
+            )
+        )
+    return structures
+
+
+def validate_question_source_structure(
+    markdown: str,
+    questions: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Fail closed unless split output preserves the trusted page structure exactly."""
+
+    physical_pages = parse_physical_page_markdown(markdown)
+    if not physical_pages:
+        source_digest = hashlib.sha256(markdown.encode("utf-8")).hexdigest()
+        normalized: list[dict[str, Any]] = []
+        for item in questions:
+            question = dict(item)
+            question["requires_visual_context"] = question_requires_visual_context(
+                str(question.get("question_markdown", ""))
+            )
+            question["source_kind"] = "primary"
+            question["source_digest"] = source_digest
+            normalized.append(question)
+        return normalized
+
+    structures = question_source_structures(markdown)
+    if not structures:
+        raise QuestionSourceStructureError("视觉复核主源没有可核对的顶层题号")
+    actual_numbers = [_canonical_question_number(item.get("number", "")) for item in questions]
+    expected_numbers = [structure.number for structure in structures]
+    if actual_numbers != expected_numbers:
+        raise QuestionSourceStructureError(
+            f"分题题号与主源不一致：expected={expected_numbers}, actual={actual_numbers}"
+        )
+
+    validated: list[dict[str, Any]] = []
+    for item, structure in zip(questions, structures, strict=True):
+        spec = question_spec_from_item(item)
+        if not spec.subparts and not structure.subpart_labels and len(structure.marks) == 1:
+            spec = QuestionSpec.model_validate(
+                {
+                    "subparts": [{"label": "whole", "marks": structure.marks[0]}],
+                    "total_marks": structure.marks[0],
+                }
+            )
+        actual_labels = tuple(_normalized_structure_label(part.label) for part in spec.subparts)
+        expected_labels = (
+            structure.subpart_labels
+            if structure.subpart_labels
+            else ("whole",)
+            if structure.marks
+            else actual_labels
+        )
+        if actual_labels != expected_labels:
+            raise QuestionSourceStructureError(
+                f"第 {structure.number} 题子问结构与主源不一致："
+                f"expected={expected_labels}, actual={actual_labels}"
+            )
+        actual_marks = tuple(part.marks for part in spec.subparts)
+        if structure.marks and (
+            any(mark is None for mark in actual_marks)
+            or tuple(int(mark) for mark in actual_marks if mark is not None) != structure.marks
+        ):
+            raise QuestionSourceStructureError(
+                f"第 {structure.number} 题分值结构与主源不一致："
+                f"expected={structure.marks}, actual={actual_marks}"
+            )
+        if structure.marks and spec.total_marks != sum(structure.marks):
+            raise QuestionSourceStructureError(
+                f"第 {structure.number} 题总分与主源不一致："
+                f"expected={sum(structure.marks)}, actual={spec.total_marks}"
+            )
+        validated_item = dict(item)
+        validated_item["question_markdown"] = structure.question_markdown
+        validated_item["source_pages"] = list(structure.source_pages)
+        validated_item["requires_visual_context"] = structure.requires_visual_context
+        validated_item["source_kind"] = "primary"
+        validated_item["answer_requirements"] = [
+            part.model_dump(mode="json") for part in spec.subparts
+        ]
+        validated_item["total_marks"] = spec.total_marks
+        validated_item["source_digest"] = structure.source_digest
+        validated.append(validated_item)
+    return validated
 
 
 def question_spec_from_item(item: dict[str, Any]) -> QuestionSpec:

@@ -134,6 +134,14 @@ export async function deletePaperJobs(jobIds: string[]): Promise<PaperJobBulkDel
   );
 }
 
+export async function replacePaperJob(jobId: string): Promise<PaperJobCreated> {
+  return unwrapApi(
+    apiClient.POST("/api/v1/papers/jobs/{job_id}/replace", {
+      params: { path: { job_id: jobId } },
+    }),
+  );
+}
+
 
 export async function uploadPaper(file: File, unitCode: string): Promise<PaperJobCreated> {
   const form = new FormData();

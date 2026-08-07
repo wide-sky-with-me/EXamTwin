@@ -588,7 +588,35 @@ def test_react_loop_falls_back_once_when_structured_finalizer_fails() -> None:
 
     assert result.grounded is True
     assert finalizer.calls == 1
-    assert any("兼容恢复" in step.message for step in result.steps)
+    assert any(
+        "兼容恢复" in step.message and "RuntimeError" in step.message for step in result.steps
+    )
+
+
+def test_react_loop_derives_compatibility_citations_from_public_markdown() -> None:
+    llm = ScriptedReActLLM(
+        responses=(
+            (
+                "Thought: I need grounded evidence.\n"
+                "Action: knowledge_search\n"
+                'Action Input: {"query": "quadratic discriminant", "top_k": 3}'
+            ),
+            (
+                "Answer: "
+                '{"answer_markdown":"The discriminant is $b^2-4ac$. [S1]",'
+                '"citation_ids":["S2"],'
+                '"confidence":0.84,"grounded":true,"warnings":[]}'
+            ),
+        )
+    )
+    finalizer = CapturingFinalAnswerProvider(error=RuntimeError("schema unavailable"))
+
+    result = _scripted_runtime(llm, final_answer_provider=finalizer).solve(
+        AnswerTask(subject_code="9660", question="State the quadratic discriminant.")
+    )
+
+    assert result.answer_markdown.endswith("[S1]")
+    assert result.grounded is True
 
 
 def test_iteration_budget_uses_structured_finalizer_without_an_extra_react_call() -> None:

@@ -2562,6 +2562,40 @@
             "title": "Question Markdown",
             "type": "string"
           },
+          "requires_visual_context": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requires Visual Context"
+          },
+          "source_digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Digest"
+          },
+          "source_kind": {
+            "anyOf": [
+              {
+                "const": "primary",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Kind"
+          },
           "source_pages": {
             "items": {
               "type": "integer"
@@ -2613,6 +2647,9 @@
           "question_markdown",
           "source_pages",
           "source_warnings",
+          "source_kind",
+          "source_digest",
+          "requires_visual_context",
           "answer_requirements",
           "total_marks",
           "answer_markdown",
@@ -2698,6 +2735,60 @@
             "title": "Questions",
             "type": "array"
           },
+          "replaced_by_job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replaced By Job Id"
+          },
+          "replacement_for_job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replacement For Job Id"
+          },
+          "source_integrity_status": {
+            "enum": [
+              "pending",
+              "verified",
+              "legacy_unverified",
+              "replacement_queued"
+            ],
+            "title": "Source Integrity Status",
+            "type": "string"
+          },
+          "split_contract_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Split Contract Version"
+          },
+          "split_source_digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Split Source Digest"
+          },
           "stage": {
             "enum": [
               "queued",
@@ -2772,6 +2863,11 @@
           "completed_questions",
           "failed_questions",
           "error",
+          "source_integrity_status",
+          "split_contract_version",
+          "split_source_digest",
+          "replacement_for_job_id",
+          "replaced_by_job_id",
           "created_at",
           "updated_at",
           "chunks",
@@ -2801,6 +2897,49 @@
           "job_id": {
             "title": "Job Id",
             "type": "string"
+          },
+          "replaced_by_job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replaced By Job Id"
+          },
+          "replacement_for_job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replacement For Job Id"
+          },
+          "source_integrity_status": {
+            "enum": [
+              "pending",
+              "verified",
+              "legacy_unverified",
+              "replacement_queued"
+            ],
+            "title": "Source Integrity Status",
+            "type": "string"
+          },
+          "split_contract_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Split Contract Version"
           },
           "stage": {
             "enum": [
@@ -2857,6 +2996,10 @@
           "total_questions",
           "completed_questions",
           "failed_questions",
+          "source_integrity_status",
+          "split_contract_version",
+          "replacement_for_job_id",
+          "replaced_by_job_id",
           "created_at",
           "updated_at"
         ],
@@ -7181,6 +7324,77 @@
           }
         },
         "summary": "Retry Paper Question"
+      }
+    },
+    "/api/v1/papers/jobs/{job_id}/replace": {
+      "post": {
+        "operationId": "replace_paper_job_api_v1_papers_jobs__job_id__replace_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaperJobCreated"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Replace Paper Job"
       }
     },
     "/api/v1/papers/jobs/{job_id}/retry": {

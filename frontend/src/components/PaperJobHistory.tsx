@@ -9,7 +9,8 @@ import {
 } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
 
-import { deletePaperJobs, listPaperJobs } from "../lib/api";
+import { deletePaperJobs, listPaperJobs, replacePaperJob } from "../lib/api";
+import { PAPER_JOB_STATUS_LABELS } from "../lib/paper-job";
 import type {
   PaperJobHistoryStatus,
   PaperJobList,
@@ -25,22 +26,18 @@ const TERMINAL_STATUSES = new Set<PaperJobSummary["status"]>([
   "partial_failed",
   "failed",
 ]);
-const STATUS_LABELS: Record<PaperJobSummary["status"], string> = {
-  queued: "等待处理",
-  parsing: "解析中",
-  vision_review: "视觉复核",
-  splitting: "识别题目",
-  answering: "作答中",
-  completed: "已完成",
-  partial_failed: "部分失败",
-  failed: "失败",
-};
 const DATE_FORMATTER = new Intl.DateTimeFormat("zh-CN", {
   dateStyle: "medium",
   timeStyle: "short",
 });
 type HistoryRange = "all" | "7" | "30" | "90";
 
+
+function canDeleteJob(item: PaperJobSummary): boolean {
+  return TERMINAL_STATUSES.has(item.status)
+    && !item.replacement_for_job_id
+    && !item.replaced_by_job_id;
+}
 function createdAfter(range: HistoryRange): string | undefined {
   if (range === "all") return undefined;
   const date = new Date();
@@ -81,6 +78,7 @@ export function PaperJobHistory({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [bulkConfirming, setBulkConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [repairingId, setRepairingId] = useState<string | null>(null);
   const { notify } = useToast();
   const subjectId = subject?.id ?? null;
 
@@ -178,6 +176,21 @@ export function PaperJobHistory({
     }
   }
 
+  async function repairJob(item: PaperJobSummary) {
+    setRepairingId(item.job_id);
+    setError(null);
+    try {
+      const replacement = await replacePaperJob(item.job_id);
+      notify("已创建替代任务；旧记录将保留用于审计。");
+      setLocalRefresh((value) => value + 1);
+      onOpen(replacement.job_id);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "替代任务创建失败");
+    } finally {
+      setRepairingId(null);
+    }
+  }
+
   function toggleSelection(jobId: string) {
     setDeleteCandidate(null);
     setBulkConfirming(false);
@@ -191,7 +204,7 @@ export function PaperJobHistory({
 
   const selectableIds =
     history?.items
-      .filter((item) => TERMINAL_STATUSES.has(item.status))
+      .filter(canDeleteJob)
       .map((item) => item.job_id) ?? [];
   const allPageSelected =
     selectableIds.length > 0 && selectableIds.every((jobId) => selectedIds.has(jobId));
@@ -264,9 +277,9 @@ export function PaperJobHistory({
           >
             <option value="">全部状态</option>
             <option value="active">处理中</option>
-            <option value="completed">已完成</option>
-            <option value="partial_failed">部分失败</option>
-            <option value="failed">失败</option>
+            <option value="completed">处理完成</option>
+            <option value="partial_failed">部分题目失败</option>
+            <option value="failed">处理失败</option>
           </select>
         </label>
         <label>
@@ -358,7 +371,10 @@ export function PaperJobHistory({
         <ul className="paper-history-list">
           {history.items.map((item) => {
             const deletingThis = deleteCandidate?.job_id === item.job_id;
-            const selectable = TERMINAL_STATUSES.has(item.status);
+            const selectable = canDeleteJob(item);
+            const unverified = item.source_integrity_status === "legacy_unverified"
+              || item.source_integrity_status === "replacement_queued";
+            const repairingThis = repairingId === item.job_id;
             return (
               <li aria-current={item.job_id === currentJobId ? "true" : undefined} key={item.job_id}>
                 <input
@@ -375,15 +391,22 @@ export function PaperJobHistory({
                   <small>
                     {formatDate(item.created_at)} · {item.unit_code || "未限定单元"}
                   </small>
+                  {unverified && (
+                    <small className="paper-history-integrity">
+                      {item.replaced_by_job_id
+                        ? "旧版未验证结果 · 已创建替代任务"
+                        : "旧版未验证结果 · 不应作为可信答案"}
+                    </small>
+                  )}
                 </div>
                 <span className={`paper-history-status ${item.status}`}>
-                  {STATUS_LABELS[item.status]}
+                  {PAPER_JOB_STATUS_LABELS[item.status]}
                 </span>
                 <span className="paper-history-counts">
                   {item.total_questions > 0
-                    ? `${item.completed_questions}/${item.total_questions} 题完成`
+                    ? `${item.completed_questions}/${item.total_questions} 题已处理`
                     : "等待识别题目"}
-                  {item.failed_questions > 0 ? ` · ${item.failed_questions} 题失败` : ""}
+                  {item.failed_questions > 0 ? ` · ${item.failed_questions} 题处理失败` : ""}
                 </span>
                 {deletingThis ? (
                   <div className="paper-history-confirm" role="alert">
@@ -401,6 +424,27 @@ export function PaperJobHistory({
                     <button className="secondary" onClick={() => onOpen(item.job_id)} type="button">
                       查看
                     </button>
+                    {item.replaced_by_job_id ? (
+                      <button
+                        className="secondary"
+                        onClick={() => onOpen(item.replaced_by_job_id!)}
+                        type="button"
+                      >
+                        查看替代任务
+                      </button>
+                    ) : unverified && selectable ? (
+                      <button
+                        className="secondary"
+                        disabled={repairingThis}
+                        onClick={() => void repairJob(item)}
+                        type="button"
+                      >
+                        {repairingThis
+                          ? <LoaderCircle className="spin" size={14} />
+                          : <RefreshCw size={14} />}
+                        修复并重跑
+                      </button>
+                    ) : null}
                     {selectable && (
                       <button
                         aria-label={`删除记录 ${item.filename}`}

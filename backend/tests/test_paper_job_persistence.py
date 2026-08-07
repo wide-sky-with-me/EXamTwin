@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -10,6 +11,7 @@ from typing import Any
 import pytest
 from examtwin.assessment.agent_run_ledger import PaperAgentRunLedger
 from examtwin.assessment.answering_agent.contracts import ToolReplayPayload
+from examtwin.assessment.paper_answering import SPLIT_CONTRACT_VERSION
 from examtwin.assessment.paper_job_repository import LostLeaseError, PaperJobRepository
 from examtwin.assessment.paper_jobs import PaperJobService
 from examtwin.assessment.paper_vision import (
@@ -67,8 +69,34 @@ def test_agent_tool_ledger_replays_a_completed_safe_call_across_attempts(
     runtime.store_questions(
         created.job_id,
         token,
-        [{"number": "1", "question_markdown": "Calculate 2+2."}],
+        [
+            {
+                "number": "1",
+                "question_markdown": "Calculate 2+2.",
+                "requires_visual_context": False,
+                "source_kind": "primary",
+                "source_digest": "a" * 64,
+            }
+        ],
     )
+    stored_source = database.fetch_one(
+        """
+        SELECT j.source_integrity_status, j.split_contract_version, j.split_source_digest,
+               q.source_kind, q.source_digest, q.requires_visual_context
+        FROM paper_jobs j
+        JOIN paper_job_questions q ON q.job_id=j.id
+        WHERE j.id=? AND q.position=0
+        """,
+        (created.job_id,),
+    )
+    assert stored_source == {
+        "source_integrity_status": "verified",
+        "split_contract_version": SPLIT_CONTRACT_VERSION,
+        "split_source_digest": "a" * 64,
+        "source_kind": "primary",
+        "source_digest": "a" * 64,
+        "requires_visual_context": False,
+    }
 
     first_attempt = runtime.start_question(created.job_id, token, 0)
     first = PaperAgentRunLedger(
@@ -134,6 +162,48 @@ def test_agent_tool_ledger_replays_a_completed_safe_call_across_attempts(
     )
     assert replay is not None
     assert replay.observation == "evaluate(2+2) = 4"
+
+
+@pytest.mark.integration
+def test_legacy_job_replacement_preserves_auditable_lineage(tmp_path: Path) -> None:
+    database = _test_database()
+    jobs = _job_service(database, Settings(object_store_local_root=tmp_path))
+    created = jobs.create_job(
+        "legacy-paper.md",
+        b"# Question 1\nComplete source text.",
+        unit_code="P1",
+    )
+    database.execute(
+        """
+        UPDATE paper_jobs
+        SET status='completed', stage='completed', source_integrity_status='legacy_unverified'
+        WHERE id=?
+        """,
+        (created.job_id,),
+    )
+
+    replacement = jobs.create_replacement(created.job_id)
+    original_result = jobs.get_job(created.job_id)
+    replacement_result = jobs.get_job(replacement.job_id)
+
+    assert original_result.source_integrity_status == "replacement_queued"
+    assert original_result.replaced_by_job_id == replacement.job_id
+    assert replacement_result.source_integrity_status == "pending"
+    assert replacement_result.replacement_for_job_id == created.job_id
+    with pytest.raises(ValueError, match="已有替代任务"):
+        jobs.create_replacement(created.job_id)
+
+    database.execute(
+        "UPDATE paper_jobs SET status='completed', stage='completed' WHERE id=?",
+        (replacement.job_id,),
+    )
+    with pytest.raises(ValueError, match="替代审计关系"):
+        jobs.delete_job(created.job_id)
+    with pytest.raises(ValueError, match="替代审计关系"):
+        jobs.delete_job(replacement.job_id)
+
+    database.execute("DELETE FROM paper_jobs WHERE id=?", (replacement.job_id,))
+    database.execute("DELETE FROM paper_jobs WHERE id=?", (created.job_id,))
 
 
 @pytest.mark.integration
@@ -371,6 +441,7 @@ def test_pdf_retry_reuses_completed_chunks(tmp_path: Path) -> None:
         assert completed.completed_questions == 1
         assert completed.questions[0].citations[0].page == 22
         assert completed.questions[0].source_pages == [1]
+        assert completed.questions[0].requires_visual_context is False
         assert completed.questions[0].diagrams[0].title == "Axes"
         persisted = database.fetch_one(
             "SELECT knowledge_codes_json FROM paper_job_questions WHERE job_id=? AND position=0",
@@ -559,7 +630,7 @@ def test_only_active_question_workers_are_marked_answering(tmp_path: Path) -> No
     class BlockingAnswerService(FakeAnswerService):
         def split_questions(
             self,
-            _markdown: str,
+            markdown: str,
             *,
             unit_code: str | None = None,
         ) -> list[dict[str, Any]]:
@@ -568,6 +639,9 @@ def test_only_active_question_workers_are_marked_answering(tmp_path: Path) -> No
                     "number": str(number),
                     "question_markdown": f"Question {number} has enough content.",
                     "knowledge_codes": [],
+                    "requires_visual_context": False,
+                    "source_kind": "primary",
+                    "source_digest": hashlib.sha256(markdown.encode("utf-8")).hexdigest(),
                 }
                 for number in range(1, 5)
             ]

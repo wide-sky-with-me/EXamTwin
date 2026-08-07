@@ -5,11 +5,9 @@ from pathlib import Path
 from typing import Any
 
 from examtwin.assessment.answering_agent.contracts import AgentStep
+from examtwin.assessment.paper_answering import SPLIT_CONTRACT_VERSION
 from examtwin.assessment.paper_job_repository import PaperJobRepository
-from examtwin.assessment.paper_parsing import (
-    question_requires_visual_context,
-    question_spec_from_item,
-)
+from examtwin.assessment.paper_parsing import question_spec_from_item
 from examtwin.assessment.paper_sources import PaperSourceStore
 from examtwin.contracts.papers import PaperQuestionAnswer
 from examtwin.platform.database.session import utcnow
@@ -123,6 +121,7 @@ class PaperJobRuntime:
             raise LookupError("试卷任务不存在")
         total_pages = int(job["total_pages"] or 0)
         values: list[dict[str, Any]] = []
+        source_digests: set[str] = set()
         for position, item in enumerate(questions):
             raw_codes = item.get("knowledge_codes", [])
             codes = raw_codes if isinstance(raw_codes, list) else []
@@ -138,12 +137,18 @@ class PaperJobRuntime:
                         and 0 < page <= total_pages
                     }
                 )
-            raw_requires_visual = item.get("requires_visual_context")
-            requires_visual = (
-                raw_requires_visual
-                if isinstance(raw_requires_visual, bool)
-                else question_requires_visual_context(str(item.get("question_markdown", "")))
-            )
+            requires_visual = item.get("requires_visual_context")
+            if not isinstance(requires_visual, bool):
+                raise ValueError("分题结果缺少唯一的视觉上下文判定")
+            source_kind = item.get("source_kind")
+            if source_kind != "primary":
+                raise ValueError("分题结果没有通过主源升格")
+            source_digest = str(item.get("source_digest") or "")
+            if len(source_digest) != 64 or any(
+                character not in "0123456789abcdef" for character in source_digest
+            ):
+                raise ValueError("分题结果缺少有效的主源摘要")
+            source_digests.add(source_digest)
             spec = question_spec_from_item(item)
             values.append(
                 {
@@ -152,6 +157,8 @@ class PaperJobRuntime:
                     "question_markdown": str(item.get("question_markdown", "")).strip(),
                     "source_pages_json": json.dumps(pages),
                     "requires_visual_context": requires_visual,
+                    "source_kind": source_kind,
+                    "source_digest": source_digest,
                     "knowledge_codes_json": json.dumps(codes, ensure_ascii=False),
                     "requirements_json": spec.model_dump_json(),
                     "status": "pending",
@@ -162,7 +169,15 @@ class PaperJobRuntime:
                     "completed_at": None,
                 }
             )
-        self.repository.store_questions(job_id, token, values)
+        if len(source_digests) != 1:
+            raise ValueError("同一试卷的分题结果必须绑定同一个主源摘要")
+        self.repository.store_questions(
+            job_id,
+            token,
+            values,
+            split_contract_version=SPLIT_CONTRACT_VERSION,
+            split_source_digest=next(iter(source_digests)),
+        )
 
     def list_questions(self, job_id: str) -> list[dict[str, Any]]:
         return self.repository.questions(job_id)

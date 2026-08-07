@@ -41,6 +41,12 @@ PaperJobStage = Literal[
     "answering",
     "completed",
 ]
+PaperSourceIntegrityStatus = Literal[
+    "pending",
+    "verified",
+    "legacy_unverified",
+    "replacement_queued",
+]
 
 
 class PaperKnowledgeReference(SerializedResponse):
@@ -106,6 +112,9 @@ class PaperJobQuestion(SerializedResponse):
     question_markdown: str
     source_pages: list[int] = Field(default_factory=list)
     source_warnings: list[str] = Field(default_factory=list)
+    source_kind: Literal["primary"] | None = None
+    source_digest: str | None = None
+    requires_visual_context: bool | None = None
     answer_requirements: list[SubpartRequirement] = Field(default_factory=list)
     total_marks: int | None = None
     answer_markdown: str = ""
@@ -146,6 +155,10 @@ class PaperJobSummary(SerializedResponse):
     total_questions: int
     completed_questions: int
     failed_questions: int
+    source_integrity_status: PaperSourceIntegrityStatus
+    split_contract_version: str | None = None
+    replacement_for_job_id: str | None = None
+    replaced_by_job_id: str | None = None
     created_at: str
     updated_at: str
 
@@ -173,6 +186,11 @@ class PaperJobResponse(SerializedResponse):
     completed_questions: int
     failed_questions: int
     error: str | None = None
+    source_integrity_status: PaperSourceIntegrityStatus
+    split_contract_version: str | None = None
+    split_source_digest: str | None = None
+    replacement_for_job_id: str | None = None
+    replaced_by_job_id: str | None = None
     created_at: str
     updated_at: str
     chunks: list[PaperJobChunk] = Field(default_factory=list)

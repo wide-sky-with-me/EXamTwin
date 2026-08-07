@@ -2,13 +2,14 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-import { deletePaperJobs, listPaperJobs } from "../lib/api";
+import { deletePaperJobs, listPaperJobs, replacePaperJob } from "../lib/api";
 import type { PaperJobList, SubjectPack } from "../types";
 import { PaperJobHistory } from "./PaperJobHistory";
 
 vi.mock("../lib/api", () => ({
   deletePaperJobs: vi.fn(),
   listPaperJobs: vi.fn(),
+  replacePaperJob: vi.fn(),
 }));
 
 const subject = {
@@ -31,6 +32,10 @@ const history: PaperJobList = {
       total_questions: 13,
       completed_questions: 13,
       failed_questions: 0,
+      source_integrity_status: "verified",
+      split_contract_version: "paper-question-split-v6",
+      replacement_for_job_id: null,
+      replaced_by_job_id: null,
       created_at: "2026-08-05T08:00:00+00:00",
       updated_at: "2026-08-05T08:30:00+00:00",
     },
@@ -42,11 +47,17 @@ const history: PaperJobList = {
 
 const listMock = vi.mocked(listPaperJobs);
 const deleteMock = vi.mocked(deletePaperJobs);
+const replaceMock = vi.mocked(replacePaperJob);
 
 beforeEach(() => {
   vi.clearAllMocks();
   listMock.mockResolvedValue(history);
   deleteMock.mockResolvedValue({ deleted_count: 1 });
+  replaceMock.mockResolvedValue({
+    job_id: "replacement-job",
+    status: "queued",
+    stage: "queued",
+  });
 });
 
 describe("PaperJobHistory", () => {
@@ -64,7 +75,9 @@ describe("PaperJobHistory", () => {
     );
 
     expect(await screen.findByText("QP-2026-P1.pdf")).toBeInTheDocument();
-    expect(screen.getByText("13/13 题完成")).toBeInTheDocument();
+    expect(screen.getByText("处理完成", { selector: ".paper-history-status" }))
+      .toBeInTheDocument();
+    expect(screen.getByText("13/13 题已处理")).toBeInTheDocument();
 
     await user.type(screen.getByRole("searchbox", { name: "按文件名筛选" }), "2026");
     await user.selectOptions(screen.getByRole("combobox", { name: "按状态筛选" }), "completed");
@@ -149,6 +162,34 @@ describe("PaperJobHistory", () => {
     await user.click(screen.getByRole("button", { name: "确认批量删除" }));
     await waitFor(() => expect(deleteMock).toHaveBeenCalledWith(["job-1", "job-2"]));
     expect(onDeleted).toHaveBeenCalledWith("job-2");
+  });
+
+  test("marks legacy results untrusted and creates an auditable replacement", async () => {
+    const user = userEvent.setup();
+    const onOpen = vi.fn();
+    listMock.mockResolvedValue({
+      ...history,
+      items: [{
+        ...history.items[0],
+        source_integrity_status: "legacy_unverified",
+        split_contract_version: null,
+      }],
+    });
+    render(
+      <PaperJobHistory
+        currentJobId={null}
+        onDeleted={vi.fn()}
+        onOpen={onOpen}
+        refreshKey={0}
+        subject={subject}
+      />,
+    );
+
+    expect(await screen.findByText("旧版未验证结果 · 不应作为可信答案"))
+      .toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "修复并重跑" }));
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("job-1"));
+    expect(onOpen).toHaveBeenCalledWith("replacement-job");
   });
 
   test("changes page size and loads the next page with the matching offset", async () => {

@@ -19,9 +19,11 @@ from examtwin.assessment.answering_agent.contracts import (
 from examtwin.assessment.answering_agent.finalization import citation_ids_in_markdown
 from examtwin.assessment.paper_parsing import (
     QuestionSourcePageResolutionError,
+    question_has_unresolved_source_placeholder,
     question_spec_from_item,
     reconcile_question_source_pages,
     upload_to_markdown,
+    validate_question_source_structure,
 )
 from examtwin.assessment.rag import RagService
 from examtwin.contracts.evidence import Citation
@@ -47,11 +49,17 @@ from examtwin.platform.providers import build_llm
 from examtwin.platform.structured_model import LiteLLMStructuredModel
 from examtwin.subjects.public import SubjectContext
 
+SPLIT_CONTRACT_VERSION = "paper-question-split-v6"
+
 PAGE_SECTION = re.compile(
     r"(?=<!--\s*(?:pages?\s+\d+|examtwin:physical-page=\d+))",
     re.IGNORECASE,
 )
-SPLIT_CONTRACT_VERSION = "paper-question-split-v3"
+_SUBPART_LINE = re.compile(
+    r"(?im)^[ \t]*(?:#{1,6}[ \t]*)?(?:\*{1,2})?(?:\d+[ \t]+)?"
+    r"(?P<label>\([a-zivx]+\)(?:[ \t]*\([a-zivx]+\))*)"
+    r"(?:\*{1,2})?(?=[ \t.:]|$)"
+)
 
 SplitCheckpointLoader = Callable[[int, str], list[dict[str, Any]] | None]
 SplitCheckpointSaver = Callable[[int, int, str, list[dict[str, Any]], float], None]
@@ -120,6 +128,181 @@ def _question_number_identity(number: str) -> tuple[str, str | None, bool]:
     return compact, canonical, False
 
 
+def _normalized_subpart_label(label: object) -> str:
+    return re.sub(r"\s+", "", str(label)).lower()
+
+
+def _candidate_sections(item: dict[str, Any]) -> tuple[str, dict[str, str]]:
+    text = str(item.get("question_markdown", "")).strip()
+    expected = {
+        normalized
+        for requirement in item.get("answer_requirements") or []
+        if isinstance(requirement, dict)
+        and (normalized := _normalized_subpart_label(requirement.get("label", "")))
+        and normalized != "whole"
+    }
+    matches = [
+        match
+        for match in _SUBPART_LINE.finditer(text)
+        if not expected or _normalized_subpart_label(match.group("label")) in expected
+    ]
+    if not matches:
+        return text, {}
+    stem = text[: matches[0].start()].strip()
+    sections: dict[str, str] = {}
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        label = _normalized_subpart_label(match.group("label"))
+        section = text[match.start() : end].strip()
+        current = sections.get(label)
+        if current is None or len(section) > len(current):
+            sections[label] = section
+    return stem, sections
+
+
+def _merge_compatible_source_text(current: str, candidate: str, *, field: str) -> str:
+    if not current:
+        return candidate
+    if not candidate:
+        return current
+    normalized_current = re.sub(r"\s+", " ", current).strip()
+    normalized_candidate = re.sub(r"\s+", " ", candidate).strip()
+    if normalized_current == normalized_candidate:
+        return current
+    if normalized_candidate.startswith(normalized_current):
+        return candidate
+    if normalized_current.startswith(normalized_candidate):
+        return current
+    raise ValueError(f"同题号主源{field}冲突，不能按文本长度择优")
+
+
+def _without_split_metadata(item: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in item.items() if not key.startswith("_split_")}
+
+
+def _requirement_map(item: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    requirements: dict[str, dict[str, Any]] = {}
+    for requirement in item.get("answer_requirements") or []:
+        if not isinstance(requirement, dict):
+            continue
+        label = _normalized_subpart_label(requirement.get("label", ""))
+        if label:
+            requirements[label] = requirement
+    return requirements
+
+
+def _requirements_compatible(
+    narrower: dict[str, dict[str, Any]],
+    broader: dict[str, dict[str, Any]],
+) -> bool:
+    for label, requirement in narrower.items():
+        other = broader[label]
+        for key in requirement.keys() | other.keys():
+            if key == "label":
+                continue
+            value = requirement.get(key)
+            other_value = other.get(key)
+            if (
+                value not in (None, "", [])
+                and other_value not in (None, "", [])
+                and value != other_value
+            ):
+                return False
+    return True
+
+
+def _drop_structurally_dominated_candidates(
+    candidates: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    requirement_maps = [_requirement_map(item) for item in candidates]
+    retained: list[dict[str, Any]] = []
+    for index, item in enumerate(candidates):
+        requirements = requirement_maps[index]
+        dominated = bool(requirements) and any(
+            requirements.keys() < other.keys() and _requirements_compatible(requirements, other)
+            for other_index, other in enumerate(requirement_maps)
+            if other_index != index
+        )
+        if not dominated:
+            retained.append(item)
+    return retained
+
+
+def _merge_top_level_candidates(
+    candidates: list[dict[str, Any]],
+) -> dict[str, Any]:
+    primary = [item for item in candidates if item.get("_split_source", "primary") != "recovery"]
+    trusted = primary or candidates
+    trusted = sorted(
+        trusted,
+        key=lambda item: int(item.get("_split_batch_index", 0)),
+    )
+    source_digests = {
+        str(item["_split_source_digest"]) for item in trusted if item.get("_split_source_digest")
+    }
+    if len(source_digests) > 1:
+        raise ValueError("同题号候选来自不同主源，禁止跨来源合并")
+    trusted = _drop_structurally_dominated_candidates(trusted)
+    repaired = _without_split_metadata(dict(trusted[0]))
+    repaired.pop("source_pages", None)
+
+    stem = ""
+    sections: dict[str, str] = {}
+    section_order: list[str] = []
+    requirements: dict[str, dict[str, Any]] = {}
+    requirement_order: list[str] = []
+    knowledge_codes: list[str] = []
+    for item in trusted:
+        candidate_stem, candidate_sections = _candidate_sections(item)
+        stem = _merge_compatible_source_text(stem, candidate_stem, field="题干")
+        for label, section in candidate_sections.items():
+            if label not in sections:
+                section_order.append(label)
+                sections[label] = section
+            else:
+                sections[label] = _merge_compatible_source_text(
+                    sections[label],
+                    section,
+                    field=f"子问 {label}",
+                )
+        for requirement in item.get("answer_requirements") or []:
+            if not isinstance(requirement, dict):
+                continue
+            label = _normalized_subpart_label(requirement.get("label", ""))
+            if not label:
+                continue
+            if label not in requirements:
+                requirement_order.append(label)
+                requirements[label] = dict(requirement)
+                continue
+            current = requirements[label]
+            for key, value in requirement.items():
+                if current.get(key) in (None, "", []) and value not in (None, "", []):
+                    current[key] = value
+                elif (
+                    value not in (None, "", [])
+                    and current.get(key) not in (None, "", [])
+                    and current[key] != value
+                ):
+                    raise ValueError(f"同题号主源子问 {label} 的 {key} 冲突")
+        for code in item.get("knowledge_codes") or []:
+            normalized_code = str(code).strip()
+            if normalized_code and normalized_code not in knowledge_codes:
+                knowledge_codes.append(normalized_code)
+
+    text_parts = [stem, *(sections[label] for label in section_order)]
+    repaired["question_markdown"] = "\n\n".join(part for part in text_parts if part).strip()
+    if requirements:
+        repaired_requirements = [requirements[label] for label in requirement_order]
+        repaired["answer_requirements"] = repaired_requirements
+        raw_marks = [requirement.get("marks") for requirement in repaired_requirements]
+        marks = [mark for mark in raw_marks if isinstance(mark, int) and not isinstance(mark, bool)]
+        repaired["total_marks"] = sum(marks) if raw_marks and len(marks) == len(raw_marks) else None
+    if knowledge_codes:
+        repaired["knowledge_codes"] = knowledge_codes
+    return repaired
+
+
 def _merge_split_questions(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     identities = [_question_number_identity(str(item.get("number", "?")).strip()) for item in items]
     top_level_numbers = {
@@ -127,34 +310,26 @@ def _merge_split_questions(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         for _compact, canonical, is_top_level in identities
         if canonical is not None and is_top_level
     }
-    merged: list[dict[str, Any]] = []
-    merged_is_top_level: list[bool] = []
+    groups: list[list[tuple[dict[str, Any], bool]]] = []
     positions: dict[str, int] = {}
     for item, (compact, canonical, is_top_level) in zip(items, identities, strict=True):
         key = canonical if canonical in top_level_numbers else compact
         if not key or key == "?" or key not in positions:
             if key and key != "?":
-                positions[key] = len(merged)
-            merged.append(item)
-            merged_is_top_level.append(is_top_level)
+                positions[key] = len(groups)
+            groups.append([(item, is_top_level)])
             continue
-        position = positions[key]
-        previous = merged[position]
-        previous_is_top_level = merged_is_top_level[position]
-        if previous_is_top_level and not is_top_level:
-            # Recovery text may split one complete top-level question into numbered fragments.
-            continue
-        if is_top_level and not previous_is_top_level:
-            merged[position] = item
-            merged_is_top_level[position] = True
-            continue
-        previous_text = str(previous.get("question_markdown", ""))
-        candidate_text = str(item.get("question_markdown", ""))
-        if len(candidate_text) > len(previous_text):
-            replacement = dict(item)
-            if is_top_level:
-                replacement["number"] = previous.get("number", item.get("number"))
-            merged[position] = replacement
+        groups[positions[key]].append((item, is_top_level))
+
+    merged: list[dict[str, Any]] = []
+    for group in groups:
+        top_level = [item for item, is_top_level in group if is_top_level]
+        if top_level:
+            repaired = _merge_top_level_candidates(top_level)
+            repaired["number"] = group[0][0].get("number", repaired.get("number"))
+            merged.append(repaired)
+        else:
+            merged.append(_without_split_metadata(group[0][0]))
     return merged
 
 
@@ -182,12 +357,7 @@ def _combine_repair_group(
         )
     ]
     if exact_top_level:
-        repaired = dict(
-            max(
-                exact_top_level,
-                key=lambda item: len(str(item.get("question_markdown", ""))),
-            )
-        )
+        repaired = _merge_top_level_candidates(exact_top_level)
     else:
         repaired = dict(items[0])
         texts = list(
@@ -294,25 +464,34 @@ class PaperAnswerService:
         markdown: str,
         catalog: list[dict[str, Any]],
         *,
+        primary_markdown: str | None = None,
         load_checkpoint: SplitCheckpointLoader | None = None,
         save_checkpoint: SplitCheckpointSaver | None = None,
     ) -> list[dict[str, Any]]:
         del catalog
 
-        def split_batch(batch: str) -> list[dict[str, Any]]:
+        def split_batch(batch: str, source_kind: str) -> list[dict[str, Any]]:
+            source_instruction = (
+                "This batch is PRIMARY visually reviewed Markdown. Preserve its wording and "
+                "mathematics exactly."
+                if source_kind == "primary"
+                else "This batch is a RECOVERY text-layer appendix. Return only questions that "
+                "are genuinely absent from the primary source. Never emit placeholders such as "
+                "'as printed', 'omitted', or 'not captured', and never rewrite primary content."
+            )
             prompt = f"""
 You extract top-level questions from a {self.subject.pack.title} examination paper.
+Source authority: {source_instruction}
 MinerU may omit a printed question number or place a question inside an HTML table.
 Reconstruct the ordered top-level questions using surrounding numbers, mark labels,
 page turns and subpart labels. Keep every subpart with its top-level question. Ignore
 instructions, cover pages, examiner-use tables and blank answer lines. Do not solve.
 Sections marked with physical page comments may already have been reconciled against
 the page images. Treat that visually reviewed Markdown as the primary source.
-The input may include a PDF text-layer recovery appendix after the MinerU Markdown.
-It can duplicate content, but it may contain wording that MinerU omitted. Merge the two
-sources without duplication and restore missing subparts from the recovery text.
+The worker separates visually reviewed primary Markdown from any lower-authority PDF
+text-layer recovery appendix. Never let recovery wording replace primary wording.
 Before returning, verify that every visible top-level number, subpart label and mark
-value in the primary source appears exactly once in the resulting question list.
+value in this batch appears exactly once in the resulting question list.
 Each visually reviewed PDF page starts with an immutable
 `<!-- examtwin:physical-page=N -->` marker. The application derives source pages from
 question positions after your response, so `source_pages` is only a compatibility
@@ -324,6 +503,8 @@ information. It must be false for text-only probability/algebra questions even t
 their source PDF pages are available.
 Extract an `answer_requirements` item for every visible subpart, or one item labelled
 `whole` when there are no subparts. Preserve the printed subpart label and marks.
+Start every printed subpart on a new line with its exact label, for example `(a)` or
+`(a)(i)`. This allows deterministic repair when one question crosses batch boundaries.
 `answer_kind` must be one of text, numeric, expression, proof, table, math_plot,
 math_diagram, economics_diagram, image. Copy an explicit accuracy instruction and required units.
 Set `required_tool` only when the candidate must create that answer artifact:
@@ -374,19 +555,48 @@ Paper Markdown:
                 raise ValueError("模型没有返回可用的试卷题目列表")
             return [item for item in questions if isinstance(item, dict)]
 
-        batches = _split_markdown_batches(
-            markdown,
-            max_chars=self.settings.paper_split_max_chars,
-        )
+        source_documents: list[tuple[str, str, str]] = [
+            (
+                "primary",
+                markdown,
+                hashlib.sha256(markdown.encode("utf-8")).hexdigest(),
+            )
+        ]
+        if primary_markdown is not None and markdown.startswith(primary_markdown):
+            recovery_markdown = markdown[len(primary_markdown) :].strip()
+            source_documents = [
+                (
+                    "primary",
+                    primary_markdown,
+                    hashlib.sha256(primary_markdown.encode("utf-8")).hexdigest(),
+                )
+            ]
+            if recovery_markdown:
+                source_documents.append(
+                    (
+                        "recovery",
+                        recovery_markdown,
+                        hashlib.sha256(recovery_markdown.encode("utf-8")).hexdigest(),
+                    )
+                )
+        batches = [
+            (source_kind, source_digest, batch)
+            for source_kind, source_markdown, source_digest in source_documents
+            for batch in _split_markdown_batches(
+                source_markdown,
+                max_chars=self.settings.paper_split_max_chars,
+            )
+        ]
         completed: dict[int, list[dict[str, Any]]] = {}
-        pending: list[tuple[int, str, str]] = []
-        for batch_index, batch in enumerate(batches):
+        pending: list[tuple[int, str, str, str]] = []
+        for batch_index, (source_kind, _source_digest, batch) in enumerate(batches):
             digest = hashlib.sha256(
                 json.dumps(
                     {
                         "contract": SPLIT_CONTRACT_VERSION,
                         "model": self.settings.paper_split_model,
                         "reasoning_effort": self.settings.paper_split_reasoning_effort,
+                        "source_kind": source_kind,
                         "markdown": batch,
                     },
                     ensure_ascii=False,
@@ -395,7 +605,7 @@ Paper Markdown:
             ).hexdigest()
             cached = load_checkpoint(batch_index, digest) if load_checkpoint else None
             if cached is None:
-                pending.append((batch_index, digest, batch))
+                pending.append((batch_index, digest, batch, source_kind))
             else:
                 completed[batch_index] = cached
 
@@ -405,12 +615,12 @@ Paper Markdown:
                 max_workers=min(self.settings.paper_split_concurrency, len(pending))
             ) as executor:
                 futures = {
-                    executor.submit(split_batch, batch): (
+                    executor.submit(split_batch, batch, source_kind): (
                         batch_index,
                         digest,
                         time.monotonic(),
                     )
-                    for batch_index, digest, batch in pending
+                    for batch_index, digest, batch, source_kind in pending
                 }
                 for future in as_completed(futures):
                     batch_index, digest, batch_started = futures[future]
@@ -430,9 +640,14 @@ Paper Markdown:
         if first_error is not None:
             raise first_error
 
-        extracted = [
-            item for batch_index in range(len(batches)) for item in completed.get(batch_index, [])
-        ]
+        extracted: list[dict[str, Any]] = []
+        for batch_index, (source_kind, source_digest, _batch) in enumerate(batches):
+            for item in completed.get(batch_index, []):
+                tagged = dict(item)
+                tagged["_split_source"] = source_kind
+                tagged["_split_source_digest"] = source_digest
+                tagged["_split_batch_index"] = batch_index
+                extracted.append(tagged)
         return _merge_split_questions(extracted)
 
     @staticmethod
@@ -698,10 +913,12 @@ Paper Markdown:
         if len(markdown.strip()) < 20:
             raise ValueError("解析后的试卷内容过短，无法识别题目")
         catalog = self._catalog(unit_code)
+        trusted_source = source_markdown or markdown
         if self.splitter is None:
             questions = self._split_with_llm(
                 markdown,
                 catalog,
+                primary_markdown=source_markdown,
                 load_checkpoint=load_checkpoint,
                 save_checkpoint=save_checkpoint,
             )
@@ -710,13 +927,19 @@ Paper Markdown:
         normalized = [item for item in questions if str(item.get("question_markdown", "")).strip()]
         if not normalized:
             raise ValueError("没有识别到顶层题目，请检查试卷内容或 MinerU 解析结果")
+        damaged = [
+            str(item.get("number", "?"))
+            for item in normalized
+            if question_has_unresolved_source_placeholder(str(item.get("question_markdown", "")))
+        ]
+        if damaged:
+            raise ValueError("题目包含未修复的原卷占位符：" + ", ".join(damaged))
         for item in normalized:
             spec = question_spec_from_item(item)
             item["answer_requirements"] = [part.model_dump(mode="json") for part in spec.subparts]
             item["total_marks"] = spec.total_marks
-        trusted_source = source_markdown or markdown
         try:
-            return reconcile_question_source_pages(trusted_source, normalized)
+            reconciled = reconcile_question_source_pages(trusted_source, normalized)
         except QuestionSourcePageResolutionError as source_error:
             try:
                 repaired = self._repair_question_structure(
@@ -726,7 +949,16 @@ Paper Markdown:
                 )
             except Exception as repair_error:
                 raise ValueError(f"{source_error}；结构修复失败：{repair_error}") from repair_error
-            return reconcile_question_source_pages(trusted_source, repaired)
+            reconciled = reconcile_question_source_pages(trusted_source, repaired)
+        validated = validate_question_source_structure(trusted_source, reconciled)
+        damaged = [
+            str(item.get("number", "?"))
+            for item in validated
+            if question_has_unresolved_source_placeholder(str(item.get("question_markdown", "")))
+        ]
+        if damaged:
+            raise ValueError("主源包含未修复的原卷占位符：" + ", ".join(damaged))
+        return validated
 
     def answer_question(
         self,
