@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
@@ -13,11 +13,12 @@ from pydantic import ValidationError
 from examtwin.assessment.answering_agent.contracts import (
     required_answer_artifacts_are_present,
 )
+from examtwin.assessment.paper_answering import SPLIT_CONTRACT_VERSION
 from examtwin.assessment.paper_job_repository import PaperJobRepository
 from examtwin.assessment.paper_parsing import (
     MAX_UPLOAD_BYTES,
     SUPPORTED_SUFFIXES,
-    question_requires_visual_context,
+    question_has_unresolved_source_placeholder,
     question_spec_from_item,
 )
 from examtwin.assessment.paper_sources import PaperSourceStore
@@ -45,10 +46,25 @@ ACTIVE_JOB_STATUSES = ("queued", "parsing", "vision_review", "splitting", "answe
 TERMINAL_JOB_STATUSES = ("completed", "partial_failed", "failed")
 
 
-def _question_source_warnings(question: str) -> list[str]:
-    if question_requires_visual_context(question):
+def _question_source_warnings(
+    question: str,
+    requires_visual_context: bool | None,
+    source_integrity_status: str,
+) -> list[str]:
+    if source_integrity_status != "verified":
+        return ["该题来自旧版未验证分题契约；请创建替代任务后再使用。"]
+    if question_has_unresolved_source_placeholder(question):
+        return ["题干提取不完整；该任务不满足来源完整性契约。"]
+    if requires_visual_context:
         return ["本题依赖图形；请核对题干下方的原卷页图、坐标和阴影区域。"]
     return []
+
+
+def _requires_replacement(job: Mapping[str, Any]) -> bool:
+    integrity = str(job.get("source_integrity_status") or "")
+    return integrity in {"legacy_unverified", "replacement_queued"} or (
+        integrity == "verified" and job.get("split_contract_version") != SPLIT_CONTRACT_VERSION
+    )
 
 
 class PaperJobService:
@@ -99,6 +115,7 @@ class PaperJobService:
             limit=limit,
             offset=offset,
         )
+        replacement_ids = self.repository.replacement_ids([str(row["id"]) for row in rows])
         return PaperJobListResponse(
             items=[
                 PaperJobSummary(
@@ -110,6 +127,10 @@ class PaperJobService:
                     total_questions=row["total_questions"],
                     completed_questions=row["completed_questions"],
                     failed_questions=row["failed_questions"],
+                    source_integrity_status=row["source_integrity_status"],
+                    split_contract_version=row["split_contract_version"],
+                    replacement_for_job_id=row["replacement_for_job_id"],
+                    replaced_by_job_id=replacement_ids.get(str(row["id"])),
                     created_at=str(row["created_at"]),
                     updated_at=str(row["updated_at"]),
                 )
@@ -204,6 +225,10 @@ class PaperJobService:
                     ),
                     "graph_version_id": self.subject.graph_version_id,
                     "source_path": source_rel,
+                    "source_integrity_status": "pending",
+                    "split_contract_version": None,
+                    "split_source_digest": None,
+                    "replacement_for_job_id": None,
                     "status": "queued",
                     "stage": "queued",
                     "total_pages": 0,
@@ -279,7 +304,14 @@ class PaperJobService:
                     number=row["number"],
                     question_markdown=row["question_markdown"],
                     source_pages=source_pages,
-                    source_warnings=_question_source_warnings(row["question_markdown"]),
+                    source_warnings=_question_source_warnings(
+                        row["question_markdown"],
+                        row["requires_visual_context"],
+                        job["source_integrity_status"],
+                    ),
+                    source_kind=row["source_kind"],
+                    source_digest=row["source_digest"],
+                    requires_visual_context=row["requires_visual_context"],
                     answer_requirements=requirements.get("subparts", []),
                     total_marks=requirements.get("total_marks"),
                     answer_markdown=repair_markdown_latex(
@@ -314,6 +346,11 @@ class PaperJobService:
             completed_questions=job["completed_questions"],
             failed_questions=job["failed_questions"],
             error=job["error"],
+            source_integrity_status=job["source_integrity_status"],
+            split_contract_version=job["split_contract_version"],
+            split_source_digest=job["split_source_digest"],
+            replacement_for_job_id=job["replacement_for_job_id"],
+            replaced_by_job_id=self.repository.replacement_id(job_id),
             created_at=str(job["created_at"]),
             updated_at=str(job["updated_at"]),
             chunks=[
@@ -345,15 +382,38 @@ class PaperJobService:
         return self.files.source_page(job, job_id, page_number)
 
     def retry(self, job_id: str) -> PaperJobCreated:
-        self._require_job(job_id)
+        job = self._require_job(job_id)
+        if _requires_replacement(job):
+            raise ValueError("旧版来源完整性契约的任务不能原地重试，请创建替代任务")
         self.repository.retry_job(job_id)
         self.files.extend_retention(job_id)
         return PaperJobCreated(job_id=job_id, status="queued", stage="queued")
 
+    def create_replacement(self, job_id: str) -> PaperJobCreated:
+        job = self._require_job(job_id)
+        if job["status"] not in TERMINAL_JOB_STATUSES:
+            raise ValueError("只有已结束的试卷任务可以创建替代任务")
+        if not _requires_replacement(job) and job["source_integrity_status"] == "verified":
+            raise ValueError("该试卷任务已通过当前来源完整性契约")
+        existing = self.repository.replacement_id(job_id)
+        if existing is not None:
+            raise ValueError(f"该试卷已有替代任务：{existing}")
+        source_path, filename, _suffix = self.source_file(job_id)
+        with source_path.open("rb") as source:
+            replacement = self.create_job_from_stream(
+                filename,
+                source,
+                unit_code=job["unit_code"],
+            )
+        self.repository.link_replacement(job_id, replacement.job_id)
+        return replacement
+
     def retry_question(self, job_id: str, position: int) -> PaperJobCreated:
         if position < 0:
             raise ValueError("题目位置不能为负数")
-        self._require_job(job_id)
+        job = self._require_job(job_id)
+        if _requires_replacement(job):
+            raise ValueError("旧版来源完整性契约的任务不能原地重试，请创建替代任务")
         question = self.repository.retry_candidate(job_id, position)
         if question["status"] == "completed":
             try:

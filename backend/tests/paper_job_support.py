@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 from io import BytesIO
 from typing import Any
@@ -59,6 +60,7 @@ class FakePaperJobs:
                     total_questions=2,
                     completed_questions=2,
                     failed_questions=0,
+                    source_integrity_status="verified",
                     created_at="2026-07-29T00:00:00+00:00",
                     updated_at="2026-07-29T00:05:00+00:00",
                 )
@@ -114,6 +116,7 @@ class FakePaperJobs:
             total_questions=0,
             completed_questions=0,
             failed_questions=0,
+            source_integrity_status="verified",
             created_at="2026-07-29T00:00:00+00:00",
             updated_at="2026-07-29T00:00:00+00:00",
         )
@@ -122,6 +125,11 @@ class FakePaperJobs:
         if job_id != "job-1":
             raise LookupError("试卷任务不存在")
         return PaperJobCreated(job_id=job_id, status="queued", stage="queued")
+
+    def create_replacement(self, job_id: str) -> PaperJobCreated:
+        if job_id != "job-1":
+            raise LookupError("试卷任务不存在")
+        return PaperJobCreated(job_id="replacement-job", status="queued", stage="queued")
 
 
 class CapturingCreateJobRepository:
@@ -140,7 +148,7 @@ class FakeUpload:
 class FakeAnswerService:
     def split_questions(
         self,
-        _markdown: str,
+        markdown: str,
         *,
         unit_code: str | None = None,
     ) -> list[dict[str, Any]]:
@@ -151,6 +159,9 @@ class FakeAnswerService:
                 "question_markdown": "Evaluate the integral, showing all working.",
                 "source_pages": [1],
                 "knowledge_codes": ["P2.7.O03"],
+                "requires_visual_context": False,
+                "source_kind": "primary",
+                "source_digest": hashlib.sha256(markdown.encode("utf-8")).hexdigest(),
             }
         ]
 

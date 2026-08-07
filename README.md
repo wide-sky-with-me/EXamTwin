@@ -266,6 +266,12 @@ provider 适配器归入 `assessment/answering_agent`，通用模型、embedding
 任务行而不是瞬时通知承担持久队列真相。Worker 用 60 秒 PostgreSQL 租约并每 20 秒续租；
 进程异常退出时，新 Worker 最多约一分钟后接管，不会重做已完成页段或题目。
 
+分题进入作答前必须与视觉复核主源逐项对齐题号、子问、分值和来源页，并持久化主源摘要、
+分题契约版本与唯一视觉依赖判定；PDF 文本恢复只用于定位完全漏题，不能覆盖已有主源题目。
+升级前的已结束任务会显示为 `legacy_unverified`，不能原地重试。调用
+`POST /api/v1/papers/jobs/{job_id}/replace` 可从同一原卷创建新任务；旧任务、新任务及替代
+方向保留用于审计。
+
 ## 评分契约
 
 `POST /api/v1/grading/rubrics` 只能为已完成的 Question Paper 作答任务创建评分规则，

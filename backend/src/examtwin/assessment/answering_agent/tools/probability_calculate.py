@@ -19,6 +19,7 @@ class ProbabilityInput(BaseModel):
         "poisson_cdf",
         "poisson_sf",
         "normal_cdf",
+        "normal_sf",
         "normal_interval",
         "normal_ppf",
     ]
@@ -43,9 +44,9 @@ class ProbabilityInput(BaseModel):
         elif self.operation.startswith("poisson_"):
             if self.rate is None or self.k is None:
                 raise ValueError("poisson operations require rate and k")
-        elif self.operation == "normal_cdf":
+        elif self.operation in {"normal_cdf", "normal_sf"}:
             if self.mean is None or self.standard_deviation is None or self.value is None:
-                raise ValueError("normal_cdf requires mean, standard_deviation and value")
+                raise ValueError(f"{self.operation} requires mean, standard_deviation and value")
         elif self.operation == "normal_interval":
             if (
                 self.mean is None
@@ -99,10 +100,15 @@ def calculate_probability(data: ProbabilityInput) -> str:
         assert data.mean is not None and data.standard_deviation is not None
         distribution_model = NormalDist(mu=data.mean, sigma=data.standard_deviation)
         distribution = f"X ~ N({data.mean}, {data.standard_deviation}^2)"
-        if operation == "normal_cdf":
+        if operation in {"normal_cdf", "normal_sf"}:
             assert data.value is not None
-            result = distribution_model.cdf(data.value)
-            event = f"P(X <= {data.value})"
+            if operation == "normal_cdf":
+                result = distribution_model.cdf(data.value)
+                event = f"P(X <= {data.value})"
+            else:
+                z = (data.value - data.mean) / data.standard_deviation
+                result = 0.5 * math.erfc(z / math.sqrt(2))
+                event = f"P(X > {data.value})"
         elif operation == "normal_interval":
             assert data.lower is not None and data.upper is not None
             result = distribution_model.cdf(data.upper) - distribution_model.cdf(data.lower)

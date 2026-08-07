@@ -11,9 +11,9 @@ epic: ""
 
 ## 目标
 
-整卷作答在 `pair_key` 存在时，检索结果既不能带回其他场次的 Mark Scheme 等评分资料，
-也不能把跨卷的原始证据 chunk 泄漏进当前题的答案上下文。修复后 raw fallback 与知识卡片
-在来源边界上闭合一致。
+确认 `RagService.retrieve` 的公开结果在显式检索范围下始终闭合，并消除“raw fallback 会跳过
+pair_key 门禁”的不实风险描述。若公开路径已经保证该不变量，则只补契约回归并关闭，不在私有
+helper 中复制一套容易漂移的过滤逻辑。
 
 ## 范围
 
@@ -28,38 +28,45 @@ epic: ""
 
 ## 当前证据
 
-- 预期行为：`pair_key` 存在时，返回给 Agent 的节点（含 raw fallback）都必须属于该场次
-  的 `pair_key`，评分资料（Mark Scheme / Examiner Report / question_paper）绝不进入作答。
-- 实际行为：需要核对。`_in_scope` 在 retrieve 阶段已按 `pair_key` 与 `source_role` 过滤原始
-  节点；`_filter_cards_to_scope` 对知识卡片按 `pair_key` 过滤；但 `_raw_fallbacks`
-  （`rag.py:388-419`）在构建 raw fallback 时**只按 `(document_id, page, section)` 去重**，
-  没有再次核对 `pair_key`——它依赖上游 reranked 节点“已过 scope”这一前提。
-- 最小场景：`pair_key` 非空、某场次 rerank 结果混入非同场次但同文档/同页的原始节点时，
-  raw fallback 可能带上不属于当前场次的证据。
-- 原始证据：`backend/src/examtwin/assessment/rag.py` 的 `_raw_fallbacks` 与
-  `_filter_cards_to_scope` 实现；`_in_scope` 仅出现在 retrieve 主路径。
+- `retrieve` 在 Qdrant 召回前把 `subject_code`、Unit、`pair_key`、来源类型、权威等级和
+  `source_role` 写入 payload must 过滤；召回后又由 `_in_scope` 对同一组字段做第二次门禁。
+- `SiliconFlowReranker.rerank` 只按服务返回的索引重新引用输入 `nodes[index].node`，不能创建、
+  改写或注入节点；`_expand_parent_context` 只用已通过门禁的子节点 metadata 替换其正文为同
+  build 的父块内容，不改变节点作用域身份。
+- `_raw_fallbacks` 的输入因此是已经通过两层过滤、且 rerank 不可扩张的节点集合。它只负责
+  排除已由知识卡片表示的原文和去重，不是新的召回边界。
+- 整卷 Answering Agent 的 `knowledge_search` 有意不传 `pair_key`：核心知识库的 syllabus /
+  textbook 不是某一场试卷的配对资料；当前卷的 `pair_key` 只供 `paired_exam_lookup` 严格读取
+  Question Paper Insert。Mark Scheme / Examiner Report 已从作答工具和允许的 source role
+  中排除。
+- 原事项的最小场景要求“rerank 结果凭空混入跨场次节点”，不可能由当前生产 reranker 构造；
+  直接把越界节点塞给私有 `_raw_fallbacks` 只是在测试不可达状态，不能证明公开路径有漏洞。
 
 ## 根因定位
 
-- 最可能根因：`_raw_fallbacks` 未在下游独立重申 `pair_key` / `authority_tier` / `source_type`
-  边界，把“上游已过滤”当作不变前提；一旦上游 `_in_scope` 的 `source_role` 判定与卡片
-  `_filter_cards_to_scope` 的边界口径不一致，raw fallback 就可能成为越界入口。
-- 影响面：整卷作答与普通问答的证据边界；属于信息安全性 / 可核查性约束。
+- 根因不是生产代码泄漏，而是审计时把去重 helper 误当成独立信任边界，并混淆了知识检索与
+  严格配对试卷资料两个通道。
+- 剩余真实风险是未来重构绕过 `retrieve` 的双层门禁，或让 reranker/父块扩展获得节点扩张
+  能力；应由公开 `retrieve` 契约测试防止，而不是在每个下游 helper 重复过滤。
 
 ## 方案判断
 
-- 核对 `_raw_fallbacks` 依赖的上游节点是否必然已满足 `pair_key` 与评分资料排除边界；
-  若纯依赖上游，则在 `_raw_fallbacks` 内显式重申 `pair_key` 与 `source_role` 过滤，
-  使 raw fallback 与卡片在来源边界上闭合一致。
-- 补充针对“pair_key 非空时 raw fallback 不跨场次、不含评分资料”的单元测试。
+1. 保持 `_raw_fallbacks` 单一去重职责，不新增第三套 `pair_key` / 来源过滤。
+2. 补一个公开 `retrieve` 回归：底层召回同时返回同场次、跨场次和评分资料节点，断言只有合法
+   节点能进入 reranker、知识卡片和 raw fallback。
+3. 补一个 Answering Agent 工具回归：`knowledge_search` 不把当前试卷 `pair_key` 施加给
+   syllabus/textbook；`paired_exam_lookup` 则必须使用该 `pair_key`。
+4. 测试通过后将本事项按“风险不成立、契约已固化”关闭；无需改 project spec，因为现有
+   “配对键先于语义相似”只适用于配对资料，不应扩张为核心知识库过滤规则。
 
 ## 验证
 
-- 新增测试：构造含跨场次原始节点的 rerank 结果，断言 raw fallback 排除非同场次节点、
-  且不含 mark_scheme / examiner_report / question_paper。
-- 既有：`backend/tests/test_rag.py`、`test_paper_answering.py` 相关证据映射用例。
+- `test_rag.py`：公开 `retrieve` 的 prefilter、postfilter、rerank 与 raw fallback 端到端范围
+  完整性。
+- `test_answering_tools.py` / `test_paper_answering.py`：知识检索与配对试卷工具的作用域分离。
+- 若任一公开路径测试失败，才恢复为代码修复；否则不制造重复门禁。
 
 ## 关闭回写
 
-- project spec：`codestable/spec/index.md` “配对键先于语义相似”，确认 raw fallback 与
-  知识卡片在 `pair_key` 边界上闭合一致。
+- 不改 project spec；关闭结论需明确记录：核心知识检索不受当前试卷 `pair_key` 限制，
+  严格配对资料由独立工具按 `pair_key` 读取。

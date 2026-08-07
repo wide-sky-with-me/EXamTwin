@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-API_CONTRACT_VERSION = "2026-08-05.evidence-difficulty-v25"  # gitleaks:allow
+API_CONTRACT_VERSION = "2026-08-07.paper-source-integrity-v26"  # gitleaks:allow
 
 API_CAPABILITIES = (
     "paper_jobs_v1",
@@ -15,6 +15,8 @@ API_CAPABILITIES = (
     "required_answer_artifacts_v1",
     "answer_images_v1",
     "paper_source_pages_v1",
+    "paper_source_integrity_v1",
+    "paper_job_replacement_v1",
     "paper_question_vision_v1",
     "selective_question_vision_v1",
     "paper_question_concurrency_v1",

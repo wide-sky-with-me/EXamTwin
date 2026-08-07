@@ -422,6 +422,17 @@ class PaperJobModel(Base):
     knowledge_base_version_ids_json: Mapped[str] = mapped_column(Text, default="[]")
     knowledge_collection_names_json: Mapped[str] = mapped_column(Text, default="[]")
     graph_version_id: Mapped[str | None] = mapped_column(Text)
+    source_integrity_status: Mapped[str] = mapped_column(
+        Text,
+        default="legacy_unverified",
+    )
+    split_contract_version: Mapped[str | None] = mapped_column(Text)
+    split_source_digest: Mapped[str | None] = mapped_column(Text)
+    replacement_for_job_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("paper_jobs.id", ondelete="RESTRICT"),
+        unique=True,
+    )
     filename: Mapped[str] = mapped_column(Text)
     suffix: Mapped[str] = mapped_column(Text)
     unit_code: Mapped[str | None] = mapped_column(Text)
@@ -476,6 +487,8 @@ class PaperJobQuestionModel(Base):
     question_markdown: Mapped[str] = mapped_column(Text)
     source_pages_json: Mapped[str] = mapped_column(Text, default="[]")
     requires_visual_context: Mapped[bool | None] = mapped_column(Boolean)
+    source_kind: Mapped[str | None] = mapped_column(Text)
+    source_digest: Mapped[str | None] = mapped_column(Text)
     knowledge_codes_json: Mapped[str] = mapped_column(Text, default="[]")
     requirements_json: Mapped[str] = mapped_column(Text, default="{}")
     status: Mapped[str] = mapped_column(Text, default="pending")

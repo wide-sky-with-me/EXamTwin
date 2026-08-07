@@ -32,8 +32,19 @@ import {
   SourcePreviewDialog,
 } from "../components/KnowledgeEvidence";
 import { QuestionMarkdown } from "../components/Markdown";
-import { apiClient, backendResourceUrl, unwrapApi, uploadPaper } from "../lib/api";
-import { canRetryQuestion, paperProgress } from "../lib/paper-job";
+import {
+  apiClient,
+  backendResourceUrl,
+  replacePaperJob,
+  unwrapApi,
+  uploadPaper,
+} from "../lib/api";
+import {
+  canRetryQuestion,
+  PAPER_JOB_STAGE_LABELS,
+  paperProgress,
+  paperQuestionStatusLabel,
+} from "../lib/paper-job";
 import {
   subscribeTaskSnapshots,
   type TaskStreamState,
@@ -65,6 +76,7 @@ export function PaperAnswering({
   const [uploading, setUploading] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [retrying, setRetrying] = useState(false);
+  const [replacing, setReplacing] = useState(false);
   const [retryingQuestion, setRetryingQuestion] = useState<number | null>(null);
   const [streamVersion, setStreamVersion] = useState(0);
   const [streamState, setStreamState] = useState<TaskStreamState>("idle");
@@ -91,8 +103,8 @@ export function PaperAnswering({
           terminalNoticeRef.current = terminalKey;
           notify(
             next.status === "completed"
-              ? `整卷作答完成：${next.completed_questions} 题已生成答案。`
-              : `整卷处理完成，但仍有 ${next.failed_questions} 题需要重试。`,
+              ? `整卷处理完成：${next.completed_questions} 题已处理。`
+              : `整卷处理结束：${next.completed_questions} 题已处理，${next.failed_questions} 题处理失败。`,
           );
         }
         if (next.status === "completed") {
@@ -231,6 +243,22 @@ export function PaperAnswering({
     }
   }
 
+  async function replaceCurrentJob() {
+    if (!job) return;
+    setReplacing(true);
+    setError(null);
+    try {
+      const replacement = await replacePaperJob(job.job_id);
+      notify("已创建替代任务；旧结果将保留用于审计。");
+      setHistoryVersion((version) => version + 1);
+      openHistoryJob(replacement.job_id);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "替代任务创建失败");
+    } finally {
+      setReplacing(false);
+    }
+  }
+
   async function retryQuestion(position: number) {
     if (!job) return;
     setRetryingQuestion(position);
@@ -285,14 +313,6 @@ export function PaperAnswering({
   const overallProgress = job ? paperProgress(job) : 0;
   const selectedCanRetry = selected ? terminal && canRetryQuestion(selected) : false;
   const failedChunks = job?.chunks.filter((chunk) => chunk.status === "failed") ?? [];
-  const stageLabels: Record<string, string> = {
-    queued: "等待 Worker",
-    parsing: "分段解析",
-    vision_review: "逐页视觉复核",
-    splitting: "识别题目",
-    answering: "逐题作答",
-    completed: "处理完成",
-  };
 
   return (
     <section>
@@ -367,25 +387,51 @@ export function PaperAnswering({
       </form>
       )}
       {job && (
+        job.source_integrity_status === "legacy_unverified"
+        || job.source_integrity_status === "replacement_queued"
+      ) && (
+        <div className="paper-integrity-warning" role="alert">
+          <TriangleAlert size={19} />
+          <div>
+            <strong>这份历史结果未通过当前来源完整性契约</strong>
+            <p>题干可能存在旧版无声遗漏。旧答案仅供审计，不应作为可信作答结果。</p>
+          </div>
+          <button
+            className="secondary"
+            disabled={replacing}
+            onClick={() => {
+              if (job.replaced_by_job_id) openHistoryJob(job.replaced_by_job_id);
+              else void replaceCurrentJob();
+            }}
+            type="button"
+          >
+            {replacing
+              ? <LoaderCircle className="spin" size={15} />
+              : <RefreshCw size={15} />}
+            {job.replaced_by_job_id ? "查看替代任务" : "修复并重跑"}
+          </button>
+        </div>
+      )}
+      {job && (
         <article className={`panel paper-progress ${job.status}`}>
           <div>
-            <span>{stageLabels[job.stage] ?? job.stage}</span>
+            <span>{PAPER_JOB_STAGE_LABELS[job.stage]}</span>
             <strong>
               {job.status === "completed"
-                ? `${job.completed_questions} 题答案已生成`
+                ? `${job.completed_questions} 题已处理`
                 : job.status === "partial_failed"
-                  ? `${job.completed_questions} 题完成 · ${job.failed_questions} 题需重试`
+                  ? `${job.completed_questions} 题已处理 · ${job.failed_questions} 题处理失败`
                   : job.status === "failed"
-                    ? "处理未完成，请查看错误信息"
+                    ? "整卷处理失败"
                     : job.stage === "parsing" && job.total_pages
                       ? `${job.parsed_pages} / ${job.total_pages} 页`
                       : job.stage === "vision_review"
-                        ? `${job.parsed_pages} 页已解析 · 正在核对原卷图像`
+                        ? `${job.parsed_pages} 页已解析 · 核对题面中`
                         : job.stage === "answering"
                           ? `${job.completed_questions + job.failed_questions} / ${job.total_questions} 题`
                           : job.status === "queued"
-                            ? "任务已保存，可离开页面"
-                            : stageLabels[job.stage] ?? job.stage}
+                            ? "任务已保存，等待处理"
+                            : PAPER_JOB_STAGE_LABELS[job.stage]}
             </strong>
           </div>
           <div
@@ -444,9 +490,9 @@ export function PaperAnswering({
       ) : (
         <>
           <div className="paper-summary">
-            <strong>{job.total_questions}</strong><span>识别题目</span>
-            <strong>{job.completed_questions}</strong><span>完成</span>
-            <strong className={job.failed_questions ? "failed" : ""}>{job.failed_questions}</strong><span>失败</span>
+            <strong>{job.total_questions}</strong><span>题目</span>
+            <strong>{job.completed_questions}</strong><span>已处理</span>
+            <strong className={job.failed_questions ? "failed" : ""}>{job.failed_questions}</strong><span>处理失败</span>
             <em>{job.filename}</em>
             {terminal && (
               <button className="secondary" onClick={resetPaper} type="button">
@@ -470,12 +516,11 @@ export function PaperAnswering({
                 >
                   <b>Q{item.number}</b>
                   <span>
-                    {item.status === "pending" ? (item.attempts ? `等待自动重试 · 已尝试 ${item.attempts} 次` : "等待作答")
-                      : item.status === "answering" ? (latestStep?.message ?? `正在作答 · 第 ${item.attempts} 次`)
-                        : item.error ? `自动重试 ${item.attempts} 次后失败`
-                          : item.grounded ? "证据充分" : "证据不足"}
+                    {item.status === "answering"
+                      ? (latestStep?.message ?? paperQuestionStatusLabel(item))
+                      : paperQuestionStatusLabel(item)}
                   </span>
-                  <i className={item.error ? "failed" : item.status === "completed" ? "done" : "warn"} />
+                  <i className={item.error ? "failed" : item.status === "completed" && item.grounded ? "done" : "warn"} />
                 </button>
                 );
               })}
@@ -485,17 +530,14 @@ export function PaperAnswering({
               {selected && (
                 <>
                   <div className="result-meta">
-                    <span className={selected.grounded ? "grounded" : "ungrounded"}>
-                      Q{selected.number} ·{" "}
-                      {selected.status === "completed"
-                        ? selected.grounded
-                          ? "证据充分"
-                          : "证据不足"
-                        : selected.status === "pending"
-                          ? "等待作答"
-                          : selected.status === "answering"
-                            ? "正在作答"
-                            : "处理失败"}
+                    <span
+                      className={
+                        selected.status === "completed" && selected.grounded
+                          ? "grounded"
+                          : "ungrounded"
+                      }
+                    >
+                      Q{selected.number} · {paperQuestionStatusLabel(selected)}
                     </span>
                     <div>
                       <span className="confidence-label">答案可信度</span>
@@ -582,7 +624,7 @@ export function PaperAnswering({
                     document.body,
                   )}
                   {selected.status === "pending" || selected.status === "answering" ? (
-                    <div className="answer-block pending-answer"><LoaderCircle className="spin" size={18} />等待后台完成本题</div>
+                    <div className="answer-block pending-answer"><LoaderCircle className="spin" size={18} />{paperQuestionStatusLabel(selected)}</div>
                   ) : selected.error ? <ErrorBanner message={selected.error} /> : (
                     <section className="answer-block" aria-labelledby="current-answer-title">
                       <h2 id="current-answer-title">证据化解答</h2>

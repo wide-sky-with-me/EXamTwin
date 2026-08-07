@@ -551,6 +551,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/papers/jobs/{job_id}/replace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Replace Paper Job */
+        post: operations["replace_paper_job_api_v1_papers_jobs__job_id__replace_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/papers/jobs/{job_id}/retry": {
         parameters: {
             query?: never;
@@ -1668,6 +1685,12 @@ export interface components {
             position: number;
             /** Question Markdown */
             question_markdown: string;
+            /** Requires Visual Context */
+            requires_visual_context: boolean | null;
+            /** Source Digest */
+            source_digest: string | null;
+            /** Source Kind */
+            source_kind: "primary" | null;
             /** Source Pages */
             source_pages: number[];
             /** Source Warnings */
@@ -1706,6 +1729,19 @@ export interface components {
             parsed_pages: number;
             /** Questions */
             questions: components["schemas"]["PaperJobQuestion"][];
+            /** Replaced By Job Id */
+            replaced_by_job_id: string | null;
+            /** Replacement For Job Id */
+            replacement_for_job_id: string | null;
+            /**
+             * Source Integrity Status
+             * @enum {string}
+             */
+            source_integrity_status: "pending" | "verified" | "legacy_unverified" | "replacement_queued";
+            /** Split Contract Version */
+            split_contract_version: string | null;
+            /** Split Source Digest */
+            split_source_digest: string | null;
             /**
              * Stage
              * @enum {string}
@@ -1741,6 +1777,17 @@ export interface components {
             filename: string;
             /** Job Id */
             job_id: string;
+            /** Replaced By Job Id */
+            replaced_by_job_id: string | null;
+            /** Replacement For Job Id */
+            replacement_for_job_id: string | null;
+            /**
+             * Source Integrity Status
+             * @enum {string}
+             */
+            source_integrity_status: "pending" | "verified" | "legacy_unverified" | "replacement_queued";
+            /** Split Contract Version */
+            split_contract_version: string | null;
             /**
              * Stage
              * @enum {string}
@@ -3521,6 +3568,41 @@ export interface operations {
             path: {
                 job_id: string;
                 position: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaperJobCreated"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    replace_paper_job_api_v1_papers_jobs__job_id__replace_post: {
+        parameters: {
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path: {
+                job_id: string;
             };
             cookie?: never;
         };

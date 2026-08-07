@@ -45,6 +45,40 @@ class PaperJobRepository:
             row = session.get(PaperJobModel, job_id)
         return None if row is None else _row_dict(row)
 
+    def replacement_ids(self, job_ids: Sequence[str]) -> dict[str, str]:
+        if not job_ids:
+            return {}
+        with self.sessions() as session:
+            rows = session.execute(
+                select(
+                    PaperJobModel.replacement_for_job_id,
+                    PaperJobModel.id,
+                ).where(PaperJobModel.replacement_for_job_id.in_(job_ids))
+            )
+            return {
+                str(source_id): str(replacement_id)
+                for source_id, replacement_id in rows
+                if source_id is not None
+            }
+
+    def replacement_id(self, job_id: str) -> str | None:
+        return self.replacement_ids((job_id,)).get(job_id)
+
+    def link_replacement(self, job_id: str, replacement_job_id: str) -> None:
+        with self.sessions.begin() as session:
+            source = session.get(PaperJobModel, job_id)
+            replacement = session.get(PaperJobModel, replacement_job_id)
+            if source is None or replacement is None:
+                raise LookupError("试卷替代任务不存在")
+            existing = session.scalar(
+                select(PaperJobModel.id).where(PaperJobModel.replacement_for_job_id == job_id)
+            )
+            if existing is not None:
+                raise ValueError(f"该试卷已有替代任务：{existing}")
+            replacement.replacement_for_job_id = job_id
+            source.source_integrity_status = "replacement_queued"
+            source.updated_at = utcnow()
+
     def list_for_subject(
         self,
         subject_code: str,
@@ -101,6 +135,17 @@ class PaperJobRepository:
                 raise LookupError("部分试卷任务不存在或不属于当前科目")
             if any(row.status not in terminal_statuses for row in rows):
                 raise ValueError("选中的记录包含正在处理的试卷任务，不能删除")
+            has_replacement_lineage = any(
+                row.replacement_for_job_id is not None for row in rows
+            ) or bool(
+                session.scalar(
+                    select(func.count(PaperJobModel.id)).where(
+                        PaperJobModel.replacement_for_job_id.in_(job_ids)
+                    )
+                )
+            )
+            if has_replacement_lineage:
+                raise ValueError("具有替代审计关系的试卷任务不能删除")
             for row in rows:
                 session.delete(row)
         return len(rows)
@@ -492,6 +537,9 @@ class PaperJobRepository:
         job_id: str,
         token: str,
         questions: Sequence[Mapping[str, Any]],
+        *,
+        split_contract_version: str,
+        split_source_digest: str,
     ) -> None:
         with self.sessions.begin() as session:
             self._require_lease(session, job_id, token)
@@ -510,6 +558,9 @@ class PaperJobRepository:
                 job_id,
                 token,
                 total_questions=len(questions),
+                source_integrity_status="verified",
+                split_contract_version=split_contract_version,
+                split_source_digest=split_source_digest,
             )
 
     def start_question(self, job_id: str, token: str, position: int) -> int:

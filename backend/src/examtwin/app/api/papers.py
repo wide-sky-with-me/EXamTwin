@@ -158,6 +158,23 @@ def bulk_delete_paper_jobs(
     return PaperJobBulkDeleteResponse(deleted_count=deleted_count)
 
 
+@router.post(
+    "/papers/jobs/{job_id}/replace",
+    response_model=PaperJobCreated,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def replace_paper_job(
+    job_id: str,
+    jobs: PaperJobService = Depends(get_paper_jobs),
+) -> PaperJobCreated:
+    try:
+        return jobs.create_replacement(job_id)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
 @router.get("/papers/jobs/{job_id}", response_model=PaperJobResponse)
 def paper_job(
     job_id: str,

@@ -28,7 +28,7 @@ from examtwin.assessment.paper_job_repository import LostLeaseError
 from examtwin.assessment.paper_job_runtime import PaperJobRuntime
 from examtwin.assessment.paper_parsing import (
     mineru_reader,
-    question_requires_visual_context,
+    question_has_unresolved_source_placeholder,
 )
 from examtwin.assessment.paper_vision import (
     PaperVisionReviewer,
@@ -728,11 +728,12 @@ class PaperWorker:
         _source_path, _filename, suffix = self.jobs.source_file(job_id)
         if suffix != ".pdf":
             return pages, ()
+        question_markdown = str(row.get("question_markdown", ""))
+        if question_has_unresolved_source_placeholder(question_markdown):
+            raise ValueError("历史题目不满足来源完整性契约，请创建替代任务")
         requires_visual = row.get("requires_visual_context")
-        if requires_visual is None:
-            requires_visual = question_requires_visual_context(
-                str(row.get("question_markdown", ""))
-            )
+        if not isinstance(requires_visual, bool):
+            raise ValueError("PDF 题目缺少持久化的视觉上下文判定，请创建替代任务")
         if not requires_visual:
             return pages, ()
         if not pages:

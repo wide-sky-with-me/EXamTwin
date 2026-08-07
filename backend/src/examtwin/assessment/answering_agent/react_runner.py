@@ -208,12 +208,12 @@ class ReActHarnessRunner:
                     payload,
                     allowed_citation_ids=allowed_citation_ids,
                 )
-            except Exception:
+            except Exception as error:
                 structured_finalizer_available = False
                 context.emit(
                     "deciding",
                     "running",
-                    "结构化答案整理不可用，正在使用兼容恢复",
+                    f"结构化答案整理不可用（{type(error).__name__}），正在使用兼容恢复",
                 )
                 return None
             return payload.model_dump_json()

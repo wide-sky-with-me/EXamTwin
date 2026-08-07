@@ -11,6 +11,7 @@ from examtwin.app.api.papers import (
     delete_paper_job,
     paper_job,
     paper_jobs,
+    replace_paper_job,
     retry_paper_job,
 )
 from examtwin.app.api.papers import router as paper_router
@@ -129,13 +130,18 @@ async def test_paper_upload_api_returns_a_persistent_job_receipt(
     assert jobs.created == ("paper.md", b"# Question 1\nSolve it.", "P2")
     assert paper_job("job-1", jobs=jobs).filename == "paper.md"  # type: ignore[arg-type]
     assert retry_paper_job("job-1", jobs=jobs).status == "queued"  # type: ignore[arg-type]
+    assert replace_paper_job("job-1", jobs=jobs).job_id == "replacement-job"  # type: ignore[arg-type]
 
     upload_route = next(route for route in paper_router.routes if route.path == "/papers/answer")
     retry_route = next(
         route for route in paper_router.routes if route.path.endswith("/{job_id}/retry")
     )
+    replacement_route = next(
+        route for route in paper_router.routes if route.path.endswith("/{job_id}/replace")
+    )
     assert upload_route.status_code == 202
     assert retry_route.status_code == 202
+    assert replacement_route.status_code == 202
 
 
 def test_paper_history_api_lists_filters_and_deletes_terminal_jobs() -> None:
@@ -243,7 +249,27 @@ def test_paper_job_websocket_receives_real_postgres_trigger(tmp_path: Path) -> N
 
 
 def test_question_source_warnings_only_flag_non_structural_figure_hint() -> None:
-    warnings = _question_source_warnings("Figure 2 shows a cuboid. 5 (b) Find its maximum volume.")
+    warnings = _question_source_warnings(
+        "Figure 2 shows a cuboid. 5 (b) Find its maximum volume.",
+        True,
+        "verified",
+    )
 
     assert len(warnings) == 1
     assert "依赖图形" in warnings[0]
+
+
+def test_question_source_warnings_identify_unresolved_printed_content() -> None:
+    warnings = _question_source_warnings(
+        "$F(x)=\\text{[piecewise definition as printed]}$. Find $h$.",
+        True,
+        "verified",
+    )
+
+    assert warnings == ["题干提取不完整；该任务不满足来源完整性契约。"]
+
+
+def test_question_source_warnings_fail_closed_for_legacy_unverified_jobs() -> None:
+    assert _question_source_warnings("Complete question.", False, "legacy_unverified") == [
+        "该题来自旧版未验证分题契约；请创建替代任务后再使用。"
+    ]
