@@ -1,6 +1,8 @@
 import json
 from collections.abc import Sequence
-from typing import TypeVar
+from contextlib import contextmanager
+from types import SimpleNamespace
+from typing import Any, TypeVar, cast
 
 import pytest
 from examtwin.assessment.assessment_repository import AssessmentRepository
@@ -91,6 +93,70 @@ def test_symbolic_check_rejects_unsafe_input() -> None:
     )
     result = symbolic_checks(request)
     assert result[0].equivalent is None
+
+
+def _review_repository(
+    *,
+    total_awarded: float = 1,
+    total_available: float = 2,
+) -> tuple[AssessmentRepository, SimpleNamespace, list[ReviewModel]]:
+    assessment = SimpleNamespace(
+        total_awarded=total_awarded,
+        total_available=total_available,
+        status="pending_review",
+        updated_at=None,
+    )
+    reviews: list[ReviewModel] = []
+
+    class FakeSession:
+        def scalar(self, _statement: object) -> SimpleNamespace:
+            return assessment
+
+        def add(self, review: ReviewModel) -> None:
+            reviews.append(review)
+
+    @contextmanager
+    def begin() -> Any:
+        yield FakeSession()
+
+    sessions = SimpleNamespace(begin=begin)
+    return AssessmentRepository(cast(Any, sessions)), assessment, reviews
+
+
+def test_repository_review_rejects_a_negative_override_mark() -> None:
+    repository, assessment, reviews = _review_repository()
+
+    with pytest.raises(ValueError, match="override_mark cannot be negative"):
+        repository.review(
+            "assessment-1",
+            reviewer="pytest",
+            decision="override",
+            override_mark=-1,
+            note=None,
+            subject_code="9660",
+        )
+
+    assert assessment.total_awarded == 1
+    assert reviews == []
+
+
+@pytest.mark.parametrize("override_mark", [0.0, 2.0])
+def test_repository_review_accepts_override_mark_boundaries(override_mark: float) -> None:
+    repository, assessment, reviews = _review_repository()
+
+    result = repository.review(
+        "assessment-1",
+        reviewer="pytest",
+        decision="override",
+        override_mark=override_mark,
+        note=None,
+        subject_code="9660",
+    )
+
+    assert result["final_mark"] == override_mark
+    assert assessment.total_awarded == override_mark
+    assert len(reviews) == 1
+    assert reviews[0].override_mark == override_mark
 
 
 @pytest.mark.integration

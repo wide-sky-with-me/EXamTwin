@@ -200,7 +200,13 @@ class PaperJobRuntime:
         position: int,
         answer: PaperQuestionAnswer,
     ) -> None:
-        self.repository.complete_question(job_id, token, position, answer.model_dump_json())
+        self.repository.complete_question(
+            job_id,
+            token,
+            position,
+            answer.model_dump_json(),
+            json.dumps([point.code for point in answer.knowledge_points]),
+        )
 
     def fail_question(
         self,

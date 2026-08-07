@@ -16,9 +16,9 @@ from examtwin.assessment.answering_agent.contracts import (
     AgentRunLedger,
     QuestionImage,
 )
+from examtwin.assessment.answering_agent.finalization import citation_ids_in_markdown
 from examtwin.assessment.paper_parsing import (
     QuestionSourcePageResolutionError,
-    _tokens,
     question_spec_from_item,
     reconcile_question_source_pages,
     upload_to_markdown,
@@ -51,7 +51,7 @@ PAGE_SECTION = re.compile(
     r"(?=<!--\s*(?:pages?\s+\d+|examtwin:physical-page=\d+))",
     re.IGNORECASE,
 )
-SPLIT_CONTRACT_VERSION = "paper-question-split-v2"
+SPLIT_CONTRACT_VERSION = "paper-question-split-v3"
 
 SplitCheckpointLoader = Callable[[int, str], list[dict[str, Any]] | None]
 SplitCheckpointSaver = Callable[[int, int, str, list[dict[str, Any]], float], None]
@@ -350,8 +350,7 @@ Return only:
           "units": [],
           "required_tool": null
         }}
-      ],
-      "knowledge_codes": []
+      ]
     }}
   ]
 }}
@@ -436,22 +435,23 @@ Paper Markdown:
         ]
         return _merge_split_questions(extracted)
 
-    def _fallback_codes(
-        self,
-        question: str,
-        catalog: list[dict[str, Any]],
+    @staticmethod
+    def _cited_knowledge_codes(
+        answer_markdown: str,
+        citations: list[Citation],
+        catalog_by_code: dict[str, dict[str, Any]],
     ) -> list[str]:
-        question_tokens = _tokens(question)
-        scores: list[tuple[float, str]] = []
-        for point in catalog:
-            features = point["features"]
-            point_tokens = _tokens(f"{point['title']} {features.get('description', '')}")
-            if not point_tokens:
+        codes: list[str] = []
+        for citation_id in citation_ids_in_markdown(answer_markdown):
+            citation_index = int(citation_id.removeprefix("S")) - 1
+            if not 0 <= citation_index < len(citations):
                 continue
-            overlap = len(question_tokens & point_tokens) / len(point_tokens)
-            if overlap:
-                scores.append((overlap, point["code"]))
-        return [code for _, code in sorted(scores, reverse=True)[:3]]
+            code = citations[citation_index].knowledge_code
+            if code and code in catalog_by_code and code not in codes:
+                codes.append(code)
+                if len(codes) == 4:
+                    break
+        return codes
 
     def _knowledge_references(
         self,
@@ -464,15 +464,7 @@ Paper Markdown:
             point = catalog_by_code.get(code)
             if not point:
                 continue
-            point_text = f"{point['title']} {point['features'].get('description', '')}"
-            point_tokens = _tokens(point_text)
-            related = [
-                citation
-                for citation in answer_citations
-                if citation.knowledge_code == code
-                or len(point_tokens & _tokens(citation.excerpt))
-                >= (1 if len(point_tokens) <= 2 else 2)
-            ]
+            related = [citation for citation in answer_citations if citation.knowledge_code == code]
             source_ref = str(point["source_ref"])
             stored = [
                 Citation.model_validate(reference) for reference in point.get("references", [])
@@ -532,16 +524,24 @@ Paper Markdown:
         question_images = tuple(raw_images)
         question_spec = question_spec_from_item(item)
         raw_codes = item.get("knowledge_codes", [])
-        codes = [str(code) for code in raw_codes] if isinstance(raw_codes, list) else []
+        input_codes = [str(code) for code in raw_codes] if isinstance(raw_codes, list) else []
         catalog_by_code = {point["code"]: point for point in catalog}
-        codes = [code for code in codes if code in catalog_by_code]
-        if not codes:
-            codes = self._fallback_codes(question, catalog)
+        input_codes = [code for code in input_codes if code in catalog_by_code]
         knowledge_context = "\n".join(
             f"- {code}: {catalog_by_code[code]['title']} "
             f"{catalog_by_code[code]['features'].get('description', '')}"
-            for code in codes
+            for code in input_codes
         )
+        request_parts = [
+            (
+                "Solve the following examination question completely. Show all necessary "
+                "mathematical working. If the requested answer includes a sketch or "
+                "construction, include a diagram."
+            ),
+            question,
+        ]
+        if knowledge_context:
+            request_parts.insert(1, f"Relevant knowledge:\n{knowledge_context}")
         source_types: list[str] = []
         rag_options: dict[str, Any] = {
             "question_images": question_images,
@@ -554,12 +554,7 @@ Paper Markdown:
             rag_options["ledger"] = ledger
         response = self.rag.ask(
             AskRequest(
-                question=(
-                    f"Solve the following examination question completely. Show all necessary "
-                    f"mathematical working. If the requested answer includes a sketch or "
-                    f"construction, include a diagram.\n\n"
-                    f"Relevant knowledge:\n{knowledge_context}\n\n{question}"
-                ),
+                question="\n\n".join(request_parts),
                 subject_code=self.subject.subject_code,
                 unit_code=unit_code,
                 pair_key=pair_key,
@@ -573,6 +568,11 @@ Paper Markdown:
                 top_k=6,
             ),
             **rag_options,
+        )
+        codes = self._cited_knowledge_codes(
+            response.answer_markdown,
+            response.citations,
+            catalog_by_code,
         )
         return PaperQuestionAnswer(
             number=number,

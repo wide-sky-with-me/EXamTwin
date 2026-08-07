@@ -121,6 +121,8 @@ class AssessmentRepository:
             final_mark = (
                 override_mark if override_mark is not None else float(assessment.total_awarded)
             )
+            if final_mark < 0:
+                raise ValueError("override_mark cannot be negative")
             if final_mark > assessment.total_available:
                 raise ValueError("override_mark cannot exceed total_available")
             status = "overridden" if decision == "override" else "confirmed"

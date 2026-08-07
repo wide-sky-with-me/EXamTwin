@@ -19,6 +19,7 @@ from examtwin.contracts import (
     PaperJobListResponse,
     PaperJobResponse,
     PaperJobSummary,
+    PaperKnowledgeReference,
     PaperQuestionAnswer,
 )
 from examtwin.platform.config import Settings
@@ -195,6 +196,18 @@ class FakeAnswerService:
                             arrow_end=True,
                         )
                     ],
+                )
+            ],
+            knowledge_points=[
+                PaperKnowledgeReference(
+                    code="P2.7.O03",
+                    title="Integration by parts.",
+                    node_type="learning_objective",
+                    difficulty_score=0.72,
+                    difficulty_label="hard",
+                    difficulty_confidence=0.3,
+                    evidence_level="D",
+                    source_ref="spec.pdf#page=22",
                 )
             ],
             citations=[Citation(source="spec.pdf", page=22, excerpt="Integration by parts.")],

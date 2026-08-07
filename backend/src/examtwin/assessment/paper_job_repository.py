@@ -693,6 +693,7 @@ class PaperJobRepository:
         token: str,
         position: int,
         answer_json: str,
+        knowledge_codes_json: str,
     ) -> None:
         self._finish_question(
             job_id,
@@ -700,6 +701,7 @@ class PaperJobRepository:
             position,
             status="completed",
             answer_json=answer_json,
+            knowledge_codes_json=knowledge_codes_json,
             error=None,
         )
 
@@ -733,6 +735,7 @@ class PaperJobRepository:
         *,
         status: str,
         answer_json: str | None = None,
+        knowledge_codes_json: str | None = None,
         error: str | None,
     ) -> None:
         with self.sessions.begin() as session:
@@ -744,6 +747,8 @@ class PaperJobRepository:
             }
             if answer_json is not None:
                 values["answer_json"] = answer_json
+            if knowledge_codes_json is not None:
+                values["knowledge_codes_json"] = knowledge_codes_json
             session.execute(
                 update(PaperJobQuestionModel)
                 .where(

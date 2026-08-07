@@ -372,6 +372,12 @@ def test_pdf_retry_reuses_completed_chunks(tmp_path: Path) -> None:
         assert completed.questions[0].citations[0].page == 22
         assert completed.questions[0].source_pages == [1]
         assert completed.questions[0].diagrams[0].title == "Axes"
+        persisted = database.fetch_one(
+            "SELECT knowledge_codes_json FROM paper_job_questions WHERE job_id=? AND position=0",
+            (created.job_id,),
+        )
+        assert persisted is not None
+        assert persisted["knowledge_codes_json"] == '["P2.7.O03"]'
         assert [
             (step.sequence, step.phase, step.status) for step in completed.questions[0].agent_steps
         ] == [

@@ -385,6 +385,7 @@ class FakeRag:
                     page=22,
                     source_type="syllabus",
                     excerpt="Integration by parts.",
+                    knowledge_code="P2.7.O03",
                 )
             ],
             confidence=0.84,
@@ -427,6 +428,156 @@ def test_uploaded_markdown_paper_is_answered_in_order_with_partial_failure() -> 
     assert result.questions[0].knowledge_points[0].code == "P2.7.O03"
     assert result.questions[0].citations[0].page == 22
     assert result.questions[1].error == "provider unavailable"
+
+
+def test_empty_split_codes_are_mapped_from_cited_evidence_in_answer_order() -> None:
+    catalog = [
+        *fake_catalog(None),
+        {
+            "id": "9660:P2.7.O04",
+            "code": "P2.7.O04",
+            "title": "Definite integration.",
+            "source_ref": "spec.pdf#page=23",
+            "difficulty_score": 0.64,
+            "difficulty_label": "medium",
+            "difficulty_confidence": 0.3,
+            "evidence_level": "D",
+            "references": [],
+            "features": {
+                "node_type": "learning_objective",
+                "description": "Evaluate a definite integral using its limits.",
+            },
+        },
+    ]
+    for objective_index in range(5, 8):
+        code = f"P2.7.O{objective_index:02d}"
+        catalog.append(
+            {
+                "id": f"9660:{code}",
+                "code": code,
+                "title": f"Integration objective {objective_index}.",
+                "source_ref": f"spec.pdf#objective={objective_index}",
+                "difficulty_score": 0.5,
+                "difficulty_label": "medium",
+                "difficulty_confidence": 0.3,
+                "evidence_level": "D",
+                "references": [],
+                "features": {
+                    "node_type": "learning_objective",
+                    "description": f"Evidence-backed objective {objective_index}.",
+                },
+            }
+        )
+
+    class CitationMappedRag:
+        request: Any | None = None
+
+        def ask(self, request: Any, **_kwargs: Any) -> AskResponse:
+            self.request = request
+            return AskResponse(
+                answer_markdown=(
+                    "Apply the limits [S2], then integration by parts [S1]. Reuse [S2] and "
+                    "check the remaining steps [S3] [S4] [S5] [S6]."
+                ),
+                citations=[
+                    Citation(
+                        source="integration-by-parts.pdf",
+                        excerpt="Reverse the product rule.",
+                        knowledge_code="P2.7.O03",
+                    ),
+                    Citation(
+                        source="definite-integration.pdf",
+                        excerpt="Apply the upper and lower limits.",
+                        knowledge_code="P2.7.O04",
+                    ),
+                    Citation(
+                        source="uncoded.pdf",
+                        excerpt="Integration by parts.",
+                    ),
+                    Citation(
+                        source="objective-5.pdf",
+                        excerpt="Objective five.",
+                        knowledge_code="P2.7.O05",
+                    ),
+                    Citation(
+                        source="objective-6.pdf",
+                        excerpt="Objective six.",
+                        knowledge_code="P2.7.O06",
+                    ),
+                    Citation(
+                        source="objective-7.pdf",
+                        excerpt="Objective seven.",
+                        knowledge_code="P2.7.O07",
+                    ),
+                ],
+                confidence=0.9,
+                grounded=True,
+            )
+
+    rag = CitationMappedRag()
+    settings = Settings()
+    service = PaperAnswerService(
+        settings,
+        subject_context(settings),
+        rag=rag,
+        catalog_loader=lambda _unit_code: catalog,
+    )
+
+    result = service.answer_question(
+        {
+            "number": "1",
+            "question_markdown": "Evaluate this definite integral using integration by parts.",
+            "knowledge_codes": [],
+        },
+        unit_code="P2",
+    )
+
+    assert rag.request is not None
+    assert "Relevant knowledge:" not in rag.request.question
+    assert [point.code for point in result.knowledge_points] == [
+        "P2.7.O04",
+        "P2.7.O03",
+        "P2.7.O05",
+        "P2.7.O06",
+    ]
+    assert [citation.source for citation in result.knowledge_points[0].references] == [
+        "definite-integration.pdf"
+    ]
+
+
+def test_uncoded_citation_does_not_trigger_lexical_knowledge_fallback() -> None:
+    class UncodedRag:
+        def ask(self, _request: Any, **_kwargs: Any) -> AskResponse:
+            return AskResponse(
+                answer_markdown="Use integration by parts [S1].",
+                citations=[
+                    Citation(
+                        source="uncoded.pdf",
+                        excerpt="Integration by parts.",
+                    )
+                ],
+                confidence=0.8,
+                grounded=True,
+            )
+
+    settings = Settings()
+    service = PaperAnswerService(
+        settings,
+        subject_context(settings),
+        rag=UncodedRag(),
+        catalog_loader=fake_catalog,
+    )
+
+    result = service.answer_question(
+        {
+            "number": "1",
+            "question_markdown": "Evaluate an integral using integration by parts.",
+            "knowledge_codes": [],
+        },
+        unit_code="P2",
+    )
+
+    assert result.knowledge_points == []
 
 
 def test_markdown_upload_accepts_utf8_bom_and_rejects_unknown_type() -> None:
