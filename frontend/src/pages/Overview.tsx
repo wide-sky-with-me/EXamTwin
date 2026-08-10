@@ -1,21 +1,28 @@
 import {
   BookOpenCheck,
   CheckCircle2,
+  CheckSquare2,
   CircleGauge,
   Database,
   FileCheck2,
   HardDrive,
   Layers3,
-  Plus,
   LoaderCircle,
+  LockKeyhole,
   Network,
+  Plus,
   RefreshCw,
   ShieldCheck,
+  Square,
+  Trash2,
+  X,
 } from "lucide-react";
 import { type FormEvent, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { apiClient, unwrapApi } from "../lib/api";
 import { sourceLabels } from "../lib/evidence";
+import { useModalFocus } from "../lib/use-modal-focus";
 import type { PlatformStatus, SubjectStatus } from "../types";
 
 export function Overview({
@@ -35,6 +42,13 @@ export function Overview({
   const [notice, setNotice] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [managingSubjects, setManagingSubjects] = useState(false);
+  const [selectedSubjectIds, setSelectedSubjectIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deletingSubjects, setDeletingSubjects] = useState(false);
+  const deleteDialogRef = useModalFocus(confirmingDelete, setConfirmingDelete);
   const [subjectDraft, setSubjectDraft] = useState({
     id: "",
     subject_code: "",
@@ -92,6 +106,51 @@ export function Overview({
     }
   }
 
+  const subjects = platform?.subjects ?? [];
+  const deletableSubjects = subjects.filter((item) => !item.capability_profile_id);
+  const selectedForDeletion = deletableSubjects.filter((item) =>
+    selectedSubjectIds.has(item.id),
+  );
+  const allDeletableSelected =
+    deletableSubjects.length > 0
+    && deletableSubjects.every((item) => selectedSubjectIds.has(item.id));
+
+  function stopManagingSubjects() {
+    setManagingSubjects(false);
+    setSelectedSubjectIds(new Set());
+    setConfirmingDelete(false);
+  }
+
+  function toggleSubjectSelection(subjectId: string) {
+    setSelectedSubjectIds((current) => {
+      const next = new Set(current);
+      if (next.has(subjectId)) next.delete(subjectId);
+      else next.add(subjectId);
+      return next;
+    });
+  }
+
+  async function deleteSelectedSubjects() {
+    if (!selectedForDeletion.length) return;
+    setDeletingSubjects(true);
+    setNotice("");
+    try {
+      const result = await unwrapApi(
+        apiClient.POST("/api/v1/subject-workspaces/batch-delete", {
+          body: { subject_ids: selectedForDeletion.map((item) => item.id) },
+        }),
+      );
+      stopManagingSubjects();
+      await refresh();
+      setNotice(`已删除 ${result.deleted_count} 个科目工作区。`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "科目工作区删除失败");
+      setConfirmingDelete(false);
+    } finally {
+      setDeletingSubjects(false);
+    }
+  }
+
   const infrastructure = platform?.infrastructure;
   const infrastructureItems = [
     ["PostgreSQL", infrastructure?.postgresql, Database],
@@ -119,11 +178,34 @@ export function Overview({
           <p>在这里选择科目上下文，并检查资料、知识索引、答题能力与基础设施是否就绪。</p>
         </div>
         <div className="page-heading-actions">
-          <button className="secondary" onClick={() => setShowCreate((value) => !value)} type="button">
+          <button
+            className={managingSubjects ? "secondary active" : "secondary"}
+            onClick={() => {
+              if (managingSubjects) stopManagingSubjects();
+              else {
+                setShowCreate(false);
+                setManagingSubjects(true);
+              }
+            }}
+            type="button"
+          >
+            {managingSubjects ? <X size={17} /> : <Trash2 size={17} />}
+            {managingSubjects ? "完成管理" : "管理科目"}
+          </button>
+          <button
+            className="secondary"
+            disabled={managingSubjects}
+            onClick={() => setShowCreate((value) => !value)}
+            type="button"
+          >
             <Plus size={17} />
             新建科目
           </button>
-          <button className="secondary" onClick={() => void refresh()} disabled={loading}>
+          <button
+            className="secondary"
+            onClick={() => void refresh()}
+            disabled={loading || managingSubjects}
+          >
             {loading ? <LoaderCircle className="spin" size={17} /> : <RefreshCw size={17} />}
             刷新状态
           </button>
@@ -184,6 +266,7 @@ export function Overview({
           </div>
         </form>
       )}
+      {notice && <div className="notice" role="status">{notice}</div>}
 
       <div className="infrastructure-strip" aria-label="基础设施状态">
         {infrastructureItems.map(([label, ready, Icon]) => (
@@ -195,18 +278,81 @@ export function Overview({
         ))}
       </div>
 
-      <div className="subject-status-grid">
-        {(platform?.subjects ?? []).map((item) => {
+      {managingSubjects && (
+        <div className="subject-management-toolbar">
+          <div>
+            <strong>
+              {selectedForDeletion.length
+                ? `已选择 ${selectedForDeletion.length} 个自建科目`
+                : "选择要删除的自建科目"}
+            </strong>
+            <span>内置科目受保护，不会进入删除范围。</span>
+          </div>
+          <button
+            className="secondary"
+            disabled={!deletableSubjects.length}
+            onClick={() => {
+              setSelectedSubjectIds(
+                allDeletableSelected
+                  ? new Set()
+                  : new Set(deletableSubjects.map((item) => item.id)),
+              );
+            }}
+            type="button"
+          >
+            {allDeletableSelected ? "取消全选" : "全选自建科目"}
+          </button>
+          <button
+            className="danger"
+            disabled={!selectedForDeletion.length}
+            onClick={() => setConfirmingDelete(true)}
+            type="button"
+          >
+            <Trash2 size={16} />
+            删除所选
+          </button>
+        </div>
+      )}
+
+      <div className={`subject-status-grid ${managingSubjects ? "is-managing" : ""}`}>
+        {subjects.map((item) => {
           const active = item.id === selected?.id;
           const converted = item.stats?.documents_by_status.converted;
+          const protectedSubject = Boolean(item.capability_profile_id);
+          const selectedForDelete = selectedSubjectIds.has(item.id);
           return (
             <button
               type="button"
               key={item.id}
-              className={`subject-status-card ${active ? "active" : ""}`}
-              onClick={() => selectSubject(item.id)}
-              aria-pressed={active}
+              className={[
+                "subject-status-card",
+                !managingSubjects && active ? "active" : "",
+                selectedForDelete ? "selected-for-delete" : "",
+                managingSubjects && protectedSubject ? "protected" : "",
+              ].filter(Boolean).join(" ")}
+              disabled={managingSubjects && protectedSubject}
+              onClick={() => {
+                if (managingSubjects) toggleSubjectSelection(item.id);
+                else selectSubject(item.id);
+              }}
+              aria-label={
+                managingSubjects
+                  ? protectedSubject
+                    ? `${item.subject_code} ${item.title}，内置科目不可删除`
+                    : `${selectedForDelete ? "取消选择" : "选择"} ${item.subject_code} ${item.title}`
+                  : undefined
+              }
+              aria-pressed={managingSubjects ? selectedForDelete : active}
             >
+              {managingSubjects && (
+                <span className="subject-manage-indicator" aria-hidden="true">
+                  {protectedSubject
+                    ? <LockKeyhole size={18} />
+                    : selectedForDelete
+                      ? <CheckSquare2 size={19} />
+                      : <Square size={19} />}
+                </span>
+              )}
               <span className="subject-code">{item.subject_code}</span>
               <div>
                 <strong>{item.title.replace(/^OxfordAQA International /, "")}</strong>
@@ -249,7 +395,7 @@ export function Overview({
               重新清点该科资料
             </button>
           </div>
-          {notice && <div className="notice">{notice}</div>}
+
           <div className="metric-grid">
             {metrics.map(([label, value, Icon]) => (
               <article className="metric-card" key={label}>
@@ -311,6 +457,74 @@ export function Overview({
         </div>
         <span>教师最终确认</span>
       </div>
+      {confirmingDelete && createPortal(
+        <div
+          className="subject-delete-overlay"
+          onMouseDown={(event) => {
+            if (!deletingSubjects && event.target === event.currentTarget) {
+              setConfirmingDelete(false);
+            }
+          }}
+        >
+          <article
+            aria-describedby="subject-delete-description"
+            aria-labelledby="subject-delete-title"
+            aria-modal="true"
+            className="subject-delete-dialog"
+            ref={deleteDialogRef}
+            role="alertdialog"
+            tabIndex={-1}
+          >
+            <div className="subject-delete-icon" aria-hidden="true">
+              <Trash2 size={22} />
+            </div>
+            <div>
+              <span className="kicker">不可撤销</span>
+              <h2 id="subject-delete-title">
+                删除 {selectedForDeletion.length} 个科目工作区？
+              </h2>
+              <p id="subject-delete-description">
+                将删除这些科目的资料索引、知识图谱、试卷任务和评分记录。
+                存储对象继续遵循现有保留与回收策略。
+              </p>
+              <ul>
+                {selectedForDeletion.slice(0, 5).map((item) => (
+                  <li key={item.id}>
+                    <strong>{item.subject_code}</strong>
+                    <span>{item.title}</span>
+                  </li>
+                ))}
+              </ul>
+              {selectedForDeletion.length > 5 && (
+                <small>另有 {selectedForDeletion.length - 5} 个科目工作区</small>
+              )}
+            </div>
+            <footer>
+              <button
+                className="secondary"
+                data-modal-close
+                disabled={deletingSubjects}
+                onClick={() => setConfirmingDelete(false)}
+                type="button"
+              >
+                取消
+              </button>
+              <button
+                className="danger"
+                disabled={deletingSubjects}
+                onClick={() => void deleteSelectedSubjects()}
+                type="button"
+              >
+                {deletingSubjects
+                  ? <LoaderCircle className="spin" size={16} />
+                  : <Trash2 size={16} />}
+                {deletingSubjects ? "正在删除…" : "永久删除"}
+              </button>
+            </footer>
+          </article>
+        </div>,
+        document.body,
+      )}
     </section>
   );
 }

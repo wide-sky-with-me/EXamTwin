@@ -65,7 +65,17 @@ class AssessmentRepository:
                 "question_position": row.question_position,
                 "rubric_set_id": row.rubric_set_id,
                 "status": row.status,
-                "result": json.loads(row.result_json),
+                "total_awarded": float(row.total_awarded),
+                "total_available": float(row.total_available),
+                "confidence": float(row.confidence),
+                "result": {
+                    **json.loads(row.result_json),
+                    "status": row.status,
+                    "total_awarded": float(row.total_awarded),
+                    "total_available": float(row.total_available),
+                    "confidence": float(row.confidence),
+                    "manual_review_required": row.status == "pending_review",
+                },
                 "created_at": row.created_at,
             }
             for row in rows

@@ -2,18 +2,26 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from collections.abc import Mapping
+from concurrent.futures import ThreadPoolExecutor
+from html import unescape
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from examtwin.assessment.assessment_repository import AssessmentRepository
 from examtwin.assessment.grading import GradingService
 from examtwin.assessment.paper_job_repository import PaperJobRepository
-from examtwin.assessment.rubric_repository import RubricRepository
+from examtwin.assessment.rubric_repository import RubricConflictError, RubricRepository
 from examtwin.contracts.grading import GradeRequest, GradeResponse
 from examtwin.contracts.papers import PaperQuestionAnswer
+from examtwin.contracts.rubrics import (
+    AiReviewRubricCriteriaRequest,
+    BatchReviewRubricCriteriaRequest,
+    RubricCriterionPatch,
+)
 from examtwin.knowledge.public import CorpusRepository, parse_exam_identity
 from examtwin.platform.agent_runtime import (
     StructuredModelPort,
@@ -22,8 +30,20 @@ from examtwin.platform.agent_runtime import (
 )
 from examtwin.platform.cache_paths import MarkdownCacheMissing, resolve_markdown_cache_path
 from examtwin.platform.config import Settings
+from examtwin.platform.prompts import load_prompt_template
 from examtwin.platform.structured_model import LiteLLMStructuredModel
 from examtwin.subjects.public import SubjectContext
+
+_CONTROL_CHARACTER = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def _reject_control_characters(value: object) -> object:
+    strings = [value] if isinstance(value, str) else value
+    if not isinstance(strings, list):
+        return value
+    if any(isinstance(item, str) and _CONTROL_CHARACTER.search(item) for item in strings):
+        raise ValueError("评分原子文本包含控制字符")
+    return value
 
 
 class RubricCriterionDraft(BaseModel):
@@ -45,6 +65,20 @@ class RubricCriterionDraft(BaseModel):
     source_excerpt: str
     confidence: float = Field(ge=0, le=1)
 
+    _valid_text = field_validator(
+        "question_number",
+        "subpart",
+        "criterion_id",
+        "mark_type",
+        "description",
+        "dependencies",
+        "alternatives",
+        "accuracy_requirement",
+        "units",
+        "follow_through_policy",
+        "source_excerpt",
+    )(_reject_control_characters)
+
 
 class RubricExtractionDraft(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -53,10 +87,447 @@ class RubricExtractionDraft(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class AiReviewModelError(RuntimeError):
+    """The model failed to return one valid review for every requested criterion."""
+
+
+class AiRubricCriterionReviewDraft(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    review_id: str
+    recommendation: Literal["accept", "reject", "revise"]
+    confidence: float = Field(ge=0, le=1)
+    rationale: str = Field(min_length=1)
+    suggested_updates: RubricCriterionPatch | None = None
+
+    @field_validator("suggested_updates", mode="before")
+    @classmethod
+    def omit_null_update_placeholders(cls, value: object) -> object:
+        if not isinstance(value, Mapping):
+            return value
+        updates = {key: item for key, item in value.items() if item is not None}
+        return updates or None
+
+
+class AiRubricQuestionReviewDraft(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reviews: list[AiRubricCriterionReviewDraft] = Field(min_length=1, max_length=200)
+
+
+def _rubric_review_system_prompt() -> str:
+    return load_prompt_template("grading/rubric_review_v1.md")
+
+
+_NON_SCORING_CRITERION_FIELDS = frozenset(
+    {
+        "id",
+        "criterion_fingerprint",
+        "review_status",
+        "reviewed_by",
+        "reviewed_at",
+        "ai_review",
+    }
+)
+
+
+def _criterion_scoring_payload(
+    criterion: Mapping[str, object],
+) -> dict[str, object]:
+    return {
+        key: value for key, value in criterion.items() if key not in _NON_SCORING_CRITERION_FIELDS
+    }
+
+
+def _review_question_criteria(
+    model: StructuredModelPort,
+    settings: Settings,
+    question: Mapping[str, object],
+    mark_scheme: str,
+    criteria: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    expected_ids = [str(item["id"]) for item in criteria]
+    fingerprints = {str(item["id"]): str(item["criterion_fingerprint"]) for item in criteria}
+    number = str(question["number"])
+    prompt_criteria = [
+        {
+            **{
+                key: value
+                for key, value in _criterion_scoring_payload(item).items()
+                if key != "criterion_id"
+            },
+            "review_id": str(item["id"]),
+            "criterion_label": str(item["criterion_id"]),
+        }
+        for item in criteria
+    ]
+    user_content = (
+        f"TARGET QUESTION: {number}\n\n"
+        f"QUESTION {number}:\n{str(question['question_markdown'])[:10000]}\n\n"
+        "OFFICIAL MARK SCHEME EXCERPT:\n"
+        f"{_mark_scheme_context(mark_scheme, number)[:60000]}\n\n"
+        "CURRENT RUBRIC CRITERIA:\n"
+        f"{json.dumps(prompt_criteria, ensure_ascii=False, indent=2, default=str)}"
+    )
+    try:
+        runner = StructuredTaskRunner(model)
+        payload = runner.run(
+            StructuredTask(
+                system_prompt=_rubric_review_system_prompt(),
+                user_content=user_content,
+            ),
+            AiRubricQuestionReviewDraft,
+            timeout=settings.grading_timeout,
+        )
+        output_ids = [item.review_id for item in payload.reviews]
+        id_mismatch = Counter(output_ids) != Counter(expected_ids)
+        empty_revise_ids = [
+            item.review_id
+            for item in payload.reviews
+            if item.recommendation == "revise" and item.suggested_updates is None
+        ]
+        if id_mismatch or empty_revise_ids:
+            correction_reasons: list[str] = []
+            if id_mismatch:
+                correction_reasons.append(
+                    "Return exactly one entry for every expected review_id. "
+                    f"Expected: {expected_ids}. Previous response: {output_ids}."
+                )
+            if empty_revise_ids:
+                correction_reasons.append(
+                    "The previous response selected revise without a concrete non-null "
+                    "suggested update for review_id(s): "
+                    f"{', '.join(empty_revise_ids)}. For each listed ID, either include at "
+                    "least one concrete field change or choose accept/reject instead."
+                )
+            payload = runner.run(
+                StructuredTask(
+                    system_prompt=_rubric_review_system_prompt(),
+                    user_content=(
+                        f"{user_content}\n\nCORRECTION REQUIRED:\n"
+                        + "\n".join(correction_reasons)
+                        + "\nReturn the complete review list again."
+                    ),
+                ),
+                AiRubricQuestionReviewDraft,
+                timeout=settings.grading_timeout,
+            )
+        output_ids = [item.review_id for item in payload.reviews]
+        if Counter(output_ids) != Counter(expected_ids):
+            raise AiReviewModelError(
+                f"AI 审核结果 ID 不闭合（期望 {expected_ids}，实际 {output_ids}）"
+            )
+        reviews: list[dict[str, object]] = []
+        for item in payload.reviews:
+            updates = (
+                item.suggested_updates.model_dump(exclude_unset=True)
+                if item.suggested_updates is not None
+                else None
+            )
+            if item.recommendation == "revise" and not updates:
+                raise AiReviewModelError("AI 的 revise 建议必须包含有效修改")
+            rationale = item.rationale.strip()
+            if not rationale:
+                raise AiReviewModelError("AI 审核理由不能为空")
+            reviews.append(
+                {
+                    "criterion_id": item.review_id,
+                    "recommendation": item.recommendation,
+                    "confidence": item.confidence,
+                    "rationale": rationale,
+                    "suggested_updates": updates,
+                    "criterion_fingerprint": fingerprints[item.review_id],
+                }
+            )
+        return reviews
+    except AiReviewModelError:
+        raise
+    except Exception as error:
+        raise AiReviewModelError("AI 评分原子审核失败") from error
+
+
+_ERROR_TYPE_ORDER = (
+    "conceptual",
+    "procedural",
+    "calculation",
+    "notation",
+    "unit",
+    "diagram",
+    "omission",
+)
+
+
+def _assessment_diagnostics(result: object) -> tuple[list[str], list[str]]:
+    if not isinstance(result, Mapping):
+        return [], []
+    error_types: list[str] = []
+    suggestions: list[str] = []
+    seen_errors: set[str] = set()
+    seen_suggestions: set[str] = set()
+
+    top_level_suggestions = result.get("improvement_suggestions", [])
+    if isinstance(top_level_suggestions, list):
+        for value in top_level_suggestions:
+            suggestion = str(value).strip()
+            if suggestion and suggestion not in seen_suggestions:
+                seen_suggestions.add(suggestion)
+                suggestions.append(suggestion)
+
+    awards = result.get("rubric_awards", [])
+    if not isinstance(awards, list):
+        return error_types, suggestions
+    for award in awards:
+        if not isinstance(award, Mapping):
+            continue
+        values = award.get("error_types", [])
+        if isinstance(values, list):
+            for value in values:
+                error_type = str(value)
+                if error_type and error_type not in seen_errors:
+                    seen_errors.add(error_type)
+                    error_types.append(error_type)
+        suggestion_value = award.get("improvement_suggestion")
+        if suggestion_value is not None:
+            suggestion = str(suggestion_value).strip()
+            if suggestion and suggestion not in seen_suggestions:
+                seen_suggestions.add(suggestion)
+                suggestions.append(suggestion)
+    return error_types, suggestions
+
+
+def _overall_suggestion(
+    *,
+    completed_questions: int,
+    total_questions: int,
+    percentage: float | None,
+    common_error_types: list[str],
+    suggestions: list[str],
+) -> str:
+    if completed_questions < total_questions:
+        lead = f"当前已完成 {completed_questions}/{total_questions} 题评分，请先完成未评分题目。"
+    elif percentage is None:
+        lead = "当前评分规则没有可汇总的分值。"
+    elif percentage >= 80:
+        lead = "整体得分较稳定，请继续巩固作答的完整性与准确性。"
+    elif percentage >= 60:
+        lead = "整体基础已建立，仍需针对失分环节逐项改进。"
+    else:
+        lead = "当前得分显示关键知识与解题步骤仍需系统巩固。"
+    details: list[str] = [lead]
+    if common_error_types:
+        details.append("优先关注：" + "、".join(common_error_types[:3]) + "。")
+    if suggestions:
+        details.append("建议：" + "；".join(suggestions[:3]) + "。")
+    return "".join(details)
+
+
 _QUESTION_LABEL = re.compile(
     r"^\s*(?:question|q)?\s*[:#]?\s*0*(?P<number>\d+)"
-    r"(?P<subpart>\s*(?:[._/-]\s*)?\(?[a-z0-9]+\)?)?\s*$",
+    r"(?P<subpart>(?:(?:\s*\([a-z0-9]+\))|(?:\s*[._/-]\s*[a-z0-9]+))*)\s*$",
     re.IGNORECASE,
+)
+_MARK_SCHEME_TABLE = re.compile(r"<table\b[^>]*>.*?</table>", re.IGNORECASE | re.DOTALL)
+_TABLE_FIRST_CELL = re.compile(
+    r"<tr\b[^>]*>\s*<td\b[^>]*>(?P<label>.*?)</td>",
+    re.IGNORECASE | re.DOTALL,
+)
+_TABLE_LABEL_STEM = re.compile(
+    r"^\s*(?:question|q)?\s*[:#]?\s*0*(?P<number>\d+)(?!\d)",
+    re.IGNORECASE,
+)
+_HTML_TAG = re.compile(r"<[^>]+>")
+_TABLE_ROW = re.compile(r"<tr\b[^>]*>(?P<cells>.*?)</tr>", re.IGNORECASE | re.DOTALL)
+_TABLE_CELL = re.compile(
+    r"<t[dh]\b[^>]*>(?P<value>.*?)</t[dh]>",
+    re.IGNORECASE | re.DOTALL,
+)
+_MARK_SCHEME_ROW_LABEL = re.compile(
+    r"^\s*(?:question|q)?\s*0*(?P<number>\d+)"
+    r"(?P<subpart>(?:(?:\s*\([a-z0-9]+\))|(?:\s*[._/-]\s*[a-z0-9]+))*)"
+    r"\s*(?:alt(?:ernative)?)?\s*$",
+    re.IGNORECASE,
+)
+_MARK_CODE = re.compile(r"(?P<kind>[MmABE])(?P<marks>\d+)(?:(?i:ft))?")
+_MARK_CODE_SEQUENCE = re.compile(r"(?:(?:[MmABE])\d+(?:(?i:ft))?)+")
+_MARK_TYPE = re.compile(r"^(?P<kind>[MmABE])(?P<marks>\d+)?(?P<follow_through>(?i:ft))?$")
+_QUESTION_PREFIX = re.compile(
+    r"^\s*(?:question|q)?\s*0*(?P<number>\d+)"
+    r"(?=\s*(?:\(|[._/-]))",
+    re.IGNORECASE,
+)
+
+
+def _canonical_subpart(question_number: str, subpart: object) -> str:
+    value = str(subpart or "whole").strip()
+    if not value or value.casefold() == "whole":
+        return "whole"
+    target = _question_label(question_number)
+    prefix = _QUESTION_PREFIX.match(value)
+    if target is not None and prefix is not None:
+        if str(int(prefix.group("number"))) == target[0]:
+            value = value[prefix.end() :].strip()
+            value = re.sub(r"^[._/-]\s*", "", value)
+    return value or "whole"
+
+
+def _numeric_marks(value: object) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError("评分原子分值必须是数字")
+    return float(value)
+
+
+def _canonical_mark_type(mark_type: object, max_marks: object) -> str | None:
+    if mark_type is None:
+        return None
+    value = str(mark_type).strip()
+    match = _MARK_TYPE.fullmatch(value)
+    if match is None or match.group("marks") is not None:
+        return value
+    numeric_marks = _numeric_marks(max_marks)
+    if not numeric_marks.is_integer():
+        return value
+    follow_through = "ft" if match.group("follow_through") else ""
+    return f"{match.group('kind')}{int(numeric_marks)}{follow_through}"
+
+
+def _plain_table_cell(value: str) -> str:
+    return unescape(_HTML_TAG.sub("", value)).strip()
+
+
+def _source_subpart(value: str) -> str:
+    tokens = re.findall(r"[a-z0-9]+", value.casefold())
+    return "".join(f"({token})" for token in tokens) or "whole"
+
+
+def _mark_scheme_mark_budgets(mark_scheme: str) -> dict[tuple[str, str], float]:
+    budgets: dict[tuple[str, str], float] = {}
+
+    def record(key: tuple[str, str] | None, marks: float) -> None:
+        if key is not None and marks > 0:
+            budgets[key] = max(budgets.get(key, 0), marks)
+
+    for table in _MARK_SCHEME_TABLE.finditer(mark_scheme):
+        active_key: tuple[str, str] | None = None
+        active_marks = 0.0
+        for row in _TABLE_ROW.finditer(table.group(0)):
+            cells = [
+                _plain_table_cell(cell.group("value"))
+                for cell in _TABLE_CELL.finditer(row.group("cells"))
+            ]
+            if not cells:
+                continue
+            label = _MARK_SCHEME_ROW_LABEL.fullmatch(cells[0])
+            if label is not None:
+                record(active_key, active_marks)
+                active_key = (
+                    str(int(label.group("number"))),
+                    _source_subpart(label.group("subpart")),
+                )
+                active_marks = 0.0
+                if len(cells) >= 3:
+                    active_marks += sum(
+                        int(mark.group("marks")) for mark in _MARK_CODE.finditer(cells[2])
+                    )
+                continue
+            if active_key is None:
+                continue
+            for cell in cells:
+                compact = re.sub(r"\s+", "", cell)
+                if _MARK_CODE_SEQUENCE.fullmatch(compact):
+                    active_marks += sum(
+                        int(mark.group("marks")) for mark in _MARK_CODE.finditer(compact)
+                    )
+        record(active_key, active_marks)
+    return budgets
+
+
+def _normalized_criterion_text(value: object) -> str:
+    return re.sub(r"\W+", " ", str(value or "").casefold()).strip()
+
+
+def _warning_key(warning: str) -> str:
+    normalized = _normalized_criterion_text(warning.replace("_", " "))
+    missing_page_phrases = (
+        "does not provide",
+        "does not include",
+        "does not specify",
+        "not specified",
+        "not identify",
+        "is null",
+    )
+    if "page" in normalized and any(phrase in normalized for phrase in missing_page_phrases):
+        return "source-page-unavailable"
+    return normalized
+
+
+def _dedupe_warnings(warnings: list[str]) -> list[str]:
+    keys: list[str] = []
+    best_by_key: dict[str, str] = {}
+    for warning in warnings:
+        key = _warning_key(warning)
+        if key not in best_by_key:
+            keys.append(key)
+            best_by_key[key] = warning
+            continue
+        if len(warning) > len(best_by_key[key]):
+            best_by_key[key] = warning
+    return [best_by_key[key] for key in keys]
+
+
+def _validate_rubric_criteria(
+    criteria: list[dict[str, object]],
+    mark_scheme: str,
+) -> None:
+    ids = [str(item["criterion_id"]) for item in criteria]
+    duplicate_ids = sorted(item for item, count in Counter(ids).items() if count > 1)
+    semantic_keys: dict[tuple[object, ...], list[str]] = {}
+    for item in criteria:
+        key = (
+            str(item["question_number"]),
+            str(item["subpart"]),
+            _numeric_marks(item["max_marks"]),
+            _normalized_criterion_text(item["description"]),
+            _normalized_criterion_text(item["source_excerpt"]),
+        )
+        semantic_keys.setdefault(key, []).append(str(item["criterion_id"]))
+    duplicate_atoms = [atom_ids for atom_ids in semantic_keys.values() if len(atom_ids) > 1]
+    if duplicate_ids or duplicate_atoms:
+        labels = duplicate_ids + ["/".join(atom_ids) for atom_ids in duplicate_atoms]
+        raise ValueError("评分方案包含重复评分原子：" + "、".join(labels))
+
+    expected = _mark_scheme_mark_budgets(mark_scheme)
+    if not expected:
+        return
+    actual: dict[tuple[str, str], float] = {}
+    for item in criteria:
+        label = _question_label(str(item["question_number"]))
+        if label is None:
+            continue
+        key = (label[0], _source_subpart(str(item["subpart"])))
+        actual[key] = actual.get(key, 0) + _numeric_marks(item["max_marks"])
+    mismatches: list[str] = []
+    for key, expected_marks in sorted(expected.items()):
+        actual_marks = actual.get(key, 0)
+        if abs(actual_marks - expected_marks) <= 1e-9:
+            continue
+        number, subpart = key
+        mismatches.append(f"Q{number} {subpart}: 原文 {expected_marks:g}，解析 {actual_marks:g}")
+    if mismatches:
+        raise ValueError("评分原子与 Mark Scheme 分值不一致：" + "；".join(mismatches))
+
+
+_RUBRIC_SYSTEM_PROMPT = (
+    "You extract an auditable typed rubric from an official examination mark scheme. "
+    "The caller supplies exactly one target question. Return only criteria for that question, "
+    "with question_number exactly equal to its QUESTION label. Return one criterion per "
+    "indivisible mark atom. Preserve exact M1/A1/B1/FT labels, explicit dependencies, "
+    "accuracy, units, levels descriptors, and LaTeX backslashes. Alternative methods are "
+    "mutually exclusive routes to the same mark budget: align equivalent ordinal mark slots "
+    "in each criterion's alternatives and never create additive marks for an ALT route. If "
+    "aligned routes use different mark labels, preserve both in a slash-separated mark_type. "
+    "Use point_based for atomic marks and levels_based only for holistic level bands. Never "
+    "invent a mark, infer from a model answer, include question totals as criteria, repeat an "
+    "atom, or merge separate atoms."
 )
 
 
@@ -64,10 +535,57 @@ def _question_label(value: str) -> tuple[str, str | None] | None:
     match = _QUESTION_LABEL.fullmatch(value)
     if match is None:
         return None
-    subpart = match.group("subpart")
-    if subpart:
-        subpart = re.sub(r"^[\s._/-]+", "", subpart).strip().strip("()")
+    subpart_tokens = re.findall(r"[a-z0-9]+", match.group("subpart").casefold())
+    subpart = (
+        subpart_tokens[0]
+        if len(subpart_tokens) == 1
+        else "".join(f"({token})" for token in subpart_tokens)
+    )
     return str(int(match.group("number"))), subpart or None
+
+
+def _table_question_stems(table: str) -> set[str]:
+    stems: set[str] = set()
+    for match in _TABLE_FIRST_CELL.finditer(table):
+        label = unescape(_HTML_TAG.sub("", match.group("label"))).strip()
+        prefix = _TABLE_LABEL_STEM.match(label)
+        if prefix is not None:
+            stems.add(str(int(prefix.group("number"))))
+    return stems
+
+
+def _mark_scheme_context(mark_scheme: str, question_number: str) -> str:
+    tables = list(_MARK_SCHEME_TABLE.finditer(mark_scheme))
+    label = _question_label(question_number)
+    if not tables or label is None:
+        return mark_scheme[:60000]
+    selected = [
+        match.group(0) for match in tables if label[0] in _table_question_stems(match.group(0))
+    ]
+    if not selected:
+        return mark_scheme[:60000]
+    preamble = mark_scheme[: tables[0].start()][-12000:]
+    return f"{preamble}\n\n" + "\n\n".join(selected)
+
+
+def _extract_question_rubric(
+    model: StructuredModelPort,
+    settings: Settings,
+    question: Mapping[str, object],
+    mark_scheme: str,
+) -> RubricExtractionDraft:
+    number = str(question["number"])
+    user_content = (
+        f"TARGET QUESTION: {number}\n\n"
+        f"QUESTION {number}:\n{str(question['question_markdown'])[:3000]}\n\n"
+        "OFFICIAL MARK SCHEME EXCERPT:\n"
+        f"{_mark_scheme_context(mark_scheme, number)[:60000]}"
+    )
+    return StructuredTaskRunner(model).run(
+        StructuredTask(system_prompt=_RUBRIC_SYSTEM_PROMPT, user_content=user_content),
+        RubricExtractionDraft,
+        timeout=settings.grading_timeout,
+    )
 
 
 def _map_criteria_to_questions(
@@ -85,19 +603,23 @@ def _map_criteria_to_questions(
 
     criteria: list[dict[str, object]] = []
     for item in payload.criteria:
-        if item.question_number in valid_numbers:
-            criteria.append(item.model_dump())
-            continue
+        values = item.model_dump()
+        mapped_number: str | None = None
         label = _question_label(item.question_number)
-        if label is None:
-            continue
-        mapped_number = canonical_numbers.get(label[0])
+        if item.question_number in valid_numbers:
+            mapped_number = item.question_number
+        elif label is not None:
+            mapped_number = canonical_numbers.get(label[0])
         if mapped_number is None:
             continue
-        values = item.model_dump()
         values["question_number"] = mapped_number
-        if values["subpart"] == "whole" and label[1] is not None:
+        if values["subpart"] == "whole" and label is not None and label[1] is not None:
             values["subpart"] = label[1]
+        values["subpart"] = _canonical_subpart(mapped_number, values["subpart"])
+        values["mark_type"] = _canonical_mark_type(
+            values["mark_type"],
+            values["max_marks"],
+        )
         criteria.append(values)
     return criteria
 
@@ -139,7 +661,13 @@ class RubricService:
         self.grading = grading
         self.structured_model = structured_model
 
-    def _document_markdown(self, document: dict[str, object]) -> str:
+    def _document_markdown(
+        self,
+        document: dict[str, object],
+        *,
+        expected_checksum: str,
+    ) -> str:
+        self._require_converted_source(document, expected_checksum)
         markdown_path = document.get("markdown_path")
         if not markdown_path:
             raise ValueError("评分方案尚未完成 Markdown 转换")
@@ -153,6 +681,46 @@ class RubricService:
         except (OSError, MarkdownCacheMissing) as error:
             raise ValueError("评分方案 Markdown 缓存不可用，请先重新转换") from error
 
+    @staticmethod
+    def _require_converted_source(
+        document: Mapping[str, object],
+        expected_checksum: str,
+    ) -> None:
+        if str(document.get("converted_source_checksum") or "") != expected_checksum:
+            raise ValueError("Mark Scheme Markdown 与当前来源版本不一致，请先重新转换")
+
+    def _require_matching_rubric_source(
+        self,
+        rubric: Mapping[str, object],
+        document: dict[str, object] | None,
+    ) -> dict[str, object]:
+        identity = rubric.get("identity")
+        expected_pair = str(identity.get("pair_key") or "") if isinstance(identity, Mapping) else ""
+        expected_document_id = str(rubric.get("source_document_id") or "")
+        expected_checksum = str(rubric.get("source_document_checksum") or "")
+        if document is None:
+            raise RubricConflictError("评分规则来源 Mark Scheme 已发生变化，请重新创建评分规则")
+        parsed_identity = parse_exam_identity(
+            Path(str(document.get("filename") or "")),
+            "mark_scheme",
+            self.subject.pack,
+        )
+        current_pair = str(document.get("pair_key") or "")
+        parsed_pair = str(parsed_identity.get("pair_key") or "")
+        if (
+            str(document.get("id") or "") != expected_document_id
+            or document.get("subject_code") != self.subject.subject_code
+            or document.get("source_type") != "mark_scheme"
+            or str(document.get("checksum") or "") != expected_checksum
+            or document.get("identity_status") != "complete"
+            or not expected_pair
+            or current_pair != expected_pair
+            or parsed_pair != expected_pair
+        ):
+            raise RubricConflictError("评分规则来源 Mark Scheme 已发生变化，请重新创建评分规则")
+        self._require_converted_source(document, expected_checksum)
+        return document
+
     def create(self, *, paper_job_id: str, source_document_id: str) -> dict[str, object]:
         job = self.papers.get(paper_job_id)
         if job is None or job["subject_code"] != self.subject.subject_code:
@@ -164,6 +732,10 @@ class RubricService:
             raise LookupError("评分方案文档不存在")
         if document.get("source_type") != "mark_scheme":
             raise ValueError("所选文档不是 Mark Scheme")
+        document_checksum = str(document.get("checksum") or "")
+        if not document_checksum:
+            raise ValueError("Mark Scheme 缺少校验和，无法冻结评分规则来源版本")
+        self._require_converted_source(document, document_checksum)
         job_pair = str(job.get("pair_key") or "")
         if not job_pair:
             job_identity = parse_exam_identity(
@@ -183,42 +755,43 @@ class RubricService:
         questions = self.papers.questions(paper_job_id)
         if not questions:
             raise ValueError("试卷任务没有可评分题目")
-        question_outline = "\n".join(
-            f"QUESTION {row['number']}:\n{str(row['question_markdown'])[:3000]}"
-            for row in questions
+        mark_scheme = self._document_markdown(
+            document,
+            expected_checksum=document_checksum,
         )
-        mark_scheme = self._document_markdown(document)
-        system_prompt = (
-            "You extract an auditable typed rubric from an official examination mark scheme. "
-            "Return one criterion per indivisible mark atom. Preserve M/A/B/FT labels, explicit "
-            "dependencies, alternative methods, accuracy, units, and levels descriptors. Use "
-            "point_based for atomic marks and levels_based only for holistic level bands. "
-            "question_number must exactly equal one QUESTION label supplied by the caller. "
-            "Never invent a mark, infer from a model answer, or merge separate atoms."
-        )
-        user_content = (
-            f"PAPER QUESTIONS:\n{question_outline[:24000]}\n\n"
-            f"OFFICIAL MARK SCHEME:\n{mark_scheme[:60000]}"
-        )
-        payload = StructuredTaskRunner(
-            self.structured_model or _structured_model(self.settings)
-        ).run(
-            StructuredTask(system_prompt=system_prompt, user_content=user_content),
-            RubricExtractionDraft,
-            timeout=self.settings.grading_timeout,
-        )
+        model = self.structured_model or _structured_model(self.settings)
+        with ThreadPoolExecutor(max_workers=min(4, len(questions))) as executor:
+            payloads = list(
+                executor.map(
+                    lambda question: _extract_question_rubric(
+                        model,
+                        self.settings,
+                        question,
+                        mark_scheme,
+                    ),
+                    questions,
+                )
+            )
+
         valid_numbers = {str(row["number"]) for row in questions}
-        criteria = _map_criteria_to_questions(payload, valid_numbers)
+        criteria: list[dict[str, object]] = []
+        warnings: list[str] = []
+        for question, payload in zip(questions, payloads, strict=True):
+            number = str(question["number"])
+            criteria.extend(_map_criteria_to_questions(payload, {number}))
+            warnings.extend(payload.warnings)
         if not criteria:
             raise ValueError("评分方案未能映射到试卷题号")
-        warnings = list(payload.warnings)
+        _validate_rubric_criteria(criteria, mark_scheme)
         omitted = sorted(valid_numbers - {str(item["question_number"]) for item in criteria})
         if omitted:
             warnings.append("未抽取到评分原子的题目：" + "、".join(omitted))
+        warnings = _dedupe_warnings(warnings)
         return self.rubrics.create(
             subject_id=self.subject.id,
             paper_job_id=paper_job_id,
             source_document_id=source_document_id,
+            source_document_checksum=document_checksum,
             identity={
                 "paper_filename": str(job["filename"]),
                 "mark_scheme_filename": str(document.get("filename") or ""),
@@ -270,6 +843,127 @@ class RubricService:
             updates=updates,
         )
 
+    def review_criteria_batch(
+        self,
+        rubric_id: str,
+        request: BatchReviewRubricCriteriaRequest,
+    ) -> dict[str, object]:
+        criterion_ids = [decision.criterion_id for decision in request.decisions]
+        if len(set(criterion_ids)) != len(criterion_ids):
+            raise ValueError("批量审核请求包含重复的评分原子")
+        decisions = [
+            {
+                "criterion_id": decision.criterion_id,
+                "review_status": decision.review_status,
+                "note": decision.note,
+                "updates": (
+                    decision.updates.model_dump(exclude_unset=True)
+                    if decision.updates is not None
+                    else {}
+                ),
+                **(
+                    {"expected_criterion_fingerprint": (decision.expected_criterion_fingerprint)}
+                    if decision.expected_criterion_fingerprint is not None
+                    else {}
+                ),
+            }
+            for decision in request.decisions
+        ]
+        return self.rubrics.review_criteria_batch(
+            rubric_id,
+            subject_id=self.subject.id,
+            reviewer=request.reviewer,
+            decisions=decisions,
+        )
+
+    def ai_review_criteria(
+        self,
+        rubric_id: str,
+        request: AiReviewRubricCriteriaRequest,
+    ) -> dict[str, object]:
+        criterion_ids = request.criterion_ids
+        if len(set(criterion_ids)) != len(criterion_ids):
+            raise ValueError("AI 审核请求包含重复的评分原子")
+        rubric = self.rubrics.get(rubric_id, subject_id=self.subject.id)
+        if rubric.get("subject_id") != self.subject.id:
+            raise LookupError("评分规则不存在")
+        if rubric.get("status") != "draft":
+            raise RubricConflictError("只能审核草稿评分规则")
+
+        criteria = rubric.get("criteria")
+        if not isinstance(criteria, list):
+            raise ValueError("评分规则缺少评分原子")
+        criteria_by_id = {
+            str(item["id"]): item
+            for item in criteria
+            if isinstance(item, dict) and item.get("id") is not None
+        }
+        missing_ids = [
+            criterion_id for criterion_id in criterion_ids if criterion_id not in criteria_by_id
+        ]
+        if missing_ids:
+            raise LookupError("评分原子不存在：" + "、".join(missing_ids))
+        selected = [criteria_by_id[criterion_id] for criterion_id in criterion_ids]
+
+        paper_job_id = str(rubric["paper_job_id"])
+        job = self.papers.get(paper_job_id)
+        if job is None or job.get("subject_code") != self.subject.subject_code:
+            raise LookupError("试卷作答任务不存在")
+        document = self._require_matching_rubric_source(
+            rubric,
+            self.documents.get(str(rubric["source_document_id"])),
+        )
+
+        grouped: dict[str, list[dict[str, object]]] = {}
+        for criterion in selected:
+            number = str(criterion["question_number"])
+            grouped.setdefault(number, []).append(criterion)
+        question_rows = self.papers.questions(paper_job_id)
+        questions_by_number = {str(question["number"]): question for question in question_rows}
+        missing_questions = [number for number in grouped if number not in questions_by_number]
+        if missing_questions:
+            raise ValueError("评分原子无法映射到试卷题号：" + "、".join(missing_questions))
+
+        mark_scheme = self._document_markdown(
+            document,
+            expected_checksum=str(rubric["source_document_checksum"]),
+        )
+        model = self.structured_model or _structured_model(self.settings)
+        groups = [
+            (questions_by_number[number], grouped[number])
+            for number in questions_by_number
+            if number in grouped
+        ]
+        try:
+            with ThreadPoolExecutor(max_workers=min(4, len(groups))) as executor:
+                payloads = list(
+                    executor.map(
+                        lambda group: _review_question_criteria(
+                            model,
+                            self.settings,
+                            group[0],
+                            mark_scheme,
+                            group[1],
+                        ),
+                        groups,
+                    )
+                )
+        except AiReviewModelError:
+            raise
+        except Exception as error:
+            raise AiReviewModelError("AI 评分原子审核失败") from error
+
+        reviews = [review for payload in payloads for review in payload]
+        output_ids = [str(review["criterion_id"]) for review in reviews]
+        if Counter(output_ids) != Counter(criterion_ids):
+            raise AiReviewModelError("AI 审核结果未覆盖全部评分原子")
+        return self.rubrics.record_ai_reviews(
+            rubric_id,
+            subject_id=self.subject.id,
+            reviews=reviews,
+            model=str(getattr(model, "model_name", self.settings.grading_model)),
+        )
+
     def confirm(self, rubric_id: str, *, reviewer: str) -> dict[str, object]:
         return self.rubrics.confirm(
             rubric_id,
@@ -309,7 +1003,11 @@ class RubricService:
         if not criteria:
             raise ValueError("该题没有已接受的评分原子")
         max_marks = sum(float(item["max_marks"]) for item in criteria)
-        mark_scheme = json.dumps(criteria, ensure_ascii=False, indent=2)
+        mark_scheme = json.dumps(
+            [_criterion_scoring_payload(item) for item in criteria],
+            ensure_ascii=False,
+            indent=2,
+        )
         result = self.grading.grade(
             GradeRequest(
                 answer_markdown=answer.answer_markdown,
@@ -343,3 +1041,164 @@ class RubricService:
             paper_job_id,
             subject_code=self.subject.subject_code,
         )
+
+    def grading_overview(
+        self,
+        paper_job_id: str,
+        rubric_set_id: str,
+    ) -> dict[str, object]:
+        job = self.papers.get(paper_job_id)
+        if job is None or job.get("subject_code") != self.subject.subject_code:
+            raise LookupError("试卷作答任务不存在")
+        rubric = self.rubrics.get(rubric_set_id, subject_id=self.subject.id)
+        if (
+            rubric.get("paper_job_id") != paper_job_id
+            or rubric.get("subject_id") != self.subject.id
+        ):
+            raise ValueError("评分规则不属于当前试卷")
+        if rubric.get("status") != "confirmed":
+            raise ValueError("评分规则尚未人工确认")
+
+        questions = self.papers.questions(paper_job_id)
+        criteria = rubric.get("criteria")
+        if not isinstance(criteria, list):
+            criteria = []
+        accepted_available: dict[str, float] = {}
+        for criterion in criteria:
+            if not isinstance(criterion, Mapping) or criterion.get("review_status") != "accepted":
+                continue
+            number = str(criterion["question_number"])
+            accepted_available[number] = accepted_available.get(number, 0.0) + float(
+                criterion["max_marks"]
+            )
+
+        latest_by_position: dict[int, dict[str, object]] = {}
+        for assessment in self.assessments.for_paper(
+            paper_job_id,
+            subject_code=self.subject.subject_code,
+        ):
+            if assessment.get("rubric_set_id") != rubric_set_id:
+                continue
+            position_value = assessment.get("question_position")
+            if position_value is None:
+                continue
+            position = int(position_value)
+            current = latest_by_position.get(position)
+            candidate_key = (
+                str(assessment.get("created_at") or ""),
+                str(assessment.get("id") or ""),
+            )
+            current_key = (
+                (
+                    str(current.get("created_at") or ""),
+                    str(current.get("id") or ""),
+                )
+                if current is not None
+                else None
+            )
+            if current_key is None or candidate_key > current_key:
+                latest_by_position[position] = assessment
+
+        overview_questions: list[dict[str, object]] = []
+        error_counts: Counter[str] = Counter()
+        overall_suggestions: list[str] = []
+        seen_suggestions: set[str] = set()
+        total_awarded = 0.0
+        total_available = 0.0
+        status_counts = Counter[str]()
+
+        for question in sorted(questions, key=lambda item: int(item["position"])):
+            position = int(question["position"])
+            number = str(question["number"])
+            assessment = latest_by_position.get(position)
+            if assessment is None:
+                available = accepted_available.get(number, 0.0)
+                overview_questions.append(
+                    {
+                        "position": position,
+                        "question_number": number,
+                        "status": "unassessed",
+                        "awarded": None,
+                        "available": available,
+                        "confidence": None,
+                        "error_types": [],
+                        "suggestions": [],
+                    }
+                )
+                total_available += available
+                continue
+
+            status = str(assessment["status"])
+            awarded_value = assessment.get("total_awarded")
+            available_value = assessment.get("total_available")
+            confidence_value = assessment.get("confidence")
+            if (
+                isinstance(awarded_value, bool)
+                or not isinstance(awarded_value, (int, float))
+                or isinstance(available_value, bool)
+                or not isinstance(available_value, (int, float))
+                or isinstance(confidence_value, bool)
+                or not isinstance(confidence_value, (int, float))
+            ):
+                raise ValueError("评分结果缺少有效的分值或置信度")
+            awarded = float(awarded_value)
+            available = float(available_value)
+            confidence = float(confidence_value)
+            error_types, suggestions = _assessment_diagnostics(assessment.get("result"))
+            error_counts.update(error_types)
+            for suggestion in suggestions:
+                if suggestion not in seen_suggestions:
+                    seen_suggestions.add(suggestion)
+                    overall_suggestions.append(suggestion)
+            status_counts[status] += 1
+            total_awarded += awarded
+            total_available += available
+            overview_questions.append(
+                {
+                    "position": position,
+                    "question_number": number,
+                    "status": status,
+                    "awarded": awarded,
+                    "available": available,
+                    "confidence": confidence,
+                    "error_types": error_types,
+                    "suggestions": suggestions,
+                }
+            )
+
+        error_order = {value: index for index, value in enumerate(_ERROR_TYPE_ORDER)}
+        common_error_types = sorted(
+            error_counts,
+            key=lambda value: (
+                -error_counts[value],
+                error_order.get(value, len(error_order)),
+                value,
+            ),
+        )
+        completed_questions = sum(status_counts.values())
+        total_questions = len(questions)
+        percentage = (
+            round(total_awarded / total_available * 100, 2) if total_available > 0 else None
+        )
+        return {
+            "paper_job_id": paper_job_id,
+            "rubric_set_id": rubric_set_id,
+            "total_awarded": total_awarded,
+            "total_available": total_available,
+            "percentage": percentage,
+            "completed_questions": completed_questions,
+            "total_questions": total_questions,
+            "pending_review_count": status_counts["pending_review"],
+            "confirmed_count": status_counts["confirmed"],
+            "overridden_count": status_counts["overridden"],
+            "incomplete": completed_questions < total_questions,
+            "overall_suggestion": _overall_suggestion(
+                completed_questions=completed_questions,
+                total_questions=total_questions,
+                percentage=percentage,
+                common_error_types=common_error_types,
+                suggestions=overall_suggestions,
+            ),
+            "common_error_types": common_error_types,
+            "questions": overview_questions,
+        }

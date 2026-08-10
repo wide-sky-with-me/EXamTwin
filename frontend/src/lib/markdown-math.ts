@@ -65,7 +65,26 @@ function normalizeDelimiters(value: string) {
     );
 }
 
-function normalizeOutsideCodeSpans(value: string) {
+const quotedBareLatexPattern = /(["“])([^"”\n]*\\[A-Za-z]+[^"”\n]*)(["”])/g;
+const bareLatexTokenPattern = /(?:\\[ \t]|[^\s$"`])*\\[A-Za-z]+(?:\\[ \t]|[^\s$"`])*/g;
+const delimitedMathPattern = /(\$\$[\s\S]*?\$\$|\$[^$\n]+\$)/g;
+
+function normalizeBareLatex(value: string) {
+  const quoted = value.replace(
+    quotedBareLatexPattern,
+    (match, opening: string, math: string, closing: string) =>
+      math.includes("$") ? match : `${opening}$${math}$${closing}`,
+  );
+  return quoted
+    .split(delimitedMathPattern)
+    .map((segment, index) =>
+      index % 2 === 1
+        ? segment
+        : segment.replace(bareLatexTokenPattern, (math) => `$${math}$`))
+    .join("");
+}
+
+function transformOutsideCodeSpans(value: string, transform: (value: string) => string) {
   let output = "";
   let cursor = 0;
   let searchFrom = 0;
@@ -85,7 +104,7 @@ function normalizeOutsideCodeSpans(value: string) {
       let closingEnd = closing;
       while (value[closingEnd] === "`") closingEnd += 1;
       if (closingEnd - closing === tickCount) {
-        output += normalizeDelimiters(value.slice(cursor, opening));
+        output += transform(value.slice(cursor, opening));
         output += value.slice(opening, closingEnd);
         cursor = closingEnd;
         searchFrom = closingEnd;
@@ -99,18 +118,17 @@ function normalizeOutsideCodeSpans(value: string) {
     }
   }
 
-  return output + normalizeDelimiters(value.slice(cursor));
+  return output + transform(value.slice(cursor));
 }
 
-/** Normalize common model/PDF LaTeX delimiters without touching Markdown code. */
-export function canonicalizeMarkdownMath(markdown: string) {
+function transformMarkdownProse(markdown: string, transform: (value: string) => string) {
   const lines = markdown.match(/[^\n]*\n|[^\n]+$/g) ?? [];
   let fence: Fence | null = null;
   let prose = "";
   let output = "";
 
   const flushProse = () => {
-    output += normalizeOutsideCodeSpans(prose);
+    output += transformOutsideCodeSpans(prose, transform);
     prose = "";
   };
 
@@ -139,4 +157,14 @@ export function canonicalizeMarkdownMath(markdown: string) {
 
   flushProse();
   return output;
+}
+
+/** Normalize common model/PDF LaTeX delimiters without touching Markdown code. */
+export function canonicalizeMarkdownMath(markdown: string) {
+  return transformMarkdownProse(markdown, normalizeDelimiters);
+}
+
+/** Also delimit bare model-generated LaTeX commands in prose. */
+export function canonicalizeLooseMarkdownMath(markdown: string) {
+  return transformMarkdownProse(canonicalizeMarkdownMath(markdown), normalizeBareLatex);
 }

@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 from examtwin.assessment.agent_run_ledger import PaperAgentRunLedger
 from examtwin.assessment.answering_agent.contracts import ToolReplayPayload
@@ -27,6 +28,7 @@ from examtwin.contracts import (
 )
 from examtwin.platform.config import Settings
 from examtwin.subjects.public import subject_context
+from llama_index.core import Document
 
 from backend.tests.paper_job_support import (
     FakeAnswerService,
@@ -381,6 +383,67 @@ def test_two_workers_cannot_claim_the_same_paper_job(tmp_path: Path) -> None:
 
 
 @pytest.mark.integration
+def test_pdf_transport_disconnect_is_retried_before_job_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database = _test_database()
+    settings = Settings(
+        object_store_local_root=tmp_path,
+        paper_mineru_max_attempts=3,
+        paper_mineru_retry_delay_seconds=0,
+        paper_vision_enabled=False,
+    )
+    jobs = _job_service(database, settings)
+    runtime = _job_runtime(database, settings)
+    calls = 0
+
+    class FlakyMinerUReader:
+        def load_data(
+            self,
+            _source: Path,
+            *,
+            extra_info: dict[str, Any],
+        ) -> list[Document]:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise httpx.RemoteProtocolError("Server disconnected without sending a response.")
+            return [
+                Document(
+                    text="# Question 1\nEvaluate the integral, showing all working.",
+                    metadata={"page": 1, **extra_info},
+                )
+            ]
+
+    monkeypatch.setattr(
+        "examtwin.assessment.paper_worker.mineru_reader",
+        lambda _settings, *, timeout: FlakyMinerUReader(),
+    )
+    created = jobs.create_job(
+        "transport-retry.pdf",
+        _pdf_bytes(1),
+        unit_code="P2",
+    )
+    worker = PaperWorker(
+        settings,
+        subject_context(settings),
+        jobs=runtime,
+        answer_service=FakeAnswerService(),  # type: ignore[arg-type]
+        document_classifier=accept_question_paper,
+    )
+    try:
+        assert worker.run_once() is True
+        completed = jobs.get_job(created.job_id)
+        assert completed.status == "completed"
+        assert completed.stage == "completed"
+        assert calls == 2
+        assert completed.chunks[0].attempts == 1
+    finally:
+        database.execute("DELETE FROM paper_jobs WHERE id=?", (created.job_id,))
+
+
+@pytest.mark.integration
 def test_pdf_retry_reuses_completed_chunks(tmp_path: Path) -> None:
     database = _test_database()
     settings = Settings(
@@ -473,6 +536,28 @@ def test_pdf_source_page_is_rendered_and_cached(tmp_path: Path) -> None:
         assert first == second
         assert first.suffix == ".jpg"
         assert first.read_bytes().startswith(b"\xff\xd8")
+    finally:
+        database.execute("DELETE FROM paper_jobs WHERE id=?", (created.job_id,))
+
+
+@pytest.mark.integration
+def test_question_image_is_served_only_from_the_job_asset_namespace(tmp_path: Path) -> None:
+    database = _test_database()
+    settings = Settings(object_store_local_root=tmp_path)
+    jobs = _job_service(database, settings)
+    created = jobs.create_job("visual-paper.pdf", _pdf_bytes(1), unit_code="P2")
+    asset_name = f"p0001-{'a' * 64}.png"
+    try:
+        jobs.files.write(
+            f"{created.job_id}/question-images/{asset_name}",
+            b"question-image",
+        )
+
+        assert jobs.question_image(created.job_id, asset_name).read_bytes() == b"question-image"
+        with pytest.raises(ValueError, match="资源名无效"):
+            jobs.question_image(created.job_id, "../source.pdf")
+        with pytest.raises(LookupError, match="图片不存在"):
+            jobs.question_image(created.job_id, f"p0001-{'b' * 64}.png")
     finally:
         database.execute("DELETE FROM paper_jobs WHERE id=?", (created.job_id,))
 
@@ -757,7 +842,9 @@ def test_failed_question_is_automatically_retried(tmp_path: Path) -> None:
 
 
 @pytest.mark.integration
-def test_paper_job_history_filters_and_only_deletes_terminal_jobs(tmp_path: Path) -> None:
+def test_paper_job_history_deletes_unclaimed_or_expired_jobs_but_rejects_live_leases(
+    tmp_path: Path,
+) -> None:
     database = _test_database()
     settings = Settings(object_store_local_root=tmp_path, database_url=database.database_url)
     jobs = _job_service(database, settings)
@@ -766,9 +853,14 @@ def test_paper_job_history_filters_and_only_deletes_terminal_jobs(tmp_path: Path
         b"# Question 1\nCalculate 2+2.",
         unit_code="P1",
     )
-    active = jobs.create_job(
-        "history-active-paper.md",
+    unclaimed = jobs.create_job(
+        "history-unclaimed-paper.md",
         b"# Question 1\nCalculate 3+3.",
+        unit_code="P2",
+    )
+    leased = jobs.create_job(
+        "history-leased-paper.md",
+        b"# Question 1\nCalculate 5+5.",
         unit_code="P2",
     )
     completed_second = jobs.create_job(
@@ -788,6 +880,10 @@ def test_paper_job_history_filters_and_only_deletes_terminal_jobs(tmp_path: Path
             completed_second.job_id,
         ),
     )
+    database.execute(
+        "UPDATE paper_jobs SET lease_token=?, lease_expires_at=? WHERE id=?",
+        ("live-lease", now + timedelta(minutes=5), leased.job_id),
+    )
     try:
         listed = jobs.list_jobs(
             status="completed",
@@ -804,16 +900,32 @@ def test_paper_job_history_filters_and_only_deletes_terminal_jobs(tmp_path: Path
         }
 
         active_jobs = jobs.list_jobs(status="active", limit=10, offset=0)
-        assert active.job_id in {item.job_id for item in active_jobs.items}
-        with pytest.raises(ValueError, match="正在处理"):
-            jobs.delete_jobs((completed.job_id, active.job_id))
+        assert {unclaimed.job_id, leased.job_id} <= {item.job_id for item in active_jobs.items}
+        with pytest.raises(ValueError, match="仍由 Worker 处理"):
+            jobs.delete_jobs((completed.job_id, leased.job_id))
         assert jobs.repository.get(completed.job_id) is not None
+        assert jobs.repository.get(leased.job_id) is not None
+
+        assert jobs.delete_job(unclaimed.job_id) is None
+        assert jobs.repository.get(unclaimed.job_id) is None
+
+        database.execute(
+            "UPDATE paper_jobs SET lease_expires_at=? WHERE id=?",
+            (now - timedelta(seconds=1), leased.job_id),
+        )
+        assert jobs.delete_job(leased.job_id) is None
+        assert jobs.repository.get(leased.job_id) is None
 
         assert jobs.delete_jobs((completed.job_id, completed_second.job_id)) == 2
         assert jobs.repository.get(completed.job_id) is None
         assert jobs.repository.get(completed_second.job_id) is None
     finally:
         database.execute(
-            "DELETE FROM paper_jobs WHERE id IN (?, ?, ?)",
-            (completed.job_id, completed_second.job_id, active.job_id),
+            "DELETE FROM paper_jobs WHERE id IN (?, ?, ?, ?)",
+            (
+                completed.job_id,
+                completed_second.job_id,
+                unclaimed.job_id,
+                leased.job_id,
+            ),
         )

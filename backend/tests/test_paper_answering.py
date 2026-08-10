@@ -20,6 +20,7 @@ from examtwin.assessment.paper_parsing import (
     question_source_structures,
     reconcile_question_source_pages,
     upload_to_markdown,
+    validate_question_source_structure,
 )
 from examtwin.assessment.paper_vision import format_physical_page_markdown
 from examtwin.contracts import AskResponse, Citation
@@ -317,8 +318,9 @@ def test_source_structure_reads_subparts_prefixed_by_question_number() -> None:
             (
                 2,
                 "## 1\n\nA stem.\n\n"
-                "### 1 (a) (i)\n\nState a value. [1 mark]\n\n"
-                "### 1 (a) (ii)\n\nFind a value. [3 marks]\n\n"
+                "### 1 (a)\n\nFor this part, use the given information.\n\n"
+                "### 1 (a) (i)\n\nState a value. \\([1\\text{ mark}]\\)\n\n"
+                "### 1 (a) (ii)\n\nFind a value. \\[3 marks\\]\n\n"
                 "## 1 (b)\n\nFind another value. [3 marks]\n\nEND OF QUESTIONS",
             )
         ]
@@ -368,6 +370,51 @@ def test_source_structure_ignores_clock_header_before_question_eight() -> None:
     assert [structure.number for structure in structures] == ["1", "8"]
 
 
+def test_source_structure_ignores_equation_coefficient_before_question_ten() -> None:
+    source = format_physical_page_markdown(
+        [
+            (3, "## 2\n\nThe point $A$ has given coordinates. [2 marks]"),
+            (
+                17,
+                "## 9\n\nIt is given that\n\n"
+                "2ax^2 + 7bx + 4c = 0\n\n"
+                "Find the possible values. [5 marks]",
+            ),
+            (18, "## 10\n\nThe function $f$ is defined by $f(x)=x^2$. [3 marks]"),
+        ]
+    )
+
+    structures = question_source_structures(source)
+
+    assert [structure.number for structure in structures] == ["2", "9", "10"]
+
+
+def test_source_structure_normalizes_question_number_prefixed_model_labels() -> None:
+    source = format_physical_page_markdown(
+        [
+            (
+                7,
+                "## 4\n\n4 (a) Find one value. [2 marks]\n\n4 (b) Find another value. [5 marks]",
+            )
+        ]
+    )
+    questions = [
+        {
+            "number": "4",
+            "question_markdown": "Model split output.",
+            "answer_requirements": [
+                {"label": "4(a)", "marks": 2},
+                {"label": "4(b)", "marks": 5},
+            ],
+            "total_marks": 7,
+        }
+    ]
+
+    [validated] = validate_question_source_structure(source, questions)
+
+    assert [part["label"] for part in validated["answer_requirements"]] == ["(a)", "(b)"]
+
+
 def test_split_merge_prefers_structural_superset_across_primary_batch_overlap() -> None:
     partial = {
         "number": "4",
@@ -411,6 +458,126 @@ def test_split_merge_prefers_structural_superset_across_primary_batch_overlap() 
         "(b)(ii)",
     ]
     assert merged["total_marks"] == 7
+
+
+def test_split_merge_resolves_explicit_proof_kind_across_overlapping_batches() -> None:
+    stem = "A non-uniform rod is held in equilibrium."
+    proof_part = (
+        "(a)(i) By taking moments about A show that d is 1.622 "
+        "correct to four significant figures. [3 marks]"
+    )
+    partial = {
+        "number": "4",
+        "question_markdown": f"{stem}\n\n{proof_part}",
+        "answer_requirements": [
+            {
+                "label": "(a)(i)",
+                "marks": 3,
+                "answer_kind": "proof",
+                "accuracy": "four significant figures",
+                "units": ["m"],
+            }
+        ],
+        "_split_source": "primary",
+        "_split_source_digest": "trusted-source",
+        "_split_batch_index": 1,
+    }
+    complete = {
+        "number": "4",
+        "question_markdown": (
+            f"{stem}\n\n{proof_part}\n\n(a)(ii) Find the tension in the string. [2 marks]"
+        ),
+        "answer_requirements": [
+            {
+                "label": "(a)(i)",
+                "marks": 3,
+                "answer_kind": "numeric",
+                "accuracy": "four significant figures",
+            },
+            {"label": "(a)(ii)", "marks": 2, "answer_kind": "numeric"},
+        ],
+        "_split_source": "primary",
+        "_split_source_digest": "trusted-source",
+        "_split_batch_index": 2,
+    }
+
+    [merged] = _merge_split_questions([partial, complete])
+
+    assert merged["answer_requirements"] == [
+        {
+            "label": "(a)(i)",
+            "marks": 3,
+            "answer_kind": "proof",
+            "accuracy": "four significant figures",
+            "units": ["m"],
+        },
+        {"label": "(a)(ii)", "marks": 2, "answer_kind": "numeric"},
+    ]
+    assert merged["total_marks"] == 5
+
+
+def test_split_merge_rejects_answer_kind_conflict_without_source_proof_directive() -> None:
+    candidates = [
+        {
+            "number": "4",
+            "question_markdown": "(a) Find the exact value of x. [2 marks]",
+            "answer_requirements": [{"label": "(a)", "marks": 2, "answer_kind": "numeric"}],
+            "_split_source": "primary",
+            "_split_source_digest": "trusted-source",
+            "_split_batch_index": 0,
+        },
+        {
+            "number": "4",
+            "question_markdown": "(a) Find the exact value of x. [2 marks]",
+            "answer_requirements": [{"label": "(a)", "marks": 2, "answer_kind": "expression"}],
+            "_split_source": "primary",
+            "_split_source_digest": "trusted-source",
+            "_split_batch_index": 1,
+        },
+    ]
+
+    with pytest.raises(ValueError, match="answer_kind 冲突"):
+        _merge_split_questions(candidates)
+
+
+def test_split_merge_preserves_parent_context_for_nested_batch_continuation() -> None:
+    opening = {
+        "number": "5",
+        "question_markdown": (
+            "A particle is projected with speed u from a point O at height h.\n\n"
+            "5 (a) Show that y is a quadratic function of x. [6 marks]"
+        ),
+        "answer_requirements": [{"label": "(a)", "marks": 6, "answer_kind": "proof"}],
+        "_split_source": "primary",
+        "_split_source_digest": "trusted-source",
+        "_split_batch_index": 2,
+    }
+    continuation = {
+        "number": "5",
+        "question_markdown": (
+            "5 (b) A particle is projected with speed 20 m/s at 25 degrees "
+            "from a point O at height 4 m.\n\n"
+            "5 (b) (i) Use part (a) to find its horizontal displacement. [3 marks]\n\n"
+            "5 (b) (ii) Find the flight time T. [2 marks]"
+        ),
+        "answer_requirements": [
+            {"label": "(b)(i)", "marks": 3, "answer_kind": "numeric"},
+            {"label": "(b)(ii)", "marks": 2, "answer_kind": "numeric"},
+        ],
+        "_split_source": "primary",
+        "_split_source_digest": "trusted-source",
+        "_split_batch_index": 3,
+    }
+
+    [merged] = _merge_split_questions([opening, continuation])
+
+    assert "(b) A particle is projected with speed 20 m/s" in merged["question_markdown"]
+    assert [part["label"] for part in merged["answer_requirements"]] == [
+        "(a)",
+        "(b)(i)",
+        "(b)(ii)",
+    ]
+    assert merged["total_marks"] == 11
 
 
 def test_split_merge_rejects_conflicting_primary_stems() -> None:

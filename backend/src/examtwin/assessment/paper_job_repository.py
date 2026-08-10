@@ -112,7 +112,7 @@ class PaperJobRepository:
             total = int(session.scalar(count_statement) or 0)
         return [_row_dict(row) for row in rows], total
 
-    def delete_terminals(
+    def delete_releasable(
         self,
         job_ids: Sequence[str],
         subject_code: str,
@@ -131,10 +131,15 @@ class PaperJobRepository:
                     .with_for_update()
                 )
             )
-            if len(rows) != len(job_ids):
-                raise LookupError("部分试卷任务不存在或不属于当前科目")
-            if any(row.status not in terminal_statuses for row in rows):
-                raise ValueError("选中的记录包含正在处理的试卷任务，不能删除")
+            now = datetime.now(UTC)
+            has_live_lease = any(
+                row.status not in terminal_statuses
+                and row.lease_token is not None
+                and (row.lease_expires_at is None or row.lease_expires_at > now)
+                for row in rows
+            )
+            if has_live_lease:
+                raise ValueError("选中的试卷任务仍由 Worker 处理，暂时不能删除")
             has_replacement_lineage = any(
                 row.replacement_for_job_id is not None for row in rows
             ) or bool(

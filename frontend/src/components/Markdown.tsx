@@ -7,7 +7,8 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 
-import { canonicalizeMarkdownMath } from "../lib/markdown-math";
+import { canonicalizeLooseMarkdownMath, canonicalizeMarkdownMath } from "../lib/markdown-math";
+import { backendResourceUrl } from "../lib/api";
 
 type HastNode = {
   type: string;
@@ -127,6 +128,24 @@ const markdownComponents: Components = {
   },
 };
 
+const questionMarkdownComponents: Components = {
+  ...markdownComponents,
+  img({ node, src, ...props }) {
+    void node;
+    const resolvedSrc = src?.startsWith("/api/v1/")
+      ? backendResourceUrl(src)
+      : src;
+    return (
+      <img
+        {...props}
+        className="question-source-image"
+        loading="lazy"
+        src={resolvedSrc}
+      />
+    );
+  },
+};
+
 const inlineMarkdownComponents: Components = {
   ...markdownComponents,
   p({ children }) {
@@ -137,9 +156,11 @@ const inlineMarkdownComponents: Components = {
 export function Markdown({
   children,
   components,
+  normalizeBareLatex = false,
 }: {
   children: string;
   components?: Components;
+  normalizeBareLatex?: boolean;
 }) {
   return (
     <ReactMarkdown
@@ -147,7 +168,7 @@ export function Markdown({
       rehypePlugins={[rehypeRaw, rehypeSanitize, rehypeTableMath, rehypeKatex]}
       components={{ ...markdownComponents, ...components }}
     >
-      {canonicalizeMarkdownMath(children)}
+      {normalizeBareLatex ? canonicalizeLooseMarkdownMath(children) : canonicalizeMarkdownMath(children)}
     </ReactMarkdown>
   );
 }
@@ -182,7 +203,7 @@ export function QuestionMarkdown({ children }: { children: string }) {
         rehypeTableMath,
         rehypeKatex,
       ]}
-      components={markdownComponents}
+      components={questionMarkdownComponents}
     >
       {normalizeQuestionMath(children)}
     </ReactMarkdown>

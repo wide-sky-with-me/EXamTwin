@@ -60,6 +60,10 @@ _SUBPART_LINE = re.compile(
     r"(?P<label>\([a-zivx]+\)(?:[ \t]*\([a-zivx]+\))*)"
     r"(?:\*{1,2})?(?=[ \t.:]|$)"
 )
+_PROOF_DIRECTIVE = re.compile(
+    r"\b(?:show\s+that|prove(?:\s+that)?|demonstrate\s+that|verify\s+that)\b",
+    re.IGNORECASE,
+)
 
 SplitCheckpointLoader = Callable[[int, str], list[dict[str, Any]] | None]
 SplitCheckpointSaver = Callable[[int, int, str, list[dict[str, Any]], float], None]
@@ -141,14 +145,24 @@ def _candidate_sections(item: dict[str, Any]) -> tuple[str, dict[str, str]]:
         and (normalized := _normalized_subpart_label(requirement.get("label", "")))
         and normalized != "whole"
     }
-    matches = [
-        match
-        for match in _SUBPART_LINE.finditer(text)
-        if not expected or _normalized_subpart_label(match.group("label")) in expected
-    ]
+    matches = []
+    for match in _SUBPART_LINE.finditer(text):
+        label = _normalized_subpart_label(match.group("label"))
+        if (
+            not expected
+            or label in expected
+            or any(expected_label.startswith(label) for expected_label in expected)
+        ):
+            matches.append(match)
     if not matches:
         return text, {}
     stem = text[: matches[0].start()].strip()
+    if re.fullmatch(
+        rf"(?:question\s*)?{re.escape(str(item.get('number', '')).strip())}[\s.:]*",
+        stem,
+        re.IGNORECASE,
+    ):
+        stem = ""
     sections: dict[str, str] = {}
     for index, match in enumerate(matches):
         end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
@@ -284,6 +298,13 @@ def _merge_top_level_candidates(
                     and current.get(key) not in (None, "", [])
                     and current[key] != value
                 ):
+                    if (
+                        key == "answer_kind"
+                        and "proof" in {str(current[key]), str(value)}
+                        and _PROOF_DIRECTIVE.search(sections.get(label, ""))
+                    ):
+                        current[key] = "proof"
+                        continue
                     raise ValueError(f"同题号主源子问 {label} 的 {key} 冲突")
         for code in item.get("knowledge_codes") or []:
             normalized_code = str(code).strip()

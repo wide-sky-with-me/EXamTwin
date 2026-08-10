@@ -1,30 +1,18 @@
-import {
-  ArrowLeft,
-  ArrowRight,
-  BookOpenCheck,
-  CheckCircle2,
-  FileCheck2,
-  GraduationCap,
-  LoaderCircle,
-  RefreshCw,
-  ShieldCheck,
-  XCircle,
-  TriangleAlert,
-  UploadCloud,
-} from "lucide-react";
-import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import { AnswerDiagramView } from "../components/AnswerDiagramView";
-import { AnswerImageView } from "../components/AnswerImageView";
-import { Markdown, QuestionMarkdown } from "../components/Markdown";
-import { Confidence, ErrorBanner } from "../components/Feedback";
+import { GradingMaterialsStage } from "../components/grading/GradingMaterialsStage";
+import { GradingOverview } from "../components/grading/GradingOverview";
+import { GradingQuestionStage } from "../components/grading/GradingQuestionStage";
+import { RubricReviewStage } from "../components/grading/RubricReviewStage";
 import { useToast } from "../components/toast-context";
 import { apiClient, unwrapApi, uploadWorkspaceDocument } from "../lib/api";
 import type {
+  AiReviewRubricCriteriaRequest,
+  BatchReviewRubricCriteriaRequest,
   GradeResult,
+  GradingOverviewResponse,
   GradingPaper,
   PaperAssessment,
-  PaperJobQuestion,
   PaperJobResult,
   RubricCriterionPatch,
   RubricSet,
@@ -32,205 +20,10 @@ import type {
   SourceDocument,
   SubjectPack,
 } from "../types";
-type GradingStep = 1 | 2 | 3;
 
+type GradingStep = 1 | 2 | 3 | 4;
 const REVIEWER_STORAGE_KEY = "examtwin.reviewerName";
-type RubricCriterion = RubricSet["criteria"][number];
-
-function RubricCriterionEditor({
-  criterion,
-  disabled,
-  onReview,
-}: {
-  criterion: RubricCriterion;
-  disabled: boolean;
-  onReview: (
-    criterionId: string,
-    reviewStatus: "accepted" | "rejected",
-    note: string,
-    updates: RubricCriterionPatch | undefined,
-  ) => Promise<void>;
-}) {
-  const [description, setDescription] = useState(criterion.description);
-  const [maxMarks, setMaxMarks] = useState(String(criterion.max_marks));
-  const [markType, setMarkType] = useState(criterion.mark_type ?? "");
-  const [sourceExcerpt, setSourceExcerpt] = useState(criterion.source_excerpt);
-  const [note, setNote] = useState("");
-
-  useEffect(() => {
-    setDescription(criterion.description);
-    setMaxMarks(String(criterion.max_marks));
-    setMarkType(criterion.mark_type ?? "");
-    setSourceExcerpt(criterion.source_excerpt);
-    setNote("");
-  }, [criterion]);
-
-  const parsedMarks = Number(maxMarks);
-  const invalid = !description.trim() || !Number.isFinite(parsedMarks) || parsedMarks <= 0;
-  const changed = (
-    description.trim() !== criterion.description
-    || parsedMarks !== criterion.max_marks
-    || markType.trim() !== (criterion.mark_type ?? "")
-    || sourceExcerpt !== criterion.source_excerpt
-  );
-
-  function updates(): RubricCriterionPatch | undefined {
-    if (!changed) return undefined;
-    return {
-      accuracy_requirement: criterion.accuracy_requirement,
-      alternatives: criterion.alternatives,
-      dependencies: criterion.dependencies,
-      description: description.trim(),
-      follow_through_policy: criterion.follow_through_policy,
-      mark_type: markType.trim() || null,
-      max_marks: parsedMarks,
-      scoring_mode: criterion.scoring_mode,
-      source_excerpt: sourceExcerpt,
-      source_page: criterion.source_page,
-      units: criterion.units,
-    };
-  }
-  return (
-    <article className={`rubric-criterion-card ${criterion.review_status}`}>
-      <header>
-        <div>
-          <strong>Q{criterion.question_number} · {criterion.criterion_id}</strong>
-          <span>{criterion.subpart === "whole" ? "整题" : `小问 ${criterion.subpart}`}</span>
-        </div>
-        <div className="rubric-criterion-score">
-          <span className={`criterion-status ${criterion.review_status}`}>
-            {criterion.review_status === "accepted"
-              ? "已接受"
-              : criterion.review_status === "rejected" ? "已拒绝" : "待审核"}
-          </span>
-          <b>{criterion.max_marks} 分</b>
-        </div>
-      </header>
-      <div className="rubric-criterion-fields">
-        <label className="rubric-description-field">
-          判分描述
-          <textarea
-            disabled={disabled}
-            onChange={(event) => setDescription(event.target.value)}
-            rows={3}
-            value={description}
-          />
-        </label>
-        <label>
-          分值
-          <input
-            disabled={disabled}
-            min="0.1"
-            onChange={(event) => setMaxMarks(event.target.value)}
-            step="0.1"
-            type="number"
-            value={maxMarks}
-          />
-        </label>
-        <label>
-          标记类型
-          <input
-            disabled={disabled}
-            onChange={(event) => setMarkType(event.target.value)}
-            placeholder="例如 M1 / A1 / B1"
-            value={markType}
-          />
-        </label>
-        <label className="rubric-source-field">
-          官方原文依据
-          <textarea
-            disabled={disabled}
-            onChange={(event) => setSourceExcerpt(event.target.value)}
-            rows={2}
-            value={sourceExcerpt}
-          />
-        </label>
-        <label className="rubric-note-field">
-          审核说明
-          <input
-            disabled={disabled}
-            onChange={(event) => setNote(event.target.value)}
-            placeholder="可选；修改或拒绝时建议填写"
-            value={note}
-          />
-        </label>
-      </div>
-      {criterion.reviewed_by && (
-        <small className="rubric-review-meta">
-          最近由 {criterion.reviewed_by} 于{" "}
-          {criterion.reviewed_at
-            ? new Date(criterion.reviewed_at).toLocaleString("zh-CN")
-            : "未知时间"}审核
-        </small>
-      )}
-      {!disabled && (
-        <footer>
-          <button
-            className="secondary danger"
-            onClick={() => void onReview(criterion.id, "rejected", note, undefined)}
-            type="button"
-          >
-            <XCircle size={16} />
-            拒绝
-          </button>
-          <button
-            className="secondary"
-            disabled={invalid}
-            onClick={() => void onReview(criterion.id, "accepted", note, updates())}
-            type="button"
-          >
-            <CheckCircle2 size={16} />
-            {changed ? "保存修改并接受" : "接受"}
-          </button>
-        </footer>
-      )}
-    </article>
-  );
-}
-
-
-function GradingSubmission({
-  jobId,
-  question,
-}: {
-  jobId: string;
-  question: PaperJobQuestion;
-}) {
-  return (
-    <div className="grading-submission">
-      <section>
-        <h3>原题</h3>
-        <div className="grading-rich grading-question">
-          <QuestionMarkdown>{question.question_markdown}</QuestionMarkdown>
-        </div>
-      </section>
-      <section>
-        <h3>已保存答案</h3>
-        <div className="grading-rich">
-          <Markdown>{question.answer_markdown}</Markdown>
-        </div>
-        {question.diagrams.length > 0 && (
-          <div className="answer-diagrams">
-            {question.diagrams.map((diagram, index) => (
-              <AnswerDiagramView
-                diagram={diagram}
-                jobId={jobId}
-                key={`${diagram.title}-${index}`}
-              />
-            ))}
-          </div>
-        )}
-        {question.images.length > 0 && (
-          <div className="answer-diagrams">
-            {question.images.map((image, index) => (
-              <AnswerImageView image={image} key={`${image.content_url}-${index}`} />
-            ))}
-          </div>
-        )}
-      </section>
-    </div>
-  );
-}
+const MAX_BATCH_REVIEW_CRITERIA = 200;
 
 export function Grading({
   subject,
@@ -241,56 +34,207 @@ export function Grading({
 }) {
   const [papers, setPapers] = useState<GradingPaper[]>([]);
   const [documents, setDocuments] = useState<SourceDocument[]>([]);
+  const [papersLoading, setPapersLoading] = useState(true);
+  const [papersError, setPapersError] = useState<string | null>(null);
+  const [documentsLoading, setDocumentsLoading] = useState(true);
+  const [documentsError, setDocumentsError] = useState<string | null>(null);
   const [paperId, setPaperId] = useState("");
   const [documentId, setDocumentId] = useState("");
   const [paper, setPaper] = useState<PaperJobResult | null>(null);
   const [rubrics, setRubrics] = useState<RubricSetSummary[]>([]);
   const [rubric, setRubric] = useState<RubricSet | null>(null);
   const [assessments, setAssessments] = useState<PaperAssessment[]>([]);
+  const [overview, setOverview] = useState<GradingOverviewResponse | null>(null);
   const [selectedPosition, setSelectedPosition] = useState<number | null>(null);
   const [step, setStep] = useState<GradingStep>(1);
   const [busy, setBusy] = useState<string | null>(null);
+  const [overviewBusy, setOverviewBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [overviewError, setOverviewError] = useState<string | null>(null);
   const [reviewer, setReviewer] = useState(() =>
     window.localStorage.getItem(REVIEWER_STORAGE_KEY) ?? ""
   );
-  const [rubricQuestionFilter, setRubricQuestionFilter] = useState("ALL");
-  const [rubricStatusFilter, setRubricStatusFilter] = useState("all");
   const paperRequestRef = useRef(0);
+  const paperDiscoveryRequestRef = useRef(0);
+  const sourceRequestRef = useRef(0);
+  const rubricRequestRef = useRef(0);
+  const rubricCreationRequestRef = useRef(0);
+  const overviewRequestRef = useRef(0);
+  const uploadRequestRef = useRef(0);
+  const busyOperationRef = useRef(0);
+  const assessmentRequestRef = useRef(0);
+  const reconciliationRequestRef = useRef(0);
+  const pendingDiscoveredDocumentRef = useRef<{
+    paperId: string;
+    documentId: string;
+  } | null>(null);
+  const paperIdRef = useRef(paperId);
+  const documentIdRef = useRef(documentId);
+  const documentSelectionRevisionRef = useRef(0);
+  const documentSelectionExplicitRef = useRef(false);
+  const readyDocumentIdsRef = useRef<ReadonlySet<string>>(new Set());
+  const rubricIdRef = useRef<string | null>(null);
+  const pageRef = useRef<HTMLElement>(null);
+  const stepRef = useRef<GradingStep>(step);
+  const focusStageAfterRenderRef = useRef(false);
+  paperIdRef.current = paperId;
+  documentIdRef.current = documentId;
+  stepRef.current = step;
+  rubricIdRef.current = rubric?.paper_job_id === paperId
+    && rubric.source_document_id === documentId
+    ? rubric.id
+    : null;
   const { notify } = useToast();
 
-  const loadSources = useCallback(async () => {
-    const rows = await unwrapApi(
-      apiClient.GET("/api/v1/corpus/documents", {
-        params: { query: { source_type: "mark_scheme", limit: 100 } },
-      }),
-    );
-    const readyRows = (rows as SourceDocument[]).filter(
-      (item) => item.status === "converted" || item.status === "indexed",
-    );
-    setDocuments(readyRows);
-    if (!documentId && readyRows.length) setDocumentId(String(readyRows[0].id));
-  }, [documentId]);
+  const beginBusy = useCallback((label: string) => {
+    const operationId = ++busyOperationRef.current;
+    setBusy(label);
+    return operationId;
+  }, []);
+
+  const finishBusy = useCallback((operationId: number) => {
+    if (operationId === busyOperationRef.current) setBusy(null);
+  }, []);
+
+  const clearPaperContextState = useCallback(() => {
+    setPaper(null);
+    setRubrics([]);
+    setRubric(null);
+    setAssessments([]);
+    setOverview(null);
+    setSelectedPosition(null);
+    busyOperationRef.current += 1;
+    setBusy(null);
+    setOverviewBusy(false);
+    setError(null);
+    setOverviewError(null);
+  }, []);
+
+  const loadSources = useCallback(async (preserveSelection = false) => {
+    const requestId = ++sourceRequestRef.current;
+    setDocumentsLoading(true);
+    try {
+      const rows = await unwrapApi(
+        apiClient.GET("/api/v1/corpus/documents", {
+          params: { query: { source_type: "mark_scheme", limit: 100 } },
+        }),
+      );
+      if (requestId !== sourceRequestRef.current) return;
+      const readyRows = (rows as SourceDocument[]).filter(
+        (item) => item.status === "converted" || item.status === "indexed",
+      );
+      readyDocumentIdsRef.current = new Set(readyRows.map((item) => String(item.id)));
+      setDocuments(readyRows);
+      setDocumentsError(null);
+      if (
+        !preserveSelection
+        && !readyRows.some((item) => String(item.id) === documentIdRef.current)
+      ) {
+        const firstDocumentId = readyRows.length ? String(readyRows[0].id) : "";
+        documentSelectionExplicitRef.current = false;
+        pendingDiscoveredDocumentRef.current = firstDocumentId && paperIdRef.current
+          ? { paperId: paperIdRef.current, documentId: firstDocumentId }
+          : null;
+        documentIdRef.current = firstDocumentId;
+        setDocumentId(firstDocumentId);
+      }
+      return readyRows;
+    } catch (cause) {
+      if (requestId !== sourceRequestRef.current) return;
+      setDocumentsError(cause instanceof Error ? cause.message : "Mark Scheme 列表加载失败");
+      throw cause;
+    } finally {
+      if (requestId === sourceRequestRef.current) setDocumentsLoading(false);
+    }
+  }, []);
 
   const loadPapers = useCallback(async () => {
-    const rows = await unwrapApi(apiClient.GET("/api/v1/grading/papers"));
-    setPapers(rows);
-    if (!paperId && rows.length) setPaperId(rows[0].job_id);
-  }, [paperId]);
-  async function loadPaperContext(nextPaperId: string) {
+    const requestId = ++paperDiscoveryRequestRef.current;
+    setPapersLoading(true);
+    try {
+      const rows = await unwrapApi(apiClient.GET("/api/v1/grading/papers"));
+      if (requestId !== paperDiscoveryRequestRef.current) return;
+      setPapers(rows);
+      setPapersError(null);
+      if (!rows.some((item) => item.job_id === paperIdRef.current)) {
+        const firstPaperId = rows[0]?.job_id ?? "";
+        clearPaperContextState();
+        paperIdRef.current = firstPaperId;
+        setPaperId(firstPaperId);
+      }
+    } catch (cause) {
+      if (requestId !== paperDiscoveryRequestRef.current) return;
+      setPapersError(cause instanceof Error ? cause.message : "作答记录列表加载失败");
+      throw cause;
+    } finally {
+      if (requestId === paperDiscoveryRequestRef.current) setPapersLoading(false);
+    }
+  }, [clearPaperContextState]);
+
+  const loadDiscoveryLists = useCallback(async () => {
+    await Promise.allSettled([loadPapers(), loadSources()]);
+  }, [loadPapers, loadSources]);
+
+  const loadOverview = useCallback(async (
+    nextPaperId: string,
+    nextDocumentId: string,
+    rubricId: string,
+  ) => {
+    const requestId = ++overviewRequestRef.current;
+    setOverviewBusy(true);
+    setOverviewError(null);
+    try {
+      const nextOverview = await unwrapApi(
+        apiClient.GET("/api/v1/grading/papers/{paper_job_id}/overview", {
+          params: {
+            path: { paper_job_id: nextPaperId },
+            query: { rubric_set_id: rubricId },
+          },
+        }),
+      );
+      if (
+        requestId !== overviewRequestRef.current
+        || paperIdRef.current !== nextPaperId
+        || documentIdRef.current !== nextDocumentId
+        || rubricIdRef.current !== rubricId
+      ) return;
+      if (
+        nextOverview.paper_job_id !== nextPaperId
+        || nextOverview.rubric_set_id !== rubricId
+      ) {
+        setOverviewError("整卷总览与当前答卷或评分规则不匹配，请重新刷新。");
+        return;
+      }
+      setOverview(nextOverview);
+    } catch (cause) {
+      if (
+        requestId !== overviewRequestRef.current
+        || paperIdRef.current !== nextPaperId
+        || documentIdRef.current !== nextDocumentId
+        || rubricIdRef.current !== rubricId
+      ) return;
+      setOverviewError(cause instanceof Error ? cause.message : "整卷总览加载失败");
+    } finally {
+      if (requestId === overviewRequestRef.current) setOverviewBusy(false);
+    }
+  }, []);
+
+  const loadPaperContext = useCallback(async (nextPaperId: string) => {
     const requestId = ++paperRequestRef.current;
+    const documentRevision = documentSelectionRevisionRef.current;
+    rubricRequestRef.current += 1;
+    overviewRequestRef.current += 1;
+    assessmentRequestRef.current += 1;
+    reconciliationRequestRef.current += 1;
+    setOverviewBusy(false);
     if (!nextPaperId) {
-      setPaper(null);
-      setRubrics([]);
-      setRubric(null);
-      setAssessments([]);
-      setSelectedPosition(null);
-      setBusy(null);
-      setError(null);
+      clearPaperContextState();
       return;
     }
-    setBusy("loading-paper");
+    const operationId = beginBusy("loading-paper");
     setError(null);
+    setOverview(null);
+    setOverviewError(null);
     try {
       const [nextPaper, nextRubrics, nextAssessments] = await Promise.all([
         unwrapApi(
@@ -309,111 +253,229 @@ export function Grading({
           }),
         ),
       ]);
-      const nextRubric = nextRubrics.length
+      if (requestId !== paperRequestRef.current) return;
+      const matchingRubrics = nextRubrics.filter(
+        (item) => item.paper_job_id === nextPaperId,
+      );
+      const selectedDocumentId = documentIdRef.current;
+      const pairedSummary = matchingRubrics.find(
+        (item) => item.source_document_id === selectedDocumentId,
+      ) ?? (
+        !documentSelectionExplicitRef.current
+        && documentRevision === documentSelectionRevisionRef.current
+          ? matchingRubrics.find(
+              (item) => readyDocumentIdsRef.current.has(item.source_document_id),
+            )
+          : undefined
+      );
+      const nextRubric = pairedSummary
         ? await unwrapApi(
             apiClient.GET("/api/v1/grading/rubrics/{rubric_id}", {
-              params: { path: { rubric_id: nextRubrics[0].id } },
+              params: { path: { rubric_id: pairedSummary.id } },
             }),
           )
         : null;
-      if (requestId !== paperRequestRef.current) return;
+      if (
+        requestId !== paperRequestRef.current
+        || documentRevision !== documentSelectionRevisionRef.current
+      ) return;
+      if (
+        nextPaper.job_id !== nextPaperId
+        || (
+          nextRubric
+          && (
+            nextRubric.paper_job_id !== nextPaperId
+            || nextRubric.source_document_id !== pairedSummary?.source_document_id
+          )
+        )
+      ) {
+        setError("加载的评分数据与所选答卷或 Mark Scheme 不匹配，请重新选择。");
+        return;
+      }
+      const pairedDocumentId = nextRubric?.source_document_id ?? selectedDocumentId;
+      if (pairedDocumentId !== documentIdRef.current) {
+        documentIdRef.current = pairedDocumentId;
+        setDocumentId(pairedDocumentId);
+      }
       setPaper(nextPaper as PaperJobResult);
-      setRubrics(nextRubrics);
-      setAssessments(nextAssessments);
+      setRubrics(matchingRubrics);
+      setAssessments(nextAssessments.filter(
+        (item) => item.paper_job_id === nextPaperId,
+      ));
       setSelectedPosition(
         nextPaper.questions.find((item) => item.status === "completed")?.position ?? null,
       );
       setRubric(nextRubric);
+      rubricIdRef.current = nextRubric?.id ?? null;
+      if (nextRubric?.status === "confirmed") {
+        void loadOverview(nextPaperId, pairedDocumentId, nextRubric.id);
+      }
     } catch (cause) {
       if (requestId !== paperRequestRef.current) return;
       setError(cause instanceof Error ? cause.message : "评分工作区加载失败");
     } finally {
-      if (requestId === paperRequestRef.current) setBusy(null);
+      if (requestId === paperRequestRef.current) finishBusy(operationId);
     }
-  }
+  }, [beginBusy, clearPaperContextState, finishBusy, loadOverview]);
 
   useEffect(() => {
-    void Promise.all([loadPapers(), loadSources()]).catch((cause: unknown) => {
-      setError(cause instanceof Error ? cause.message : "评分工作区加载失败");
-    });
-  }, [loadPapers, loadSources]);
+    void loadDiscoveryLists();
+    return () => {
+      paperDiscoveryRequestRef.current += 1;
+      sourceRequestRef.current += 1;
+    };
+  }, [loadDiscoveryLists]);
 
   useEffect(() => {
     void loadPaperContext(paperId);
     return () => {
       paperRequestRef.current += 1;
+      rubricRequestRef.current += 1;
+      rubricCreationRequestRef.current += 1;
+      uploadRequestRef.current += 1;
+      assessmentRequestRef.current += 1;
+      reconciliationRequestRef.current += 1;
+      overviewRequestRef.current += 1;
     };
-  }, [paperId]);
+  }, [loadPaperContext, paperId]);
 
-  const latestByPosition = useMemo(() => {
-    const map = new Map<number, PaperAssessment>();
-    if (!rubric) return map;
-    for (const item of assessments) {
-      if (item.rubric_set_id !== rubric.id) continue;
-      if (!map.has(item.question_position)) map.set(item.question_position, item);
-    }
-    return map;
-  }, [assessments, rubric]);
-  const selectedQuestion = paper?.questions.find((item) => item.position === selectedPosition) ?? null;
-  const selectedAssessment = selectedPosition == null ? null : latestByPosition.get(selectedPosition) ?? null;
-  const selectedResult: GradeResult | null = selectedAssessment?.result ?? null;
-  const selectedAcceptedCriteria = selectedQuestion && rubric
-    ? rubric.criteria.filter(
+  useLayoutEffect(() => {
+    if (!focusStageAfterRenderRef.current) return;
+    focusStageAfterRenderRef.current = false;
+    const heading = pageRef.current?.querySelector<HTMLElement>(
+      `#grading-stage-${step}-heading`,
+    ) ?? pageRef.current?.querySelector<HTMLElement>(".grading-stage-header h2");
+    if (!heading) return;
+    if (!heading.hasAttribute("tabindex")) heading.tabIndex = -1;
+    heading.focus();
+  }, [step]);
+
+  const activePaper = paper?.job_id === paperId ? paper : null;
+  const activeRubric = rubric?.paper_job_id === paperId
+    && rubric.source_document_id === documentId
+    ? rubric
+    : null;
+  const activeAssessments = activePaper && activeRubric
+    ? assessments.filter(
         (item) =>
-          item.review_status === "accepted"
-          && item.question_number === selectedQuestion.number,
-      ).length
-    : 0;
-  const acceptedCriteria = rubric?.criteria.filter((item) => item.review_status === "accepted").length ?? 0;
-  const pendingCriteria = rubric?.criteria.filter((item) => item.review_status === "pending").length ?? 0;
-  const rejectedCriteria = rubric?.criteria.filter((item) => item.review_status === "rejected").length ?? 0;
-  const rubricQuestions = useMemo(
-    () => Array.from(new Set(rubric?.criteria.map((item) => item.question_number) ?? [])),
-    [rubric],
+          item.paper_job_id === paperId
+          && item.rubric_set_id === activeRubric.id,
+      )
+    : [];
+  const contextLoading = busy === "loading-paper"
+    || busy === "loading-rubric"
+    || busy === "upload"
+    || busy === "create-rubric";
+  const rubricWritePending = busy !== null && (
+    busy.startsWith("review-")
+    || busy === "batch-review"
+    || busy === "ai-review"
+    || busy === "confirm-rubric"
   );
-  const visibleCriteria = useMemo(
-    () => (rubric?.criteria ?? []).filter(
-      (item) =>
-        (rubricQuestionFilter === "ALL" || item.question_number === rubricQuestionFilter)
-        && (rubricStatusFilter === "all" || item.review_status === rubricStatusFilter),
-    ),
-    [rubric, rubricQuestionFilter, rubricStatusFilter],
-  );
-  const selectedPaperSummary = papers.find((item) => item.job_id === paperId) ?? null;
-  const selectedDocument = documents.find((item) => item.id === documentId) ?? null;
+  const assessmentWritePending = busy?.startsWith("grade-") ?? false;
+  const journeyLocked = contextLoading || rubricWritePending || assessmentWritePending;
+
+  function transitionToStep(
+    nextStep: GradingStep,
+    contextRubric: RubricSet | null = activeRubric,
+    allowWhileLocked = false,
+  ) {
+    if (journeyLocked && !allowWhileLocked) return;
+    if (nextStep === stepRef.current) return;
+    if (nextStep > 1 && !contextRubric) return;
+    if (nextStep > 2 && contextRubric?.status !== "confirmed") return;
+    focusStageAfterRenderRef.current = true;
+    stepRef.current = nextStep;
+    setStep(nextStep);
+  }
 
   function choosePaper(nextPaperId: string) {
+    if (nextPaperId === paperIdRef.current) return;
+    documentSelectionExplicitRef.current = false;
+    pendingDiscoveredDocumentRef.current = null;
     paperRequestRef.current += 1;
+    rubricRequestRef.current += 1;
+    rubricCreationRequestRef.current += 1;
+    uploadRequestRef.current += 1;
+    overviewRequestRef.current += 1;
+    assessmentRequestRef.current += 1;
+    reconciliationRequestRef.current += 1;
+    paperIdRef.current = nextPaperId;
+    rubricIdRef.current = null;
+    clearPaperContextState();
     setPaperId(nextPaperId);
+    stepRef.current = 1;
     setStep(1);
   }
 
   function chooseDocument(nextDocumentId: string) {
+    if (nextDocumentId === documentIdRef.current) return;
+    documentSelectionExplicitRef.current = true;
+    pendingDiscoveredDocumentRef.current = null;
+    rubricRequestRef.current += 1;
+    rubricCreationRequestRef.current += 1;
+    uploadRequestRef.current += 1;
+    assessmentRequestRef.current += 1;
+    reconciliationRequestRef.current += 1;
+    overviewRequestRef.current += 1;
+    documentSelectionRevisionRef.current += 1;
+    busyOperationRef.current += 1;
+    documentIdRef.current = nextDocumentId;
+    rubricIdRef.current = null;
     setDocumentId(nextDocumentId);
+    setRubric(null);
+    setAssessments([]);
+    setSelectedPosition(null);
+    setOverview(null);
+    setOverviewBusy(false);
+    setOverviewError(null);
+    setBusy(null);
+    setError(null);
     setStep(1);
+    stepRef.current = 1;
+
+    if (!activePaper && paperIdRef.current) {
+      void loadPaperContext(paperIdRef.current);
+      return;
+    }
+    const matchingRubric = rubrics.find(
+      (item) =>
+        item.paper_job_id === paperIdRef.current
+        && item.source_document_id === nextDocumentId,
+    );
+    if (matchingRubric) void selectRubric(matchingRubric.id);
   }
 
   async function prepareRubric() {
+    if (contextLoading) return;
+    if (!activePaper) {
+      const activePaperId = paperIdRef.current;
+      if (!activePaperId) return;
+      await loadPaperContext(activePaperId);
+      return;
+    }
     if (
-      rubric
-      && rubric.paper_job_id === paperId
-      && rubric.source_document_id === documentId
+      activeRubric
+      && activeRubric.source_document_id === documentId
     ) {
-      setStep(2);
+      transitionToStep(activeRubric.status === "confirmed" ? 3 : 2);
       return;
     }
     await createRubric();
   }
 
-
   async function uploadScheme(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
-    setBusy("upload");
+    const requestId = ++uploadRequestRef.current;
+    rubricCreationRequestRef.current += 1;
+    const selectionRevision = documentSelectionRevisionRef.current;
+    const activeDocumentId = documentIdRef.current;
+    const operationId = beginBusy("upload");
     setError(null);
     try {
       const uploaded = await uploadWorkspaceDocument(subject.id, file, "mark_scheme");
-      await unwrapApi(
+      const conversion = await unwrapApi(
         apiClient.POST("/api/v1/corpus/convert", {
           body: {
             authority_tiers: [],
@@ -425,37 +487,104 @@ export function Grading({
           },
         }),
       );
-      await loadSources();
-      setDocumentId(uploaded.id);
-      setStep(1);
+      if (
+        conversion.failed !== 0
+        || conversion.succeeded + conversion.skipped !== 1
+      ) {
+        const backendError = conversion.errors.filter(Boolean).join("；");
+        throw new Error(
+          backendError
+          || `Mark Scheme 转换未完成（成功 ${conversion.succeeded}，跳过 ${conversion.skipped}，失败 ${conversion.failed}）。`,
+        );
+      }
+      const refreshedDocuments = await loadSources(true);
+      if (!refreshedDocuments) return;
+      const uploadedDocumentId = String(uploaded.id);
+      if (!refreshedDocuments.some(
+        (item) => String(item.id) === uploadedDocumentId,
+      )) {
+        throw new Error("上传的 Mark Scheme 转换后尚未就绪，请稍后重试。");
+      }
+      if (
+        requestId !== uploadRequestRef.current
+        || selectionRevision !== documentSelectionRevisionRef.current
+        || (
+          documentIdRef.current !== activeDocumentId
+          && documentIdRef.current !== uploadedDocumentId
+        )
+      ) return;
+      if (documentIdRef.current !== uploadedDocumentId) {
+        chooseDocument(uploadedDocumentId);
+      }
       notify("Mark Scheme 已上传并完成转换，可开始解析评分规则。");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Mark Scheme 上传或转换失败");
+      if (
+        requestId === uploadRequestRef.current
+        && selectionRevision === documentSelectionRevisionRef.current
+        && documentIdRef.current === activeDocumentId
+      ) {
+        setError(cause instanceof Error ? cause.message : "Mark Scheme 上传或转换失败");
+      }
     } finally {
-      setBusy(null);
+      finishBusy(operationId);
       event.target.value = "";
     }
   }
 
   async function createRubric() {
-    if (!paperId || !documentId) return;
-    setBusy("create-rubric");
+    if (!activePaper || !paperId || !documentId) return;
+    const activePaperId = paperId;
+    const activeDocumentId = documentId;
+    const requestId = ++rubricCreationRequestRef.current;
+    const operationId = beginBusy("create-rubric");
     setError(null);
     try {
       const created = await unwrapApi(
         apiClient.POST("/api/v1/grading/rubrics", {
-          body: { paper_job_id: paperId, source_document_id: documentId },
+          body: { paper_job_id: activePaperId, source_document_id: activeDocumentId },
         }),
       );
+      if (
+        requestId !== rubricCreationRequestRef.current
+        || paperIdRef.current !== activePaperId
+        || documentIdRef.current !== activeDocumentId
+        || created.paper_job_id !== activePaperId
+        || created.source_document_id !== activeDocumentId
+      ) return;
+      rubricIdRef.current = created.id;
       setRubric(created);
-      await loadPaperContext(paperId);
-      notify("评分方案已解析为可审核的原子规则。");
-      setStep(2);
+      setRubrics((items) => [
+        created,
+        ...items.filter((item) => item.id !== created.id),
+      ]);
+      notify("评分标准已解析，请确认每个得分点后再开始判分。");
+      if (stepRef.current === 1) transitionToStep(2, created);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "评分方案解析失败");
+      if (
+        requestId === rubricCreationRequestRef.current
+        && paperIdRef.current === activePaperId
+        && documentIdRef.current === activeDocumentId
+      ) {
+        setError(cause instanceof Error ? cause.message : "评分方案解析失败");
+      }
     } finally {
-      setBusy(null);
+      finishBusy(operationId);
     }
+  }
+
+
+  function applyRefreshedRubric(refreshed: RubricSet, expectedRubricId: string) {
+    if (
+      rubricIdRef.current !== expectedRubricId
+      || refreshed.id !== expectedRubricId
+      || refreshed.paper_job_id !== paperIdRef.current
+      || refreshed.source_document_id !== documentIdRef.current
+    ) return false;
+    setRubric(refreshed);
+    setRubrics((items) => items.map(
+      (item) => item.id === refreshed.id ? { ...item, ...refreshed } : item,
+    ));
+    return true;
   }
 
   async function reviewCriterion(
@@ -463,19 +592,22 @@ export function Grading({
     reviewStatus: "accepted" | "rejected",
     note: string,
     updates: RubricCriterionPatch | undefined,
-  ) {
-    if (!rubric) return;
+  ): Promise<boolean> {
+    if (!activeRubric) return false;
     const reviewerName = reviewer.trim();
     if (!reviewerName) {
       setError("请先填写审核人名称。");
-      return;
+      return false;
     }
-    setBusy(`review-${criterionId}`);
+    const rubricId = activeRubric.id;
+    const activePaperId = activeRubric.paper_job_id;
+    const activeDocumentId = activeRubric.source_document_id;
+    const operationId = beginBusy(`review-${criterionId}`);
     setError(null);
     try {
-      const reviewed = await unwrapApi(
+      const refreshed = await unwrapApi(
         apiClient.POST("/api/v1/grading/rubrics/{rubric_id}/criteria/{criterion_id}/review", {
-          params: { path: { rubric_id: rubric.id, criterion_id: criterionId } },
+          params: { path: { rubric_id: rubricId, criterion_id: criterionId } },
           body: {
             note: note.trim() || null,
             review_status: reviewStatus,
@@ -484,573 +616,472 @@ export function Grading({
           },
         }),
       );
-      setRubric(reviewed);
+      if (!applyRefreshedRubric(refreshed, rubricId)) return false;
       window.localStorage.setItem(REVIEWER_STORAGE_KEY, reviewerName);
-      notify(reviewStatus === "accepted" ? "评分原子已接受并写入审计记录。" : "评分原子已拒绝并写入审计记录。");
+      notify(reviewStatus === "accepted" ? "得分点已接受并写入审计记录。" : "得分点已拒绝并写入审计记录。");
+      return true;
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "评分原子审核失败");
+      if (
+        paperIdRef.current === activePaperId
+        && documentIdRef.current === activeDocumentId
+        && rubricIdRef.current === rubricId
+      ) {
+        setError(cause instanceof Error ? cause.message : "得分点审核失败");
+      }
+      return false;
     } finally {
-      setBusy(null);
+      finishBusy(operationId);
+    }
+  }
+
+  async function batchReviewCriteria(request: BatchReviewRubricCriteriaRequest): Promise<boolean> {
+    if (request.decisions.length > MAX_BATCH_REVIEW_CRITERIA) {
+      setError(`单次最多审核 ${MAX_BATCH_REVIEW_CRITERIA} 条得分点，请缩小选择范围后重试。`);
+      return false;
+    }
+    if (!activeRubric || !request.reviewer.trim() || request.decisions.length === 0) return false;
+    const rubricId = activeRubric.id;
+    const activePaperId = activeRubric.paper_job_id;
+    const activeDocumentId = activeRubric.source_document_id;
+    const operationId = beginBusy("batch-review");
+    setError(null);
+    try {
+      const refreshed = await unwrapApi(
+        apiClient.POST("/api/v1/grading/rubrics/{rubric_id}/batch-review", {
+          params: { path: { rubric_id: rubricId } },
+          body: request,
+        }),
+      );
+      if (!applyRefreshedRubric(refreshed, rubricId)) return false;
+      window.localStorage.setItem(REVIEWER_STORAGE_KEY, request.reviewer);
+      notify(`已批量审核 ${request.decisions.length} 条得分点，并分别写入审计记录。`);
+      return true;
+    } catch (cause) {
+      if (
+        paperIdRef.current === activePaperId
+        && documentIdRef.current === activeDocumentId
+        && rubricIdRef.current === rubricId
+      ) {
+        setError(cause instanceof Error ? cause.message : "批量审核失败");
+      }
+      return false;
+    } finally {
+      finishBusy(operationId);
+    }
+  }
+
+  async function aiReviewCriteria(request: AiReviewRubricCriteriaRequest) {
+    if (request.criterion_ids.length > MAX_BATCH_REVIEW_CRITERIA) {
+      setError(`单次最多审核 ${MAX_BATCH_REVIEW_CRITERIA} 条得分点，请缩小选择范围后重试。`);
+      return;
+    }
+    if (!activeRubric || request.criterion_ids.length === 0) return;
+    const rubricId = activeRubric.id;
+    const activePaperId = activeRubric.paper_job_id;
+    const activeDocumentId = activeRubric.source_document_id;
+    const operationId = beginBusy("ai-review");
+    setError(null);
+    try {
+      const refreshed = await unwrapApi(
+        apiClient.POST("/api/v1/grading/rubrics/{rubric_id}/ai-review", {
+          params: { path: { rubric_id: rubricId } },
+          body: request,
+        }),
+      );
+      if (!applyRefreshedRubric(refreshed, rubricId)) return;
+      notify(`AI 已为 ${request.criterion_ids.length} 条得分点保存检查建议；人工状态未改变。`);
+    } catch (cause) {
+      if (
+        paperIdRef.current === activePaperId
+        && documentIdRef.current === activeDocumentId
+        && rubricIdRef.current === rubricId
+      ) {
+        setError(cause instanceof Error ? cause.message : "AI 审核失败");
+      }
+    } finally {
+      finishBusy(operationId);
     }
   }
 
   async function confirmRubric() {
-    if (!rubric) return;
+    if (!activePaper || !activeRubric) return;
     const reviewerName = reviewer.trim();
     if (!reviewerName) {
       setError("请先填写审核人名称。");
       return;
     }
-    setBusy("confirm-rubric");
+    const rubricId = activeRubric.id;
+    const activePaperId = activePaper.job_id;
+    const activeDocumentId = activeRubric.source_document_id;
+    const operationId = beginBusy("confirm-rubric");
     setError(null);
     try {
-      const confirmed = await unwrapApi(
+      const refreshed = await unwrapApi(
         apiClient.POST("/api/v1/grading/rubrics/{rubric_id}/confirm", {
-          params: { path: { rubric_id: rubric.id } },
+          params: { path: { rubric_id: rubricId } },
           body: { reviewer: reviewerName },
         }),
       );
-      setRubric(confirmed);
-      setRubrics((items) => items.map(
-        (item) => item.id === confirmed.id ? { ...item, ...confirmed } : item,
-      ));
+      if (!applyRefreshedRubric(refreshed, rubricId)) return;
       window.localStorage.setItem(REVIEWER_STORAGE_KEY, reviewerName);
       notify("评分规则已确认，现可对既有答案记录评分。");
-      setStep(3);
+      void loadOverview(activePaperId, activeDocumentId, rubricId);
+      if (stepRef.current === 2) transitionToStep(3, refreshed, true);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "评分规则确认失败");
+      if (
+        paperIdRef.current === activePaperId
+        && documentIdRef.current === activeDocumentId
+        && rubricIdRef.current === rubricId
+      ) {
+        setError(cause instanceof Error ? cause.message : "评分规则确认失败");
+      }
     } finally {
-      setBusy(null);
+      finishBusy(operationId);
     }
   }
 
-  async function assessQuestion(position: number) {
-    if (!paper || !rubric) return;
-    setBusy(`grade-${position}`);
+  async function assessQuestion(position: number): Promise<GradeResult | undefined> {
+    if (!activePaper || !activeRubric) return;
+    const activePaperId = activePaper.job_id;
+    const activeDocumentId = activeRubric.source_document_id;
+    const rubricId = activeRubric.id;
+    const requestId = ++assessmentRequestRef.current;
+    const operationId = beginBusy(`grade-${position}`);
     setError(null);
     try {
       const result = await unwrapApi(
         apiClient.POST("/api/v1/grading/papers/{paper_job_id}/questions/{position}/assess", {
-          params: { path: { paper_job_id: paper.job_id, position } },
-          body: { rubric_set_id: rubric.id },
+          params: { path: { paper_job_id: activePaperId, position } },
+          body: { rubric_set_id: rubricId },
         }),
       );
-      const nextAssessments = await unwrapApi(
-        apiClient.GET("/api/v1/grading/papers/{paper_job_id}/assessments", {
-          params: { path: { paper_job_id: paper.job_id } },
-        }),
-      );
-      setAssessments(nextAssessments);
-      setSelectedPosition(position);
-      notify(`Q${paper.questions.find((item) => item.position === position)?.number ?? position} 已完成自动初评。`);
-      await onCreated();
+      if (
+        requestId !== assessmentRequestRef.current
+        || paperIdRef.current !== activePaperId
+        || documentIdRef.current !== activeDocumentId
+        || rubricIdRef.current !== rubricId
+      ) return;
+      const persistedAssessment: PaperAssessment = {
+        id: result.assessment_id,
+        paper_job_id: activePaperId,
+        question_position: position,
+        rubric_set_id: rubricId,
+        status: result.status,
+        result,
+        created_at: new Date().toISOString(),
+      };
+      setAssessments((items) => [
+        persistedAssessment,
+        ...items.filter(
+          (item) =>
+            item.id !== persistedAssessment.id
+            && !(
+              item.paper_job_id === activePaperId
+              && item.rubric_set_id === rubricId
+              && item.question_position === position
+            ),
+        ),
+      ]);
+      notify(`Q${activePaper.questions.find((item) => item.position === position)?.number ?? position} 已完成自动初评。`);
+      finishBusy(operationId);
+
+      const reconciliationId = ++reconciliationRequestRef.current;
+      void (async () => {
+        const [assessmentRefresh, overviewRefresh, createdRefresh] = await Promise.allSettled([
+          unwrapApi(
+            apiClient.GET("/api/v1/grading/papers/{paper_job_id}/assessments", {
+              params: { path: { paper_job_id: activePaperId } },
+            }),
+          ),
+          unwrapApi(
+            apiClient.GET("/api/v1/grading/papers/{paper_job_id}/overview", {
+              params: {
+                path: { paper_job_id: activePaperId },
+                query: { rubric_set_id: rubricId },
+              },
+            }),
+          ),
+          Promise.resolve().then(onCreated),
+        ]);
+        if (
+          reconciliationId !== reconciliationRequestRef.current
+          || paperIdRef.current !== activePaperId
+          || documentIdRef.current !== activeDocumentId
+          || rubricIdRef.current !== rubricId
+        ) return;
+        if (assessmentRefresh.status === "fulfilled") {
+          const refreshed = assessmentRefresh.value.filter(
+            (item) => item.paper_job_id === activePaperId,
+          );
+          const includesPersistedResult = refreshed.some(
+            (item) => item.id === persistedAssessment.id,
+          );
+          setAssessments(
+            includesPersistedResult
+              ? refreshed
+              : [
+                  persistedAssessment,
+                  ...refreshed.filter(
+                    (item) =>
+                      item.rubric_set_id !== rubricId
+                      || item.question_position !== position,
+                  ),
+                ],
+          );
+        } else {
+          setError("评分已生成，但最新结果列表刷新失败；请重新载入页面，不要重复生成。");
+        }
+        if (overviewRefresh.status === "fulfilled") {
+          if (
+            overviewRefresh.value.paper_job_id === activePaperId
+            && overviewRefresh.value.rubric_set_id === rubricId
+          ) {
+            overviewRequestRef.current += 1;
+            setOverview(overviewRefresh.value);
+            setOverviewError(null);
+          } else {
+            setOverviewError("评分已生成，但整卷总览与当前评分上下文不匹配；可在总览步骤安全重试刷新。");
+          }
+        } else {
+          setOverviewError("评分已生成，但整卷总览刷新失败；可在总览步骤安全重试刷新。");
+        }
+        if (createdRefresh.status === "rejected") {
+          setError("评分已生成，但人工复核队列刷新失败；请重新载入页面，不要重复生成。");
+        }
+      })();
       return result;
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "自动评分失败");
+      if (
+        requestId === assessmentRequestRef.current
+        && paperIdRef.current === activePaperId
+        && documentIdRef.current === activeDocumentId
+        && rubricIdRef.current === rubricId
+      ) {
+        setError(cause instanceof Error ? cause.message : "自动评分失败");
+      }
     } finally {
-      setBusy(null);
+      finishBusy(operationId);
     }
   }
 
-  async function selectRubric(rubricId: string) {
-    setBusy("loading-rubric");
+  const selectRubric = useCallback(async (nextRubricId: string): Promise<boolean> => {
+    if (!activePaper || !documentIdRef.current) return false;
+    const requestId = ++rubricRequestRef.current;
+    rubricCreationRequestRef.current += 1;
+    assessmentRequestRef.current += 1;
+    reconciliationRequestRef.current += 1;
+    overviewRequestRef.current += 1;
+    setOverviewBusy(false);
+    const activePaperId = activePaper.job_id;
+    const activeDocumentId = documentIdRef.current;
+    const operationId = beginBusy("loading-rubric");
+    rubricIdRef.current = null;
+    setRubric(null);
+    setSelectedPosition(null);
+    setError(null);
+    setOverview(null);
+    setOverviewError(null);
     try {
-      const detail = await unwrapApi(
-        apiClient.GET("/api/v1/grading/rubrics/{rubric_id}", {
-          params: { path: { rubric_id: rubricId } },
-        }),
-      );
+      const [detail, nextAssessments] = await Promise.all([
+        unwrapApi(
+          apiClient.GET("/api/v1/grading/rubrics/{rubric_id}", {
+            params: { path: { rubric_id: nextRubricId } },
+          }),
+        ),
+        unwrapApi(
+          apiClient.GET("/api/v1/grading/papers/{paper_job_id}/assessments", {
+            params: { path: { paper_job_id: activePaperId } },
+          }),
+        ),
+      ]);
+      if (
+        requestId !== rubricRequestRef.current
+        || paperIdRef.current !== activePaperId
+        || documentIdRef.current !== activeDocumentId
+      ) return false;
+      if (
+        detail.id !== nextRubricId
+        || detail.paper_job_id !== activePaperId
+        || detail.source_document_id !== activeDocumentId
+      ) {
+        setError("所选评分规则不属于当前答卷或 Mark Scheme，请重新选择。");
+        return false;
+      }
+      rubricIdRef.current = detail.id;
       setRubric(detail);
+      setAssessments(nextAssessments.filter(
+        (item) =>
+          item.paper_job_id === activePaperId
+          && item.rubric_set_id === detail.id,
+      ));
+      setSelectedPosition(
+        activePaper.questions.find((item) => item.status === "completed")?.position ?? null,
+      );
+      if (detail.status === "confirmed") {
+        void loadOverview(activePaperId, activeDocumentId, detail.id);
+      }
+      return true;
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "评分规则加载失败");
+      if (
+        requestId === rubricRequestRef.current
+        && paperIdRef.current === activePaperId
+        && documentIdRef.current === activeDocumentId
+      ) {
+        setError(cause instanceof Error ? cause.message : "评分规则加载失败");
+      }
+      return false;
     } finally {
-      setBusy(null);
+      finishBusy(operationId);
     }
+  }, [activePaper, beginBusy, finishBusy, loadOverview]);
+
+  useLayoutEffect(() => {
+    const pendingDocument = pendingDiscoveredDocumentRef.current;
+    if (!pendingDocument) return;
+    if (documentSelectionExplicitRef.current) {
+      pendingDiscoveredDocumentRef.current = null;
+      return;
+    }
+    if (
+      pendingDocument.paperId !== paperId
+      || pendingDocument.documentId !== documentId
+      || !activePaper
+      || activePaper.job_id !== pendingDocument.paperId
+    ) return;
+    pendingDiscoveredDocumentRef.current = null;
+    if (activeRubric) return;
+    const matchingRubric = rubrics.find(
+      (item) =>
+        item.paper_job_id === pendingDocument.paperId
+        && item.source_document_id === pendingDocument.documentId,
+    );
+    if (matchingRubric) void selectRubric(matchingRubric.id);
+  }, [activePaper, activeRubric, documentId, paperId, rubrics, selectRubric]);
+
+  async function refreshOverview() {
+    const activePaperId = paperIdRef.current;
+    const activeDocumentId = documentIdRef.current;
+    const rubricId = rubricIdRef.current;
+    if (!activePaperId || !activeDocumentId || !rubricId) return;
+    await loadOverview(activePaperId, activeDocumentId, rubricId);
   }
 
   return (
-    <section>
+    <section className="grading-page" ref={pageRef}>
       <div className="page-heading compact">
         <div>
           <h1>自动评分工作台</h1>
-          <p>按顺序准备答卷、核对官方得分点，再生成逐题评分建议。</p>
+          <p>准备答卷与评分标准，逐题核对学生证据，再从整卷结果处理需要关注的问题。</p>
         </div>
       </div>
 
       <nav aria-label="评分流程" className="grading-journey">
         <button
-          aria-current={step === 1 ? "step" : undefined}
-          className={step === 1 ? "current" : "completed"}
-          onClick={() => setStep(1)}
+          aria-current={step === 1 || step === 2 ? "step" : undefined}
+          className={step === 1 || step === 2 ? "current" : "completed"}
+          disabled={journeyLocked}
+          onClick={() => transitionToStep(1)}
           type="button"
         >
           <span>01</span>
           <strong>准备材料</strong>
-          <small>答卷与评分标准</small>
-        </button>
-        <button
-          aria-current={step === 2 ? "step" : undefined}
-          className={step === 2 ? "current" : step > 2 ? "completed" : ""}
-          disabled={!rubric}
-          onClick={() => setStep(2)}
-          type="button"
-        >
-          <span>02</span>
-          <strong>核对得分点</strong>
-          <small>解析并人工确认</small>
+          <small>{step === 2 ? "正在确认评分标准" : "答卷、Mark Scheme 与标准确认"}</small>
         </button>
         <button
           aria-current={step === 3 ? "step" : undefined}
-          className={step === 3 ? "current" : ""}
-          disabled={rubric?.status !== "confirmed"}
-          onClick={() => setStep(3)}
+          className={step === 3 ? "current" : step > 3 ? "completed" : ""}
+          disabled={journeyLocked || activeRubric?.status !== "confirmed"}
+          onClick={() => transitionToStep(3)}
           type="button"
         >
-          <span>03</span>
-          <strong>评分建议</strong>
-          <small>逐题生成与复核</small>
+          <span>02</span><strong>逐题判分</strong><small>学生证据与判分结论</small>
+        </button>
+        <button
+          aria-current={step === 4 ? "step" : undefined}
+          className={step === 4 ? "current" : ""}
+          disabled={journeyLocked || activeRubric?.status !== "confirmed"}
+          onClick={() => {
+            transitionToStep(4);
+            void refreshOverview();
+          }}
+          type="button"
+        >
+          <span>03</span><strong>整卷结果</strong><small>完成度与诊断轨</small>
         </button>
       </nav>
 
       {step === 1 && (
-        <article className="panel grading-stage">
-          <header className="grading-stage-header">
-            <div>
-              <span>步骤 1 · 材料准备</span>
-              <h2>先确认本次评分使用的两份材料</h2>
-              <p>答卷来自已完成的整卷作答；Mark Scheme 必须是对应试卷的官方版本。</p>
-            </div>
-          </header>
-
-          <div className="grading-source-cards">
-            <section className="grading-source-card">
-              <div className="grading-source-heading">
-                <span>A</span>
-                <div>
-                  <strong>已完成作答</strong>
-                  <small>选择需要评分的答卷记录</small>
-                </div>
-              </div>
-              <select
-                aria-label="选择作答记录"
-                onChange={(event) => choosePaper(event.target.value)}
-                value={paperId}
-              >
-                <option value="">暂无可评分试卷</option>
-                {papers.map((item) => (
-                  <option key={item.job_id} value={item.job_id}>
-                    {item.filename} · {item.completed_questions}/{item.total_questions} 题
-                  </option>
-                ))}
-              </select>
-              {selectedPaperSummary && (
-                <div className="grading-source-summary">
-                  <FileCheck2 size={19} />
-                  <div>
-                    <strong>{selectedPaperSummary.filename}</strong>
-                    <span>
-                      {selectedPaperSummary.completed_questions} / {selectedPaperSummary.total_questions}
-                      {" "}题已有答案
-                      {selectedPaperSummary.failed_questions
-                        ? ` · ${selectedPaperSummary.failed_questions} 题需处理`
-                        : " · 作答完整"}
-                    </span>
-                  </div>
-                </div>
-              )}
-              {paper && (
-                <div className="grading-question-sample" aria-label="所选答卷内容">
-                  {paper.questions.slice(0, 4).map((item) => (
-                    <span key={item.position}>
-                      <b>Q{item.number}</b>
-                      {item.status === "completed" ? "答案已保存" : "暂无完整答案"}
-                    </span>
-                  ))}
-                  {paper.questions.length > 4 && <small>另有 {paper.questions.length - 4} 题</small>}
-                </div>
-              )}
-            </section>
-
-            <section className="grading-source-card">
-              <div className="grading-source-heading">
-                <span>B</span>
-                <div>
-                  <strong>官方 Mark Scheme</strong>
-                  <small>选择已转换版本，或上传新文件</small>
-                </div>
-              </div>
-              <div className="scheme-picker">
-                <select
-                  aria-label="选择 Mark Scheme"
-                  onChange={(event) => chooseDocument(event.target.value)}
-                  value={documentId}
-                >
-                  <option value="">请选择评分方案</option>
-                  {documents.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.filename} · {item.status}
-                    </option>
-                  ))}
-                </select>
-                <label className="secondary file-button">
-                  {busy === "upload"
-                    ? <LoaderCircle className="spin" size={15} />
-                    : <UploadCloud size={15} />}
-                  上传
-                  <input
-                    accept=".pdf,.md,.markdown"
-                    disabled={busy !== null}
-                    onChange={uploadScheme}
-                    type="file"
-                  />
-                </label>
-              </div>
-              {selectedDocument && (
-                <div className="grading-source-summary">
-                  <BookOpenCheck size={19} />
-                  <div>
-                    <strong>{selectedDocument.filename}</strong>
-                    <span>
-                      {["converted", "indexed"].includes(selectedDocument.status)
-                        ? "内容已就绪，可解析得分点"
-                        : selectedDocument.status}
-                      {selectedDocument.page_count ? ` · ${selectedDocument.page_count} 页` : ""}
-                    </span>
-                  </div>
-                </div>
-              )}
-            </section>
-          </div>
-
-          <ErrorBanner message={error} />
-          <footer className="grading-stage-actions">
-            <small>下一步不会立即评分；你可以先核对解析出的每个得分点。</small>
-            <button
-              className="primary"
-              disabled={!paperId || !documentId || busy !== null}
-              onClick={() => void prepareRubric()}
-              type="button"
-            >
-              {busy === "create-rubric"
-                ? <LoaderCircle className="spin" size={17} />
-                : <ArrowRight size={17} />}
-              {rubric?.paper_job_id === paperId && rubric.source_document_id === documentId
-                ? "查看已解析得分点"
-                : "解析得分点"}
-            </button>
-          </footer>
-        </article>
+        <GradingMaterialsStage
+          busy={busy}
+          documentId={documentId}
+          documents={documents}
+          documentsError={documentsError}
+          documentsLoading={documentsLoading}
+          error={error}
+          onRetryDiscovery={loadDiscoveryLists}
+          onChooseDocument={chooseDocument}
+          onChoosePaper={choosePaper}
+          onContinue={prepareRubric}
+          onUploadScheme={uploadScheme}
+          paper={activePaper}
+          paperId={paperId}
+          papers={papers}
+          papersError={papersError}
+          papersLoading={papersLoading}
+          rubric={activeRubric}
+        />
       )}
-
       {step === 2 && (
-        <article className="panel grading-stage rubric-review">
-          <header className="grading-stage-header">
-            <button className="stage-back" onClick={() => setStep(1)} type="button">
-              <ArrowLeft size={16} />
-              返回材料选择
-            </button>
-            <div>
-              <span>步骤 2 · 评分标准</span>
-              <h2>核对解析出的得分点</h2>
-              <p>确认题号、分值和判分描述后，才会开放逐题评分。</p>
-            </div>
-            {rubric && (
-              <b className={`status-pill ${rubric.status}`}>
-                {rubric.status === "confirmed" ? "已确认" : "待审核"}
-              </b>
-            )}
-          </header>
-
-          {rubrics.length > 1 && (
-            <label className="rubric-version-picker">
-              <span>评分规则版本</span>
-              <select
-                aria-label="选择评分规则版本"
-                onChange={(event) => void selectRubric(event.target.value)}
-                value={rubric?.id ?? ""}
-              >
-                {rubrics.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    版本 {item.version_number} · {item.status}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-
-          {!rubric ? (
-            <div className="empty compact-empty">
-              <BookOpenCheck size={30} />
-              <p>返回上一步选择材料并解析得分点。</p>
-            </div>
-          ) : (
-            <>
-              <div className="rubric-stats">
-                <span><b>{rubric.criteria.length}</b> 条规则</span>
-                <span><b>{acceptedCriteria}</b> 已接受</span>
-                <span><b>{rejectedCriteria}</b> 已拒绝</span>
-                <span><b>{pendingCriteria}</b> 待审核</span>
-              </div>
-              <div className="rubric-review-toolbar">
-                <label>
-                  审核人
-                  <input
-                    disabled={rubric.status !== "draft"}
-                    onChange={(event) => setReviewer(event.target.value)}
-                    placeholder="填写教师或复核人名称"
-                    required
-                    value={reviewer}
-                  />
-                </label>
-                <label>
-                  题号
-                  <select
-                    onChange={(event) => setRubricQuestionFilter(event.target.value)}
-                    value={rubricQuestionFilter}
-                  >
-                    <option value="ALL">全部题目</option>
-                    {rubricQuestions.map((questionNumber) => (
-                      <option key={questionNumber} value={questionNumber}>
-                        Q{questionNumber}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  审核状态
-                  <select
-                    onChange={(event) => setRubricStatusFilter(event.target.value)}
-                    value={rubricStatusFilter}
-                  >
-                    <option value="all">全部状态</option>
-                    <option value="pending">待审核</option>
-                    <option value="accepted">已接受</option>
-                    <option value="rejected">已拒绝</option>
-                  </select>
-                </label>
-              </div>
-              {rubric.warnings.map((warning) => (
-                <p className="inline-warning" key={warning}>
-                  <TriangleAlert size={14} />
-                  {warning}
-                </p>
-              ))}
-              <div className="rubric-criterion-list">
-                {visibleCriteria.map((item) => (
-                  <RubricCriterionEditor
-                    criterion={item}
-                    disabled={rubric.status !== "draft" || busy !== null}
-                    key={item.id}
-                    onReview={reviewCriterion}
-                  />
-                ))}
-                {visibleCriteria.length === 0 && (
-                  <div className="empty compact-empty">
-                    <BookOpenCheck size={26} />
-                    <p>当前筛选条件下没有评分原子。</p>
-                  </div>
-                )}
-              </div>
-            </>
-          )}
-
-          <ErrorBanner message={error} />
-          <footer className="grading-stage-actions">
-            <button className="secondary" onClick={() => setStep(1)} type="button">
-              <ArrowLeft size={16} />
-              上一步
-            </button>
-            {rubric?.status === "draft" ? (
-              <button
-                className="primary"
-                disabled={
-                  busy !== null
-                  || pendingCriteria > 0
-                  || acceptedCriteria === 0
-                  || !reviewer.trim()
-                }
-                onClick={() => void confirmRubric()}
-                type="button"
-              >
-                {busy === "confirm-rubric"
-                  ? <LoaderCircle className="spin" size={17} />
-                  : <CheckCircle2 size={17} />}
-                确认已审核规则并进入评分
-              </button>
-            ) : (
-              <button
-                className="primary"
-                disabled={!rubric}
-                onClick={() => setStep(3)}
-                type="button"
-              >
-                进入逐题评分建议
-                <ArrowRight size={17} />
-              </button>
-            )}
-          </footer>
-        </article>
+        <RubricReviewStage
+          busy={busy}
+          error={error}
+          onAiReview={aiReviewCriteria}
+          onBack={() => transitionToStep(1)}
+          onBatchReview={batchReviewCriteria}
+          onConfirmRubric={confirmRubric}
+          onNext={() => transitionToStep(3)}
+          onReviewCriterion={reviewCriterion}
+          onReviewerChange={setReviewer}
+          onSelectRubric={async (nextRubricId) => {
+            await selectRubric(nextRubricId);
+          }}
+          reviewer={reviewer}
+          rubric={activeRubric}
+          rubrics={activePaper
+            ? rubrics.filter(
+                (item) =>
+                  item.paper_job_id === paperId
+                  && item.source_document_id === documentId,
+              )
+            : []}
+        />
       )}
-
       {step === 3 && (
-        <div className="grading-stage-three">
-          <header className="grading-stage-header grading-stage-three-header">
-            <button className="stage-back" onClick={() => setStep(2)} type="button">
-              <ArrowLeft size={16} />
-              返回得分点
-            </button>
-            <div>
-              <span>步骤 3 · 逐题评分</span>
-              <h2>生成并复核评分建议</h2>
-              <p>每题独立评分；所有结果仍需进入人工复核。</p>
-            </div>
-          </header>
-          <ErrorBanner message={error} />
-
-          <div className="grading-paper-workspace">
-            <nav className="panel grading-question-nav" aria-label="可评分题目">
-              <div className="panel-title">
-                <div>
-                  <span>作答记录</span>
-                  <h2>{paper?.filename ?? "未选择试卷"}</h2>
-                </div>
-              </div>
-              {paper?.questions.map((item) => {
-                const assessment = latestByPosition.get(item.position);
-                return (
-                  <button
-                    className={selectedPosition === item.position ? "active" : ""}
-                    key={item.position}
-                    onClick={() => setSelectedPosition(item.position)}
-                    type="button"
-                  >
-                    <span>
-                      <b>Q{item.number}</b>
-                      <small>{item.status === "completed" ? "答案已保存" : "暂无完整答案"}</small>
-                    </span>
-                    {assessment
-                      ? <em>{assessment.result.total_awarded}/{assessment.result.total_available}</em>
-                      : <i />}
-                  </button>
-                );
-              })}
-            </nav>
-
-            <article className="panel grading-report">
-              {!selectedQuestion ? (
-                <div className="empty">
-                  <GraduationCap size={34} />
-                  <p>选择一道已有答案的题目。</p>
-                </div>
-              ) : !selectedResult ? (
-                <div className="grade-ready">
-                  <div>
-                    <span>Q{selectedQuestion.number}</span>
-                    <h2>生成本题评分建议</h2>
-                  </div>
-                  <GradingSubmission jobId={paper!.job_id} question={selectedQuestion} />
-                  {selectedAcceptedCriteria === 0 && (
-                    <p className="inline-warning">
-                      <TriangleAlert size={14} />
-                      当前评分标准没有匹配 Q{selectedQuestion.number} 的已接受得分点。
-                    </p>
-                  )}
-                  <button
-                    className="primary"
-                    disabled={
-                      rubric?.status !== "confirmed"
-                      || selectedQuestion.status !== "completed"
-                      || selectedAcceptedCriteria === 0
-                      || busy !== null
-                    }
-                    onClick={() => void assessQuestion(selectedQuestion.position)}
-                    type="button"
-                  >
-                    {busy === `grade-${selectedQuestion.position}`
-                      ? <LoaderCircle className="spin" size={18} />
-                      : <GraduationCap size={18} />}
-                    生成评分建议
-                  </button>
-                </div>
-              ) : (
-                <>
-                  <div className="score-hero">
-                    <div>
-                      <strong>{selectedResult.total_awarded}</strong>
-                      <span>/ {selectedResult.total_available}</span>
-                    </div>
-                    <p>等待人工复核</p>
-                  </div>
-                  <GradingSubmission jobId={paper!.job_id} question={selectedQuestion} />
-                  <div className="grading-assurance">
-                    <span>模型置信度 <Confidence value={selectedResult.confidence} /></span>
-                    <span>{selectedResult.rubric_awards.length} 个评分原子</span>
-                    <span>{selectedResult.symbolic_checks.length} 项独立检查</span>
-                  </div>
-                  {selectedResult.warnings.map((warning) => (
-                    <p className="inline-warning" key={warning}>
-                      <TriangleAlert size={14} />
-                      {warning}
-                    </p>
-                  ))}
-                  <div className="rubric-list">
-                    {selectedResult.rubric_awards.map((item) => (
-                      <div className="rubric" key={item.criterion_id}>
-                        <div className="rubric-heading">
-                          <span>{item.mark_type ?? item.criterion_id}</span>
-                          <b>{item.awarded}/{item.max_marks}</b>
-                        </div>
-                        <div className="rubric-rich rubric-description">
-                          <Markdown>{item.description}</Markdown>
-                        </div>
-                        <div className="rubric-rich rubric-rationale">
-                          <Markdown>{item.rationale}</Markdown>
-                        </div>
-                        {item.student_evidence && (
-                          <blockquote><Markdown>{item.student_evidence}</Markdown></blockquote>
-                        )}
-                        {item.error_types.length > 0 && (
-                          <div className="error-tags">
-                            {item.error_types.map((type) => <span key={type}>{type}</span>)}
-                          </div>
-                        )}
-                        {item.improvement_suggestion && (
-                          <div className="improvement">
-                            <span>改进：</span>
-                            <Markdown>{item.improvement_suggestion}</Markdown>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                  {selectedResult.improvement_suggestions.length > 0 && (
-                    <section className="improvement-summary">
-                      <h3>针对性改进建议</h3>
-                      {selectedResult.improvement_suggestions.map((item) => (
-                        <div className="rubric-rich" key={item}>
-                          <Markdown>{item}</Markdown>
-                        </div>
-                      ))}
-                    </section>
-                  )}
-                  <div className="review-required">
-                    <ShieldCheck size={18} />
-                    评分建议已进入人工复核队列
-                  </div>
-                  <button
-                    className="secondary"
-                    disabled={busy !== null}
-                    onClick={() => void assessQuestion(selectedQuestion.position)}
-                    type="button"
-                  >
-                    <RefreshCw size={15} />
-                    重新生成建议
-                  </button>
-                </>
-              )}
-            </article>
-          </div>
-        </div>
+        <GradingQuestionStage
+          assessments={activeAssessments}
+          busy={busy}
+          error={error}
+          onAssessQuestion={assessQuestion}
+          onBack={() => transitionToStep(1)}
+          onViewRubric={() => transitionToStep(2)}
+          onOverview={() => {
+            transitionToStep(4);
+            void refreshOverview();
+          }}
+          onSelectPosition={setSelectedPosition}
+          paper={activePaper}
+          rubric={activeRubric}
+          selectedPosition={selectedPosition}
+        />
+      )}
+      {step === 4 && (
+        <GradingOverview
+          error={overviewError}
+          loading={overviewBusy}
+          onBack={() => transitionToStep(3)}
+          onRefresh={refreshOverview}
+          overview={overview}
+        />
       )}
     </section>
   );

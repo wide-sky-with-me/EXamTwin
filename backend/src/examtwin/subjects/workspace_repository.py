@@ -6,34 +6,35 @@ import uuid
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import case, func, select, update
+from sqlalchemy import case, delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, sessionmaker
 
 from examtwin.platform.database.models import (
+    AssessmentModel,
+    AssessmentRunModel,
+    DifficultyEvidenceModel,
     KnowledgeBaseModel,
     KnowledgeBaseVersionModel,
+    KnowledgeBuildRunModel,
+    KnowledgePointModel,
+    KnowledgeRelationModel,
+    PaperJobModel,
+    QuestionDifficultyModel,
+    RetrievalTraceModel,
+    ReviewModel,
+    RubricSetModel,
     SourceDocumentModel,
     SubjectModel,
     VectorIndexBuildRunModel,
+    VectorIndexPublicationModel,
 )
 from examtwin.platform.database.session import utcnow
+from examtwin.subjects.document_assignment import KNOWLEDGE_SOURCE_TYPES
 
 SUBJECT_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{1,62}$")
 SUBJECT_CODE_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{1,31}$")
-KNOWLEDGE_SOURCE_TYPES = frozenset(
-    {"syllabus", "textbook", "slide", "revision_note", "topic_practice"}
-)
-ASSESSMENT_SOURCE_TYPES = frozenset(
-    {
-        "question_paper",
-        "insert",
-        "mark_scheme",
-        "examiner_report",
-        "answer_booklet",
-        "specimen_paper",
-    }
-)
+SUBJECT_DELETION_TERMINAL_JOB_STATUSES = ("completed", "partial_failed", "failed")
 
 
 def _slug(value: str) -> str:
@@ -204,6 +205,7 @@ class WorkspaceRepository:
                 updated_at=now,
             )
             session.add(subject)
+            session.flush()
             for kind, name in (("core", "核心知识库"), ("supplementary", "补充知识库")):
                 session.add(
                     KnowledgeBaseModel(
@@ -228,6 +230,136 @@ class WorkspaceRepository:
                 )
             )
         return [self._subject_with_bases(row) for row in rows]
+
+    def delete_subjects(
+        self,
+        subject_ids: Sequence[str],
+        *,
+        protected_subject_ids: Sequence[str] = (),
+    ) -> list[str]:
+        requested = tuple(subject_ids)
+        unique_ids = tuple(dict.fromkeys(requested))
+        if not requested:
+            raise ValueError("至少选择一个科目工作区")
+        if len(unique_ids) != len(requested):
+            raise ValueError("批量删除不能包含重复的科目工作区")
+
+        protected = set(protected_subject_ids)
+        protected_requested = [subject_id for subject_id in unique_ids if subject_id in protected]
+        if protected_requested:
+            raise ValueError("内置科目工作区不能删除")
+
+        with self.sessions.begin() as session:
+            subjects = list(
+                session.scalars(
+                    select(SubjectModel)
+                    .where(SubjectModel.id.in_(unique_ids))
+                    .order_by(SubjectModel.id)
+                    .with_for_update()
+                )
+            )
+            found = {subject.id: subject for subject in subjects}
+            missing = [subject_id for subject_id in unique_ids if subject_id not in found]
+            if missing:
+                raise LookupError(f"科目工作区不存在：{', '.join(missing)}")
+
+            subject_codes = tuple(found[subject_id].subject_code for subject_id in unique_ids)
+            owned_jobs = (PaperJobModel.subject_pack_id.in_(unique_ids)) | (
+                PaperJobModel.subject_code.in_(subject_codes)
+            )
+            active_job = session.scalar(
+                select(PaperJobModel.id)
+                .where(
+                    owned_jobs,
+                    PaperJobModel.status.not_in(SUBJECT_DELETION_TERMINAL_JOB_STATUSES),
+                )
+                .limit(1)
+            )
+            if active_job is not None:
+                raise ValueError("选中的科目包含正在处理的试卷任务，完成或失败后才能删除")
+
+            assessment_ids = select(AssessmentModel.id).where(
+                AssessmentModel.subject_code.in_(subject_codes)
+            )
+            session.execute(
+                delete(ReviewModel).where(ReviewModel.assessment_id.in_(assessment_ids))
+            )
+            session.execute(
+                delete(AssessmentModel).where(AssessmentModel.subject_code.in_(subject_codes))
+            )
+
+            session.execute(
+                delete(AssessmentRunModel).where(AssessmentRunModel.subject_id.in_(unique_ids))
+            )
+            job_ids = select(PaperJobModel.id).where(owned_jobs)
+            session.execute(
+                update(PaperJobModel)
+                .where(PaperJobModel.id.in_(job_ids))
+                .values(replacement_for_job_id=None)
+            )
+            session.execute(delete(PaperJobModel).where(owned_jobs))
+
+            document_ids = select(SourceDocumentModel.id).where(
+                (SourceDocumentModel.subject_id.in_(unique_ids))
+                | (SourceDocumentModel.subject_code.in_(subject_codes))
+            )
+            session.execute(
+                delete(QuestionDifficultyModel).where(
+                    QuestionDifficultyModel.source_document_id.in_(document_ids)
+                )
+            )
+            session.execute(delete(RubricSetModel).where(RubricSetModel.subject_id.in_(unique_ids)))
+            session.execute(
+                delete(SourceDocumentModel).where(
+                    (SourceDocumentModel.subject_id.in_(unique_ids))
+                    | (SourceDocumentModel.subject_code.in_(subject_codes))
+                )
+            )
+
+            point_ids = select(KnowledgePointModel.id).where(
+                KnowledgePointModel.subject_code.in_(subject_codes)
+            )
+            session.execute(
+                delete(DifficultyEvidenceModel).where(
+                    DifficultyEvidenceModel.knowledge_point_id.in_(point_ids)
+                )
+            )
+            session.execute(
+                delete(KnowledgeRelationModel).where(
+                    (KnowledgeRelationModel.source_id.in_(point_ids))
+                    | (KnowledgeRelationModel.target_id.in_(point_ids))
+                )
+            )
+            session.execute(
+                delete(KnowledgePointModel).where(
+                    KnowledgePointModel.subject_code.in_(subject_codes)
+                )
+            )
+
+            session.execute(
+                delete(VectorIndexPublicationModel).where(
+                    VectorIndexPublicationModel.subject_code.in_(subject_codes)
+                )
+            )
+            session.execute(
+                delete(VectorIndexBuildRunModel).where(
+                    VectorIndexBuildRunModel.subject_code.in_(subject_codes)
+                )
+            )
+            session.execute(
+                delete(KnowledgeBuildRunModel).where(
+                    (KnowledgeBuildRunModel.subject_pack_id.in_(unique_ids))
+                    | (KnowledgeBuildRunModel.subject_code.in_(subject_codes))
+                )
+            )
+            session.execute(
+                delete(RetrievalTraceModel).where(
+                    RetrievalTraceModel.subject_code.in_(subject_codes)
+                )
+            )
+            session.execute(delete(SubjectModel).where(SubjectModel.id.in_(unique_ids)))
+
+        return list(unique_ids)
 
     def resolve_subject(self, selector: str) -> dict[str, Any] | None:
         with self.sessions() as session:
@@ -486,52 +618,6 @@ class WorkspaceRepository:
             "collections": [item["collection_name"] for item in versions],
             "graph_version_id": subject.get("active_graph_version_id"),
         }
-
-    def assign_document(
-        self,
-        document_id: str,
-        *,
-        subject_id: str,
-        knowledge_base_id: str | None,
-        source_type: str,
-        license_confirmed: bool,
-    ) -> None:
-        if source_type not in KNOWLEDGE_SOURCE_TYPES | ASSESSMENT_SOURCE_TYPES | {"other"}:
-            raise ValueError("未知资料类型")
-        if source_type == "textbook" and not license_confirmed:
-            raise ValueError("教材必须确认已获授权后才能进入知识库")
-        with self.sessions.begin() as session:
-            subject = session.get(SubjectModel, subject_id)
-            document = session.get(SourceDocumentModel, document_id)
-            if subject is None or document is None or document.subject_code != subject.subject_code:
-                raise LookupError("资料不存在于当前科目")
-            role = "excluded"
-            if source_type in ASSESSMENT_SOURCE_TYPES:
-                if knowledge_base_id is not None:
-                    raise ValueError("试卷、Insert、Mark Scheme 和考官报告不能进入知识库")
-                role = "assessment_only"
-            elif source_type in KNOWLEDGE_SOURCE_TYPES:
-                if knowledge_base_id is None:
-                    raise ValueError("知识资料必须归属知识库")
-                base = session.get(KnowledgeBaseModel, knowledge_base_id)
-                if base is None or base.subject_id != subject_id:
-                    raise LookupError("知识库不存在于当前科目")
-                if base.kind == "core":
-                    if source_type not in {"syllabus", "textbook"}:
-                        raise ValueError("核心知识库只接受考纲和已授权教材")
-                    role = "core_knowledge"
-                else:
-                    if source_type == "syllabus":
-                        raise ValueError("考纲必须归属核心知识库")
-                    role = "supplementary_knowledge"
-            elif knowledge_base_id is not None:
-                raise ValueError("未分类资料不能进入知识库")
-            document.subject_id = subject_id
-            document.knowledge_base_id = knowledge_base_id
-            document.source_type = source_type
-            document.source_role = role
-            document.license_confirmed = license_confirmed
-            document.updated_at = utcnow()
 
     def documents_for_version(self, version_id: str) -> list[str]:
         version = self.require_version(version_id)

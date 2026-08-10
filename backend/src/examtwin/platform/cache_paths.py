@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from threading import Lock
 
 from examtwin.platform.config import Settings
 from examtwin.platform.storage import (
@@ -25,15 +26,38 @@ class MarkdownCacheStore:
         else:
             self.store = store
             self.prefix = "corpus/md/"
+        self._write_lock = Lock()
 
-    def key(self, document_id: str, suffix: str = ".md") -> str:
-        return f"{self.prefix}{document_id}{suffix}"
+    def key(
+        self,
+        document_id: str,
+        suffix: str = ".md",
+        *,
+        source_checksum: str | None = None,
+    ) -> str:
+        if source_checksum is None:
+            return f"{self.prefix}{document_id}{suffix}"
+        return f"{self.prefix}{document_id}/{source_checksum}{suffix}"
 
-    def exists(self, document_id: str, suffix: str = ".md") -> bool:
-        return self.store.exists(self.key(document_id, suffix))
+    def exists(
+        self,
+        document_id: str,
+        suffix: str = ".md",
+        *,
+        source_checksum: str | None = None,
+    ) -> bool:
+        return self.store.exists(self.key(document_id, suffix, source_checksum=source_checksum))
 
-    def read(self, document_id: str, suffix: str = ".md") -> str:
-        return self.store.materialize(self.key(document_id, suffix)).read_text(encoding="utf-8")
+    def read(
+        self,
+        document_id: str,
+        suffix: str = ".md",
+        *,
+        source_checksum: str | None = None,
+    ) -> str:
+        return self.store.materialize(
+            self.key(document_id, suffix, source_checksum=source_checksum)
+        ).read_text(encoding="utf-8")
 
     def write(
         self,
@@ -41,22 +65,35 @@ class MarkdownCacheStore:
         content: str,
         *,
         suffix: str = ".md",
+        source_checksum: str | None = None,
     ) -> Path:
-        stored = self.store.put_bytes(
-            self.key(document_id, suffix),
-            content,
-            metadata=ObjectMetadata(
-                purpose="markdown_cache",
-                owner_type="source_document",
-                owner_id=document_id,
-                retain_until=None,
-                content_type="text/markdown; charset=utf-8",
-            ),
-        )
+        key = self.key(document_id, suffix, source_checksum=source_checksum)
+        with self._write_lock:
+            if source_checksum is not None and self.store.exists(key):
+                return self.store.materialize(key)
+            stored = self.store.put_bytes(
+                key,
+                content,
+                metadata=ObjectMetadata(
+                    purpose="markdown_cache",
+                    owner_type="source_document",
+                    owner_id=document_id,
+                    retain_until=None,
+                    content_type="text/markdown; charset=utf-8",
+                ),
+            )
         return self.store.materialize(stored.key)
 
-    def resolve(self, document_id: str, suffix: str = ".md") -> Path:
-        return self.store.materialize(self.key(document_id, suffix))
+    def resolve(
+        self,
+        document_id: str,
+        suffix: str = ".md",
+        *,
+        source_checksum: str | None = None,
+    ) -> Path:
+        return self.store.materialize(
+            self.key(document_id, suffix, source_checksum=source_checksum)
+        )
 
 
 def resolve_markdown_cache_path(
@@ -78,7 +115,15 @@ def resolve_markdown_cache_path(
     # old absolute DB paths that cannot be interpreted as object keys.
     if settings.object_store_backend == "s3":
         backend = build_storage_backend(settings)
-        for key in (f"corpus/md/{expected_name}", stored_path):
+        legacy_key = f"corpus/md/{expected_name}"
+        stored_is_versioned_key = (
+            not raw_path.is_absolute()
+            and len(raw_path.parts) >= 4
+            and raw_path.parts[:2] == ("corpus", "md")
+            and raw_path.parts[2] == document_id
+        )
+        keys = (stored_path, legacy_key) if stored_is_versioned_key else (legacy_key, stored_path)
+        for key in keys:
             try:
                 candidate = backend.materialize(key)
             except (LookupError, ValueError):

@@ -159,6 +159,7 @@ class SourceDocumentModel(Base):
     status: Mapped[str] = mapped_column(Text)
     object_key: Mapped[str | None] = mapped_column(Text)
     markdown_path: Mapped[str | None] = mapped_column(Text)
+    converted_source_checksum: Mapped[str | None] = mapped_column(Text)
     metadata_json: Mapped[str] = mapped_column(Text, default="{}")
     error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
@@ -681,6 +682,7 @@ class RubricSetModel(Base):
     source_document_id: Mapped[str] = mapped_column(
         Text, ForeignKey("source_documents.id", ondelete="RESTRICT")
     )
+    source_document_checksum: Mapped[str] = mapped_column(Text)
     version_number: Mapped[int] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(Text, default="draft")
     identity_json: Mapped[str] = mapped_column(Text, default="{}")
@@ -736,6 +738,25 @@ class RubricCriterionReviewModel(Base):
     before_json: Mapped[str] = mapped_column(Text)
     after_json: Mapped[str] = mapped_column(Text)
     note: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class RubricCriterionAiReviewModel(Base):
+    __tablename__ = "rubric_criterion_ai_reviews"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    rubric_set_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("rubric_sets.id", ondelete="CASCADE")
+    )
+    criterion_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("rubric_criteria.id", ondelete="CASCADE")
+    )
+    criterion_fingerprint: Mapped[str] = mapped_column(Text)
+    recommendation: Mapped[str] = mapped_column(Text)
+    confidence: Mapped[float] = mapped_column(Float)
+    rationale: Mapped[str] = mapped_column(Text)
+    suggested_updates_json: Mapped[str | None] = mapped_column(Text)
+    model: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 

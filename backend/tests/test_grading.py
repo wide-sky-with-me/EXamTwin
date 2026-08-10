@@ -71,6 +71,64 @@ class FakeStructuredModel:
         return response_model.model_validate(json.loads(FakeResponse.text))
 
 
+class CorrectingEvidenceModel:
+    model_name = "correcting-grading-model"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def complete(
+        self,
+        _messages: Sequence[HarnessMessage],
+        response_model: type[StructuredResultT],
+        *,
+        timeout: float,
+    ) -> StructuredResultT:
+        assert timeout > 0
+        self.calls += 1
+        payload = json.loads(FakeResponse.text)
+        payload["rubric_awards"][0]["student_evidence"] = (
+            "The student rearranged the equation."
+            if self.calls == 1
+            else "I rearranged the equation."
+        )
+        return response_model.model_validate(payload)
+
+
+class CapturingAssessments:
+    def __init__(self) -> None:
+        self.created: list[dict[str, Any]] = []
+
+    def create(self, values: dict[str, Any]) -> None:
+        self.created.append(values)
+
+
+def test_grading_retries_until_student_evidence_is_verbatim() -> None:
+    model = CorrectingEvidenceModel()
+    assessments = CapturingAssessments()
+    settings = get_settings()
+    service = GradingService(
+        cast(Any, SimpleNamespace()),
+        cast(Any, assessments),
+        settings,
+        subject_context(settings),
+        structured_model=model,
+    )
+
+    result = service.grade(
+        GradeRequest(
+            question_markdown="Solve x = 2.",
+            mark_scheme_markdown="M1 rearrange. A1 answer 2.",
+            answer_markdown="I rearranged the equation.",
+            max_marks=2,
+        )
+    )
+
+    assert model.calls == 2
+    assert result.rubric_awards[0].student_evidence == "I rearranged the equation."
+    assert len(assessments.created) == 1
+
+
 def test_safe_symbolic_equivalence() -> None:
     request = GradeRequest(
         question_markdown="Simplify.",

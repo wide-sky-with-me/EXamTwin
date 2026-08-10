@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from llama_index.readers.mineru import MinerUReader
+from mineru import MinerU
 
 from examtwin.assessment.answering_agent.contracts import (
     QuestionSpec,
@@ -35,7 +36,7 @@ _UNRESOLVED_SOURCE_PLACEHOLDER = re.compile(
 _TOP_LEVEL_QUESTION = re.compile(
     r"(?im)^[ \t]*(?:#{1,6}[ \t]*)?(?:\*{1,2})?"
     r"(?:question[ \t]+)?(?P<number>0*\d{1,3})(?:\*{1,2})?"
-    r"(?![ \t]*:[ \t]*\d)(?=[ \t]*(?:$|[.:\)]|\([a-zivx]+\)|[A-Za-z]))"
+    r"(?![ \t]*:[ \t]*\d)(?=(?:[ \t]*(?:$|[.:\)]|\([a-zivx]+\))|[ \t]+[A-Za-z]))"
 )
 _STRUCTURE_SUBPART = re.compile(
     r"(?im)^[ \t]*(?:#{1,6}[ \t]*)?(?:\*{1,2})?"
@@ -43,7 +44,11 @@ _STRUCTURE_SUBPART = re.compile(
     r"(?P<label>\([a-zivx]+\)(?:[ \t]*\([a-zivx]+\))*)"
     r"(?:\*{1,2})?(?=[ \t.:]|$)"
 )
-_PRINTED_MARK = re.compile(r"[\[(][ \t]*(\d+)[ \t]+marks?[ \t]*[\])]", re.IGNORECASE)
+_PRINTED_MARK = re.compile(
+    r"\\?[\[(][ \t]*(\d+)(?:[ \t]+|\\text\{[ \t]*)"
+    r"marks?[ \t]*\}?\\?[\])]",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -55,6 +60,20 @@ class QuestionSourceStructure:
     marks: tuple[int, ...]
     requires_visual_context: bool
     source_digest: str
+
+
+@dataclass(frozen=True)
+class ExtractedPaperImage:
+    name: str
+    path: str
+    content: bytes
+    page_index: int | None = None
+
+
+@dataclass(frozen=True)
+class ParsedPaperChunk:
+    markdown: str
+    images: tuple[ExtractedPaperImage, ...] = ()
 
 
 class QuestionSourceStructureError(ValueError):
@@ -81,7 +100,8 @@ def _canonical_question_number(value: object) -> str:
 
 
 def _normalized_structure_label(value: object) -> str:
-    return re.sub(r"\s+", "", str(value)).lower()
+    normalized = re.sub(r"\s+", "", str(value)).lower()
+    return re.sub(r"^\d+(?=\()", "", normalized)
 
 
 def question_source_structures(markdown: str) -> list[QuestionSourceStructure]:
@@ -141,9 +161,16 @@ def question_source_structures(markdown: str) -> list[QuestionSourceStructure]:
                 combined[max(span_start, page_start) : min(span_end, page_end)]
             )
         )
-        labels = tuple(
+        all_labels = tuple(
             dict.fromkeys(
                 _normalized_structure_label(label) for label in _STRUCTURE_SUBPART.findall(question)
+            )
+        )
+        labels = tuple(
+            label
+            for label in all_labels
+            if not any(
+                candidate != label and candidate.startswith(label) for candidate in all_labels
             )
         )
         marks = tuple(int(value) for value in _PRINTED_MARK.findall(question))
@@ -234,7 +261,8 @@ def validate_question_source_structure(
         validated_item["requires_visual_context"] = structure.requires_visual_context
         validated_item["source_kind"] = "primary"
         validated_item["answer_requirements"] = [
-            part.model_dump(mode="json") for part in spec.subparts
+            {**part.model_dump(mode="json"), "label": label}
+            for part, label in zip(spec.subparts, expected_labels, strict=True)
         ]
         validated_item["total_marks"] = spec.total_marks
         validated_item["source_digest"] = structure.source_digest
@@ -493,6 +521,70 @@ def mineru_reader(settings: Settings, *, timeout: int | None = None) -> MinerURe
         table=True,
         timeout=timeout or settings.paper_mineru_timeout,
     )
+
+
+def extract_paper_chunk(
+    settings: Settings,
+    source: Path,
+    *,
+    timeout: int | None = None,
+) -> ParsedPaperChunk:
+    """Extract a PDF chunk while retaining MinerU's position-linked image assets."""
+
+    token = settings.mineru_token.get_secret_value() if settings.mineru_token else None
+    with MinerU(token=token) as client:
+        client.set_source("examtwin-paper")
+        if settings.mineru_mode == "flash":
+            result = client.flash_extract(
+                str(source),
+                language=settings.mineru_language,
+                is_ocr=True,
+                enable_formula=True,
+                enable_table=True,
+                timeout=timeout or settings.paper_mineru_timeout,
+            )
+        else:
+            result = client.extract(
+                str(source),
+                language=settings.mineru_language,
+                ocr=True,
+                formula=True,
+                table=True,
+                timeout=timeout or settings.paper_mineru_timeout,
+            )
+    if result.state != "done":
+        raise ValueError(
+            f"MinerU extraction failed: source={source}, state={result.state}, error={result.error}"
+        )
+    markdown = str(result.markdown or "")
+    if not markdown.strip():
+        raise ValueError("MinerU extraction returned empty Markdown")
+    image_pages: dict[str, int] = {}
+    content_list = getattr(result, "content_list", None)
+    if isinstance(content_list, list):
+        for item in content_list:
+            if not isinstance(item, dict):
+                continue
+            image_path = str(item.get("img_path") or "").replace("\\", "/").lstrip("./")
+            page_index = item.get("page_idx")
+            if (
+                image_path
+                and isinstance(page_index, int)
+                and not isinstance(page_index, bool)
+                and page_index >= 0
+            ):
+                image_pages[image_path] = page_index
+    images = tuple(
+        ExtractedPaperImage(
+            name=str(image.name),
+            path=str(image.path),
+            content=bytes(image.data),
+            page_index=image_pages.get(str(image.path).replace("\\", "/").lstrip("./")),
+        )
+        for image in result.images
+        if image.data
+    )
+    return ParsedPaperChunk(markdown=markdown, images=images)
 
 
 def upload_to_markdown(settings: Settings, filename: str, content: bytes) -> str:

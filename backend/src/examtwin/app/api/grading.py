@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from examtwin.app.api.dependencies import get_grading_service, get_rubric_service
 from examtwin.app.api.errors import upstream_http_error
 from examtwin.assessment.grading import GradingService
+from examtwin.assessment.rubric_repository import RubricConflictError
 from examtwin.assessment.rubrics import RubricService
 from examtwin.contracts.grading import (
     GradeResponse,
@@ -13,9 +14,12 @@ from examtwin.contracts.grading import (
     ReviewRequest,
 )
 from examtwin.contracts.rubrics import (
+    AiReviewRubricCriteriaRequest,
+    BatchReviewRubricCriteriaRequest,
     ConfirmRubricRequest,
     CreateRubricRequest,
     GradePaperQuestionRequest,
+    GradingOverviewResponse,
     GradingPaperSummary,
     PaperAssessmentResponse,
     ReviewRubricCriterionRequest,
@@ -79,6 +83,7 @@ def rubric_detail(
 @router.post(
     "/grading/rubrics/{rubric_id}/criteria/{criterion_id}/review",
     response_model=RubricSetResponse,
+    responses={409: {"description": "Rubric conflict"}},
 )
 def review_rubric_criterion(
     rubric_id: str,
@@ -100,13 +105,65 @@ def review_rubric_criterion(
                 updates=updates,
             )
         )
+    except RubricConflictError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
 
-@router.post("/grading/rubrics/{rubric_id}/confirm", response_model=RubricSetResponse)
+@router.post(
+    "/grading/rubrics/{rubric_id}/batch-review",
+    response_model=RubricSetResponse,
+    responses={409: {"description": "Rubric conflict"}},
+)
+def batch_review_rubric_criteria(
+    rubric_id: str,
+    request: BatchReviewRubricCriteriaRequest,
+    service: RubricService = Depends(get_rubric_service),
+) -> RubricSetResponse:
+    try:
+        return RubricSetResponse.model_validate(service.review_criteria_batch(rubric_id, request))
+    except RubricConflictError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@router.post(
+    "/grading/rubrics/{rubric_id}/ai-review",
+    response_model=RubricSetResponse,
+    responses={409: {"description": "Rubric conflict"}},
+)
+def ai_review_rubric_criteria(
+    rubric_id: str,
+    request: AiReviewRubricCriteriaRequest,
+    service: RubricService = Depends(get_rubric_service),
+) -> RubricSetResponse:
+    try:
+        return RubricSetResponse.model_validate(service.ai_review_criteria(rubric_id, request))
+    except RubricConflictError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except Exception as error:
+        raise upstream_http_error(
+            "RUBRIC_AI_REVIEW_FAILED",
+            "AI 评分原子审核暂时不可用，请稍后重试",
+            error,
+        ) from error
+
+
+@router.post(
+    "/grading/rubrics/{rubric_id}/confirm",
+    response_model=RubricSetResponse,
+    responses={409: {"description": "Rubric conflict"}},
+)
 def confirm_rubric(
     rubric_id: str,
     request: ConfirmRubricRequest,
@@ -116,6 +173,8 @@ def confirm_rubric(
         return RubricSetResponse.model_validate(
             service.confirm(rubric_id, reviewer=request.reviewer)
         )
+    except RubricConflictError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     except ValueError as error:
@@ -165,6 +224,25 @@ def paper_assessments(
         ]
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@router.get(
+    "/grading/papers/{paper_job_id}/overview",
+    response_model=GradingOverviewResponse,
+)
+def grading_overview(
+    paper_job_id: str,
+    rubric_set_id: str,
+    service: RubricService = Depends(get_rubric_service),
+) -> GradingOverviewResponse:
+    try:
+        return GradingOverviewResponse.model_validate(
+            service.grading_overview(paper_job_id, rubric_set_id)
+        )
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 @router.get("/grading/reviews", response_model=list[ReviewQueueItem])

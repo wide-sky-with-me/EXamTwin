@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from examtwin.assessment.paper_classification import PaperDocumentClassification
+from examtwin.assessment.paper_parsing import (
+    ExtractedPaperImage,
+    ParsedPaperChunk,
+    extract_paper_chunk,
+)
 from examtwin.assessment.paper_worker import PaperWorker
 from examtwin.contracts import (
     PaperQuestionAnswer,
@@ -40,6 +47,130 @@ def test_split_checkpoint_requires_matching_input_digest(tmp_path: Path) -> None
 
     assert worker._load_split_checkpoint("job-1", 0, "digest-a") == questions
     assert worker._load_split_checkpoint("job-1", 0, "digest-b") is None
+
+
+def test_worker_persists_mineru_images_and_keeps_their_markdown_position(
+    tmp_path: Path,
+) -> None:
+    class AssetFiles:
+        def write_file(self, relative_path: str, content: bytes | str) -> None:
+            path = tmp_path / relative_path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(content if isinstance(content, bytes) else content.encode())
+
+    content = b"extracted-image"
+    parsed = ParsedPaperChunk(
+        markdown="Before diagram.\n\n![Force diagram](images/figure.png)\n\nAfter diagram.",
+        images=(
+            ExtractedPaperImage(
+                name="figure.png",
+                path="images/figure.png",
+                content=content,
+                page_index=2,
+            ),
+        ),
+    )
+    worker = PaperWorker(
+        Settings(object_store_local_root=tmp_path),
+        subject_context(Settings(object_store_local_root=tmp_path)),
+        jobs=AssetFiles(),  # type: ignore[arg-type]
+        answer_service=FakeAnswerService(),  # type: ignore[arg-type]
+    )
+    markdown = worker._persist_chunk_images("job-1", 7, 9, parsed)
+
+    digest = hashlib.sha256(content).hexdigest()
+    asset_name = f"p0009-{digest}.png"
+    url = f"/api/v1/papers/jobs/job-1/question-images/{asset_name}"
+    assert markdown == f"Before diagram.\n\n![Force diagram]({url})\n\nAfter diagram."
+    assert (tmp_path / "job-1" / "question-images" / asset_name).read_bytes() == content
+
+    with pytest.raises(ValueError, match="缺少物理页位置"):
+        worker._persist_chunk_images(
+            "job-2",
+            7,
+            9,
+            ParsedPaperChunk(
+                markdown="![Unmapped diagram](images/unmapped.png)",
+                images=(
+                    ExtractedPaperImage(
+                        name="unmapped.png",
+                        path="images/unmapped.png",
+                        content=b"unmapped-image",
+                    ),
+                ),
+            ),
+        )
+
+
+def test_paper_chunk_extraction_retains_mineru_image_bytes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: dict[str, object] = {}
+
+    class FakeMinerU:
+        def __init__(self, *, token: str | None) -> None:
+            calls["token"] = token
+
+        def __enter__(self) -> FakeMinerU:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def set_source(self, source: str) -> None:
+            calls["source"] = source
+
+        def extract(self, source: str, **kwargs: object) -> object:
+            calls["path"] = source
+            calls["kwargs"] = kwargs
+            return SimpleNamespace(
+                state="done",
+                error=None,
+                markdown="Question\n\n![Graph](images/graph.png)",
+                images=[
+                    SimpleNamespace(
+                        name="graph.png",
+                        path="images/graph.png",
+                        data=b"graph-bytes",
+                    )
+                ],
+                content_list=[
+                    {
+                        "type": "image",
+                        "img_path": "images/graph.png",
+                        "page_idx": 2,
+                    }
+                ],
+            )
+
+    monkeypatch.setattr("examtwin.assessment.paper_parsing.MinerU", FakeMinerU)
+    source = tmp_path / "chunk.pdf"
+    source.write_bytes(b"pdf")
+
+    result = extract_paper_chunk(
+        Settings(mineru_token="secret", mineru_mode="precision"),
+        source,
+        timeout=123,
+    )
+
+    assert result.images == (
+        ExtractedPaperImage(
+            name="graph.png",
+            path="images/graph.png",
+            content=b"graph-bytes",
+            page_index=2,
+        ),
+    )
+    assert calls["token"] == "secret"
+    assert calls["source"] == "examtwin-paper"
+    assert calls["kwargs"] == {
+        "language": "en",
+        "ocr": True,
+        "formula": True,
+        "table": True,
+        "timeout": 123,
+    }
 
 
 def test_worker_checkpoints_and_reuses_non_question_classification(tmp_path: Path) -> None:

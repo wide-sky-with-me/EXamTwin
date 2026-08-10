@@ -22,6 +22,7 @@ from examtwin.knowledge.knowledge_repository import KnowledgeRepository
 from examtwin.knowledge.pipeline import KnowledgeBuildPipeline
 from examtwin.knowledge.retrieval_trace_repository import RetrievalTraceRepository
 from examtwin.knowledge.vector_index_repository import VectorIndexRepository
+from examtwin.knowledge.workspace_service import CorpusWorkspaceService
 from examtwin.platform.config import Settings
 from examtwin.platform.database.session import create_session_factory
 from examtwin.platform.object_catalog_repository import ObjectCatalogRepository
@@ -83,6 +84,27 @@ def build_corpus_ingestor(
         runtime_settings,
         context,
         build_object_store(settings),
+    )
+
+
+def build_corpus_workspace_service(
+    settings: Settings,
+    subject: SubjectContext | None = None,
+) -> CorpusWorkspaceService:
+    sessions = create_session_factory(settings.database_url)
+    context = subject or subject_context(settings)
+    runtime_settings = context.runtime_settings(settings)
+    documents = CorpusRepository(sessions)
+    object_store = build_object_store(settings)
+    return CorpusWorkspaceService(
+        settings,
+        context,
+        workspaces=WorkspaceRepository(sessions),
+        documents=documents,
+        object_store=object_store,
+        ingestor=CorpusIngestor(documents, runtime_settings, context, object_store),
+        vector_indexes=VectorIndexRepository(sessions),
+        knowledge=KnowledgeRepository(sessions),
     )
 
 
