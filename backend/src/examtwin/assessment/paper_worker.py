@@ -12,6 +12,7 @@ from functools import partial
 from pathlib import Path
 from typing import Any, cast
 
+import httpx
 from pypdf import PdfReader, PdfWriter
 
 from examtwin.assessment.agent_run_ledger import PaperAgentRunLedger
@@ -27,7 +28,8 @@ from examtwin.assessment.paper_classification import (
 from examtwin.assessment.paper_job_repository import LostLeaseError
 from examtwin.assessment.paper_job_runtime import PaperJobRuntime
 from examtwin.assessment.paper_parsing import (
-    mineru_reader,
+    ParsedPaperChunk,
+    extract_paper_chunk,
     question_has_unresolved_source_placeholder,
 )
 from examtwin.assessment.paper_vision import (
@@ -38,12 +40,14 @@ from examtwin.assessment.paper_vision import (
 )
 from examtwin.assessment.task_events import PaperJobWakeup, SleepPaperJobWakeup
 from examtwin.contracts.papers import PaperQuestionAnswer
-from examtwin.knowledge.public import parse_exam_identity, render_documents
+from examtwin.knowledge.public import parse_exam_identity
 from examtwin.platform.config import Settings
 from examtwin.platform.database.session import create_session_factory
 from examtwin.subjects.public import SubjectContext, WorkspaceRepository
 
 logger = logging.getLogger(__name__)
+
+_QUESTION_IMAGE_SUFFIXES = {".bmp", ".gif", ".jpeg", ".jpg", ".png", ".webp"}
 
 
 class StageFailure(RuntimeError):
@@ -79,7 +83,7 @@ class PaperWorker:
         jobs: PaperJobRuntime,
         answer_service: PaperAnswerService,
         document_classifier: PaperDocumentClassifierFn | None = None,
-        chunk_parser: Callable[[Path, int, int], str] | None = None,
+        chunk_parser: Callable[[Path, int, int], str | ParsedPaperChunk] | None = None,
         vision_reviewer: (Callable[[Path, str, int, int], VisionReviewResult] | None) = None,
         wakeup: PaperJobWakeup | None = None,
         subject_resolver: Callable[[str], SubjectContext] | None = None,
@@ -274,10 +278,20 @@ class PaperWorker:
                     if job["suffix"] in {".md", ".markdown"}:
                         markdown = source_path.read_text(encoding="utf-8-sig")
                     else:
-                        markdown = self.chunk_parser(
+                        parsed = self.chunk_parser(
                             source_path,
                             chunk["page_start"],
                             chunk["page_end"],
+                        )
+                        markdown = (
+                            self._persist_chunk_images(
+                                job_id,
+                                chunk["page_start"],
+                                chunk["page_end"],
+                                parsed,
+                            )
+                            if isinstance(parsed, ParsedPaperChunk)
+                            else parsed
                         )
                     if len(markdown.strip()) < 10:
                         raise ValueError("MinerU 返回的页段内容过短")
@@ -760,7 +774,55 @@ class PaperWorker:
             )
         return pages, tuple(images)
 
-    def _parse_pdf_chunk(self, source_path: Path, page_start: int, page_end: int) -> str:
+    def _persist_chunk_images(
+        self,
+        job_id: str,
+        page_start: int,
+        page_end: int,
+        chunk: ParsedPaperChunk,
+    ) -> str:
+        markdown = chunk.markdown
+        for image in chunk.images:
+            name = Path(image.name).name
+            suffix = Path(name).suffix.lower()
+            if suffix not in _QUESTION_IMAGE_SUFFIXES:
+                continue
+            source_path = image.path.replace("\\", "/").lstrip("/")
+            targets = {
+                source_path,
+                source_path.removeprefix("./"),
+                name,
+                f"images/{name}",
+                f"./images/{name}",
+            }
+            referenced = [target for target in targets if target and target in markdown]
+            if not referenced:
+                continue
+            digest = hashlib.sha256(image.content).hexdigest()
+            if image.page_index is None:
+                if page_start != page_end:
+                    raise ValueError("MinerU 题目图片缺少物理页位置")
+                page_number = page_start
+            else:
+                page_number = page_start + image.page_index
+                if page_number > page_end:
+                    raise ValueError("MinerU 题目图片的物理页位置超出页段")
+            asset_name = f"p{page_number:04d}-{digest}{suffix}"
+            self.jobs.write_file(
+                f"{job_id}/question-images/{asset_name}",
+                image.content,
+            )
+            public_url = f"/api/v1/papers/jobs/{job_id}/question-images/{asset_name}"
+            for target in sorted(referenced, key=len, reverse=True):
+                markdown = markdown.replace(target, public_url)
+        return markdown
+
+    def _parse_pdf_chunk(
+        self,
+        source_path: Path,
+        page_start: int,
+        page_end: int,
+    ) -> ParsedPaperChunk:
         source = PdfReader(str(source_path))
         writer = PdfWriter()
         for page_index in range(page_start - 1, page_end):
@@ -772,19 +834,31 @@ class PaperWorker:
             with temporary.open("wb") as output:
                 writer.write(output)
             temporary.replace(work_path)
-            documents = mineru_reader(
-                self.settings,
-                timeout=self.settings.paper_mineru_timeout,
-            ).load_data(
-                work_path,
-                extra_info={
-                    "source": source_path.name,
-                    "source_type": "uploaded_question_paper",
-                    "page_start": page_start,
-                    "page_end": page_end,
-                },
-            )
-            return render_documents(documents)
+            for attempt in range(1, self.settings.paper_mineru_max_attempts + 1):
+                try:
+                    return extract_paper_chunk(
+                        self.settings,
+                        work_path,
+                        timeout=self.settings.paper_mineru_timeout,
+                    )
+                except httpx.TransportError as error:
+                    if attempt == self.settings.paper_mineru_max_attempts:
+                        raise
+                    delay = min(
+                        self.settings.paper_mineru_retry_delay_seconds * (2 ** (attempt - 1)),
+                        30,
+                    )
+                    logger.warning(
+                        "paper_parse pages=%s-%s mineru_transport_retry=%s/%s delay=%.1fs error=%s",
+                        page_start,
+                        page_end,
+                        attempt,
+                        self.settings.paper_mineru_max_attempts,
+                        delay,
+                        type(error).__name__,
+                    )
+                    time.sleep(delay)
+            raise RuntimeError("MinerU transport retry loop exhausted")
         finally:
             temporary.unlink(missing_ok=True)
             work_path.unlink(missing_ok=True)

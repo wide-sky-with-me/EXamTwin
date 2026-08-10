@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import Depends, Header, HTTPException, Query
 
 from examtwin.app.composition import (
+    build_corpus_workspace_service,
     build_grading_service,
     build_object_store,
     build_paper_job_service,
@@ -13,6 +14,7 @@ from examtwin.assessment.grading import GradingService
 from examtwin.assessment.paper_jobs import PaperJobService
 from examtwin.assessment.rubrics import RubricService
 from examtwin.assessment.task_events import PostgresTaskEvents
+from examtwin.knowledge.workspace_service import CorpusWorkspaceService
 from examtwin.platform.config import Settings, get_settings
 from examtwin.subjects.public import SubjectContext, subject_context
 
@@ -55,6 +57,13 @@ def get_rubric_service(
     subject: SubjectContext = Depends(get_subject_context),
 ) -> RubricService:
     return build_rubric_service(settings, subject)
+
+
+def get_corpus_workspace_service(
+    settings: Settings = Depends(get_settings),
+    subject: SubjectContext = Depends(get_subject_context),
+) -> CorpusWorkspaceService:
+    return build_corpus_workspace_service(settings, subject)
 
 
 def get_task_events(settings: Settings = Depends(get_settings)) -> PostgresTaskEvents:

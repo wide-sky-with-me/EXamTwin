@@ -65,6 +65,84 @@
         "title": "AgentStepSummary",
         "type": "object"
       },
+      "AiReviewRubricCriteriaRequest": {
+        "properties": {
+          "criterion_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Criterion Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "criterion_ids"
+        ],
+        "title": "AiReviewRubricCriteriaRequest",
+        "type": "object"
+      },
+      "AiRubricCriterionReviewResponse": {
+        "properties": {
+          "confidence": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "criterion_fingerprint": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Criterion Fingerprint",
+            "type": "string"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "rationale": {
+            "title": "Rationale",
+            "type": "string"
+          },
+          "recommendation": {
+            "enum": [
+              "accept",
+              "reject",
+              "revise"
+            ],
+            "title": "Recommendation",
+            "type": "string"
+          },
+          "reviewed_at": {
+            "format": "date-time",
+            "title": "Reviewed At",
+            "type": "string"
+          },
+          "suggested_updates": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RubricCriterionPatch"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "criterion_fingerprint",
+          "recommendation",
+          "confidence",
+          "rationale",
+          "suggested_updates",
+          "model",
+          "reviewed_at"
+        ],
+        "title": "AiRubricCriterionReviewResponse",
+        "type": "object"
+      },
       "AnswerDiagram": {
         "properties": {
           "caption": {
@@ -376,6 +454,128 @@
           "warnings"
         ],
         "title": "AskResponse",
+        "type": "object"
+      },
+      "BatchDeleteSubjectsRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "subject_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Subject Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "subject_ids"
+        ],
+        "title": "BatchDeleteSubjectsRequest",
+        "type": "object"
+      },
+      "BatchDeleteSubjectsResponse": {
+        "properties": {
+          "deleted_count": {
+            "title": "Deleted Count",
+            "type": "integer"
+          },
+          "deleted_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Deleted Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "deleted_ids",
+          "deleted_count"
+        ],
+        "title": "BatchDeleteSubjectsResponse",
+        "type": "object"
+      },
+      "BatchReviewRubricCriteriaRequest": {
+        "properties": {
+          "decisions": {
+            "items": {
+              "$ref": "#/components/schemas/BatchRubricCriterionDecision"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Decisions",
+            "type": "array"
+          },
+          "reviewer": {
+            "minLength": 1,
+            "title": "Reviewer",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reviewer",
+          "decisions"
+        ],
+        "title": "BatchReviewRubricCriteriaRequest",
+        "type": "object"
+      },
+      "BatchRubricCriterionDecision": {
+        "properties": {
+          "criterion_id": {
+            "minLength": 1,
+            "title": "Criterion Id",
+            "type": "string"
+          },
+          "expected_criterion_fingerprint": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 64,
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Criterion Fingerprint"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "review_status": {
+            "enum": [
+              "accepted",
+              "rejected"
+            ],
+            "title": "Review Status",
+            "type": "string"
+          },
+          "updates": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RubricCriterionPatch"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "criterion_id",
+          "review_status"
+        ],
+        "title": "BatchRubricCriterionDecision",
         "type": "object"
       },
       "Body_answer_paper_api_v1_papers_answer_post": {
@@ -1159,6 +1359,171 @@
           "manual_review_required"
         ],
         "title": "GradeResponse",
+        "type": "object"
+      },
+      "GradingOverviewQuestionResponse": {
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "number"
+          },
+          "awarded": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Awarded"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "error_types": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Error Types",
+            "type": "array"
+          },
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          },
+          "question_number": {
+            "title": "Question Number",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "unassessed",
+              "pending_review",
+              "confirmed",
+              "overridden"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "suggestions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Suggestions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "position",
+          "question_number",
+          "status",
+          "awarded",
+          "available",
+          "confidence",
+          "error_types",
+          "suggestions"
+        ],
+        "title": "GradingOverviewQuestionResponse",
+        "type": "object"
+      },
+      "GradingOverviewResponse": {
+        "properties": {
+          "common_error_types": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Common Error Types",
+            "type": "array"
+          },
+          "completed_questions": {
+            "title": "Completed Questions",
+            "type": "integer"
+          },
+          "confirmed_count": {
+            "title": "Confirmed Count",
+            "type": "integer"
+          },
+          "incomplete": {
+            "title": "Incomplete",
+            "type": "boolean"
+          },
+          "overall_suggestion": {
+            "title": "Overall Suggestion",
+            "type": "string"
+          },
+          "overridden_count": {
+            "title": "Overridden Count",
+            "type": "integer"
+          },
+          "paper_job_id": {
+            "title": "Paper Job Id",
+            "type": "string"
+          },
+          "pending_review_count": {
+            "title": "Pending Review Count",
+            "type": "integer"
+          },
+          "percentage": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Percentage"
+          },
+          "questions": {
+            "items": {
+              "$ref": "#/components/schemas/GradingOverviewQuestionResponse"
+            },
+            "title": "Questions",
+            "type": "array"
+          },
+          "rubric_set_id": {
+            "title": "Rubric Set Id",
+            "type": "string"
+          },
+          "total_available": {
+            "title": "Total Available",
+            "type": "number"
+          },
+          "total_awarded": {
+            "title": "Total Awarded",
+            "type": "number"
+          },
+          "total_questions": {
+            "title": "Total Questions",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "paper_job_id",
+          "rubric_set_id",
+          "total_awarded",
+          "total_available",
+          "percentage",
+          "completed_questions",
+          "total_questions",
+          "pending_review_count",
+          "confirmed_count",
+          "overridden_count",
+          "incomplete",
+          "overall_suggestion",
+          "common_error_types",
+          "questions"
+        ],
+        "title": "GradingOverviewResponse",
         "type": "object"
       },
       "GradingPaperSummary": {
@@ -3555,6 +3920,7 @@
         "type": "object"
       },
       "RubricCriterionPatch": {
+        "additionalProperties": false,
         "properties": {
           "accuracy_requirement": {
             "anyOf": [
@@ -3710,6 +4076,16 @@
             ],
             "title": "Accuracy Requirement"
           },
+          "ai_review": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AiRubricCriterionReviewResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "alternatives": {
             "items": {
               "type": "string"
@@ -3856,7 +4232,8 @@
           "confidence",
           "review_status",
           "reviewed_by",
-          "reviewed_at"
+          "reviewed_at",
+          "ai_review"
         ],
         "title": "RubricCriterionResponse",
         "type": "object"
@@ -5326,6 +5703,86 @@
         "summary": "Paper Assessments"
       }
     },
+    "/api/v1/grading/papers/{paper_job_id}/overview": {
+      "get": {
+        "operationId": "grading_overview_api_v1_grading_papers__paper_job_id__overview_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "paper_job_id",
+            "required": true,
+            "schema": {
+              "title": "Paper Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "rubric_set_id",
+            "required": true,
+            "schema": {
+              "title": "Rubric Set Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GradingOverviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Grading Overview"
+      }
+    },
     "/api/v1/grading/papers/{paper_job_id}/questions/{position}/assess": {
       "post": {
         "operationId": "assess_paper_question_api_v1_grading_papers__paper_job_id__questions__position__assess_post",
@@ -5779,6 +6236,174 @@
         "summary": "Rubric Detail"
       }
     },
+    "/api/v1/grading/rubrics/{rubric_id}/ai-review": {
+      "post": {
+        "operationId": "ai_review_rubric_criteria_api_v1_grading_rubrics__rubric_id__ai_review_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rubric_id",
+            "required": true,
+            "schema": {
+              "title": "Rubric Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AiReviewRubricCriteriaRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RubricSetResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "description": "Rubric conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ai Review Rubric Criteria"
+      }
+    },
+    "/api/v1/grading/rubrics/{rubric_id}/batch-review": {
+      "post": {
+        "operationId": "batch_review_rubric_criteria_api_v1_grading_rubrics__rubric_id__batch_review_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rubric_id",
+            "required": true,
+            "schema": {
+              "title": "Rubric Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchReviewRubricCriteriaRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RubricSetResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "description": "Rubric conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Batch Review Rubric Criteria"
+      }
+    },
     "/api/v1/grading/rubrics/{rubric_id}/confirm": {
       "post": {
         "operationId": "confirm_rubric_api_v1_grading_rubrics__rubric_id__confirm_post",
@@ -5845,6 +6470,9 @@
               }
             },
             "description": "Successful Response"
+          },
+          "409": {
+            "description": "Rubric conflict"
           },
           "422": {
             "content": {
@@ -5935,6 +6563,9 @@
               }
             },
             "description": "Successful Response"
+          },
+          "409": {
+            "description": "Rubric conflict"
           },
           "422": {
             "content": {
@@ -7246,6 +7877,79 @@
         "summary": "Paper Job"
       }
     },
+    "/api/v1/papers/jobs/{job_id}/question-images/{asset_name}": {
+      "get": {
+        "operationId": "paper_job_question_image_api_v1_papers_jobs__job_id__question_images__asset_name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "asset_name",
+            "required": true,
+            "schema": {
+              "title": "Asset Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Paper Job Question Image"
+      }
+    },
     "/api/v1/papers/jobs/{job_id}/questions/{position}/retry": {
       "post": {
         "operationId": "retry_paper_question_api_v1_papers_jobs__job_id__questions__position__retry_post",
@@ -7936,6 +8640,44 @@
           }
         },
         "summary": "Create Subject Workspace"
+      }
+    },
+    "/api/v1/subject-workspaces/batch-delete": {
+      "post": {
+        "operationId": "batch_delete_subject_workspaces_api_v1_subject_workspaces_batch_delete_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchDeleteSubjectsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchDeleteSubjectsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Batch Delete Subject Workspaces"
       }
     },
     "/api/v1/subject-workspaces/{workspace_id}/documents": {

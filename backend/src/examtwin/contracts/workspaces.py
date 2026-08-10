@@ -41,6 +41,17 @@ class CreateSubjectRequest(BaseModel):
     capability_profile_id: str | None = None
 
 
+class BatchDeleteSubjectsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    subject_ids: list[str] = Field(min_length=1, max_length=100)
+
+
+class BatchDeleteSubjectsResponse(SerializedResponse):
+    deleted_ids: list[str]
+    deleted_count: int
+
+
 class SourceDocumentResponse(SerializedResponse):
     id: str
     filename: str

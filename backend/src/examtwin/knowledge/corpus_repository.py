@@ -56,6 +56,7 @@ class CorpusRepository:
             "status": "discovered",
             "object_key": None,
             "markdown_path": None,
+            "converted_source_checksum": None,
             "metadata_json": "{}",
             "error": None,
             "identity_status": "not_applicable",
@@ -100,6 +101,7 @@ class CorpusRepository:
                 values["id"] = document_id
                 session.add(SourceDocumentModel(**values))
             else:
+                source_changed = existing.checksum != values["checksum"]
                 primary_is_present = existing.path in current_paths
                 if not primary_is_present:
                     existing.path = path
@@ -125,6 +127,10 @@ class CorpusRepository:
                     "updated_at",
                 ):
                     setattr(existing, field, values[field])
+                if source_changed:
+                    existing.status = "discovered"
+                    existing.markdown_path = None
+                    existing.error = None
 
             location = session.get(SourceDocumentLocationModel, path)
             if location is None:
@@ -210,6 +216,7 @@ class CorpusRepository:
         *,
         markdown_path: str | None = None,
         error: str | None = None,
+        converted_source_checksum: str | None = None,
     ) -> None:
         values: dict[str, Any] = {
             "status": status,
@@ -218,6 +225,8 @@ class CorpusRepository:
         }
         if markdown_path is not None:
             values["markdown_path"] = markdown_path
+        if converted_source_checksum is not None:
+            values["converted_source_checksum"] = converted_source_checksum
         with self.sessions.begin() as session:
             result = session.execute(
                 update(SourceDocumentModel)

@@ -3,10 +3,63 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from examtwin.contracts.base import SerializedResponse
 from examtwin.contracts.grading import GradeResponse
+
+
+class RubricCriterionPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scoring_mode: Literal["point_based", "levels_based"] | None = None
+    mark_type: str | None = None
+    max_marks: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+    description: str | None = Field(default=None, min_length=1)
+    dependencies: list[str] | None = None
+    alternatives: list[str] | None = None
+    accuracy_requirement: str | None = None
+    units: list[str] | None = None
+    follow_through_policy: str | None = None
+    source_page: int | None = Field(default=None, ge=1)
+    source_excerpt: str | None = None
+
+    @model_validator(mode="after")
+    def reject_null_required_updates(self) -> RubricCriterionPatch:
+        required = {
+            "scoring_mode",
+            "max_marks",
+            "description",
+            "dependencies",
+            "alternatives",
+            "units",
+            "source_excerpt",
+        }
+        null_field = next(
+            (
+                field
+                for field in sorted(required & self.model_fields_set)
+                if getattr(self, field) is None
+            ),
+            None,
+        )
+        if null_field is not None:
+            raise ValueError(f"{null_field} cannot be null")
+        return self
+
+
+class AiRubricCriterionReviewResponse(SerializedResponse):
+    criterion_fingerprint: str = Field(
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-f]{64}$",
+    )
+    recommendation: Literal["accept", "reject", "revise"]
+    confidence: float = Field(ge=0, le=1)
+    rationale: str
+    suggested_updates: RubricCriterionPatch | None = None
+    model: str
+    reviewed_at: datetime
 
 
 class RubricCriterionResponse(SerializedResponse):
@@ -29,6 +82,7 @@ class RubricCriterionResponse(SerializedResponse):
     review_status: Literal["pending", "accepted", "rejected"]
     reviewed_by: str | None = None
     reviewed_at: datetime | None = None
+    ai_review: AiRubricCriterionReviewResponse | None = None
 
 
 class RubricSetSummary(SerializedResponse):
@@ -57,18 +111,26 @@ class CreateRubricRequest(BaseModel):
     source_document_id: str
 
 
-class RubricCriterionPatch(BaseModel):
-    scoring_mode: Literal["point_based", "levels_based"] | None = None
-    mark_type: str | None = None
-    max_marks: float | None = Field(default=None, gt=0)
-    description: str | None = Field(default=None, min_length=1)
-    dependencies: list[str] | None = None
-    alternatives: list[str] | None = None
-    accuracy_requirement: str | None = None
-    units: list[str] | None = None
-    follow_through_policy: str | None = None
-    source_page: int | None = Field(default=None, ge=1)
-    source_excerpt: str | None = None
+class BatchRubricCriterionDecision(BaseModel):
+    criterion_id: str = Field(min_length=1)
+    expected_criterion_fingerprint: str | None = Field(
+        default=None,
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-f]{64}$",
+    )
+    review_status: Literal["accepted", "rejected"]
+    note: str | None = None
+    updates: RubricCriterionPatch | None = None
+
+
+class BatchReviewRubricCriteriaRequest(BaseModel):
+    reviewer: str = Field(min_length=1)
+    decisions: list[BatchRubricCriterionDecision] = Field(min_length=1, max_length=200)
+
+
+class AiReviewRubricCriteriaRequest(BaseModel):
+    criterion_ids: list[str] = Field(min_length=1, max_length=200)
 
 
 class ReviewRubricCriterionRequest(BaseModel):
@@ -94,6 +156,34 @@ class PaperAssessmentResponse(SerializedResponse):
     status: Literal["pending_review", "confirmed", "overridden"]
     result: GradeResponse
     created_at: datetime
+
+
+class GradingOverviewQuestionResponse(SerializedResponse):
+    position: int
+    question_number: str
+    status: Literal["unassessed", "pending_review", "confirmed", "overridden"]
+    awarded: float | None = None
+    available: float
+    confidence: float | None = None
+    error_types: list[str] = Field(default_factory=list)
+    suggestions: list[str] = Field(default_factory=list)
+
+
+class GradingOverviewResponse(SerializedResponse):
+    paper_job_id: str
+    rubric_set_id: str
+    total_awarded: float
+    total_available: float
+    percentage: float | None
+    completed_questions: int
+    total_questions: int
+    pending_review_count: int
+    confirmed_count: int
+    overridden_count: int
+    incomplete: bool
+    overall_suggestion: str
+    common_error_types: list[str] = Field(default_factory=list)
+    questions: list[GradingOverviewQuestionResponse] = Field(default_factory=list)
 
 
 class GradingPaperSummary(SerializedResponse):

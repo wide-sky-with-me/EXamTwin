@@ -12,7 +12,11 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from examtwin.contracts.common import JobResult
 from examtwin.knowledge.corpus_repository import CorpusRepository
 from examtwin.knowledge.source_preprocessing import prepare_for_mineru, restore_source_pages
-from examtwin.platform.cache_paths import MarkdownCacheStore
+from examtwin.platform.cache_paths import (
+    MarkdownCacheMissing,
+    MarkdownCacheStore,
+    resolve_markdown_cache_path,
+)
 from examtwin.platform.config import Settings
 from examtwin.platform.storage import ManagedObjectStore
 from examtwin.subjects.public import SubjectContext
@@ -102,12 +106,48 @@ class CorpusIngestor:
         else:
             source = Path(row["path"])
         document_id = str(row["id"])
-        if self.cache.exists(document_id) and not force:
-            target = self.cache.resolve(document_id)
+        source_checksum = str(row.get("checksum") or "").strip()
+        if not source_checksum:
+            raise ValueError("Source document checksum is required for conversion")
+        provenance_matches = str(row.get("converted_source_checksum") or "") == source_checksum
+        if provenance_matches and not force:
+            stored_path = str(row.get("markdown_path") or "")
+            if stored_path:
+                try:
+                    target = resolve_markdown_cache_path(
+                        self.settings,
+                        document_id,
+                        stored_path,
+                    )
+                except (OSError, MarkdownCacheMissing):
+                    pass
+                else:
+                    self.documents.update_status(
+                        document_id,
+                        "converted",
+                        markdown_path=stored_path,
+                        converted_source_checksum=source_checksum,
+                    )
+                    return str(target), False
+            if self.cache.exists(document_id):
+                target = self.cache.resolve(document_id)
+                legacy_key = self.cache.key(document_id)
+                self.documents.update_status(
+                    document_id,
+                    "converted",
+                    markdown_path=legacy_key,
+                    converted_source_checksum=source_checksum,
+                )
+                return str(target), False
+
+        if self.cache.exists(document_id, source_checksum=source_checksum):
+            target = self.cache.resolve(document_id, source_checksum=source_checksum)
+            versioned_key = self.cache.key(document_id, source_checksum=source_checksum)
             self.documents.update_status(
                 document_id,
                 "converted",
-                markdown_path=self.cache.key(document_id),
+                markdown_path=versioned_key,
+                converted_source_checksum=source_checksum,
             )
             return str(target), False
 
@@ -123,6 +163,7 @@ class CorpusIngestor:
                 "knowledge_base_id": row.get("knowledge_base_id"),
                 "pair_key": row.get("pair_key"),
                 "unit_code": row.get("unit_code"),
+                "source_checksum": source_checksum,
             }
             if source.suffix.lower() in {".md", ".markdown"}:
                 body = source.read_text(encoding="utf-8")
@@ -135,28 +176,53 @@ class CorpusIngestor:
                     for prepared in prepared_sources:
                         part_suffix = prepared.cache_suffix
                         is_derived_part = prepared.page_range is not None
-                        if (
-                            is_derived_part
-                            and self.cache.exists(document_id, part_suffix)
-                            and not force
+                        if is_derived_part and self.cache.exists(
+                            document_id,
+                            part_suffix,
+                            source_checksum=source_checksum,
                         ):
-                            parts.append(self.cache.read(document_id, part_suffix))
+                            parts.append(
+                                self.cache.read(
+                                    document_id,
+                                    part_suffix,
+                                    source_checksum=source_checksum,
+                                )
+                            )
                             continue
                         documents = self._load_mineru(prepared.path, metadata)
                         restore_source_pages(documents, prepared)
                         rendered = render_documents(documents)
-                        if is_derived_part:
-                            self.cache.write(document_id, rendered, suffix=part_suffix)
+                        if is_derived_part and not self.cache.exists(
+                            document_id,
+                            part_suffix,
+                            source_checksum=source_checksum,
+                        ):
+                            self.cache.write(
+                                document_id,
+                                rendered,
+                                suffix=part_suffix,
+                                source_checksum=source_checksum,
+                            )
                         parts.append(rendered)
                     body = "\n\n".join(parts)
-            target = self.cache.write(document_id, _frontmatter(metadata) + body)
+            versioned_key = self.cache.key(document_id, source_checksum=source_checksum)
+            created = not self.cache.exists(document_id, source_checksum=source_checksum)
+            if created:
+                target = self.cache.write(
+                    document_id,
+                    _frontmatter(metadata) + body,
+                    source_checksum=source_checksum,
+                )
+            else:
+                target = self.cache.resolve(document_id, source_checksum=source_checksum)
             self.documents.update_status(
                 document_id,
                 "converted",
-                markdown_path=self.cache.key(document_id),
+                markdown_path=versioned_key,
                 error=None,
+                converted_source_checksum=source_checksum,
             )
-            return str(target), True
+            return str(target), created
         except Exception as error:
             self.documents.update_status(row["id"], "failed", error=str(error)[:2000])
             raise

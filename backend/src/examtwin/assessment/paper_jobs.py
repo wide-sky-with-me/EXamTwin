@@ -147,7 +147,7 @@ class PaperJobService:
             raise ValueError("至少选择一条试卷作答记录")
         if len(unique_ids) != len(job_ids):
             raise ValueError("批量删除不能包含重复的试卷任务")
-        return self.repository.delete_terminals(
+        return self.repository.delete_releasable(
             unique_ids,
             self.subject.subject_code,
             terminal_statuses=TERMINAL_JOB_STATUSES,
@@ -380,6 +380,10 @@ class PaperJobService:
         if not job:
             raise LookupError("试卷任务不存在")
         return self.files.source_page(job, job_id, page_number)
+
+    def question_image(self, job_id: str, asset_name: str) -> Path:
+        self._require_job(job_id)
+        return self.files.question_image(job_id, asset_name)
 
     def retry(self, job_id: str) -> PaperJobCreated:
         job = self._require_job(job_id)

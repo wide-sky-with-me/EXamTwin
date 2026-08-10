@@ -24,6 +24,10 @@ _LEGACY_PAGE_MARKER_RE = re.compile(
     r"(?m)^[ \t]*<!--\s*page\s+(\d+)\s*-->[ \t]*$",
     re.IGNORECASE,
 )
+_QUESTION_IMAGE_URL_RE = re.compile(
+    r"/api/v1/papers/jobs/[A-Za-z0-9-]+/question-images/"
+    r"p(?P<page>\d{4})-[0-9a-f]{64}\.(?:bmp|gif|jpeg|jpg|png|webp)"
+)
 _RETRYABLE_HTTP_STATUS_CODES = {408, 429}
 
 
@@ -243,6 +247,13 @@ class PaperVisionReviewer:
             content,
             page_start=page_start,
             page_end=page_end,
+            required_image_urls=tuple(
+                dict.fromkeys(
+                    match.group(0)
+                    for match in _QUESTION_IMAGE_URL_RE.finditer(markdown)
+                    if int(match.group("page")) == page_start
+                )
+            ),
         )
         reviewed_length = sum(
             len(body.strip()) for _page, body in parse_physical_page_markdown(reviewed)
@@ -278,6 +289,7 @@ class PaperVisionReviewer:
         *,
         page_start: int,
         page_end: int,
+        required_image_urls: tuple[str, ...],
     ) -> tuple[dict[str, Any], str]:
         provider_api_key = self.settings.llm_provider_api_key
         api_key = provider_api_key.get_secret_value() if provider_api_key else None
@@ -325,6 +337,11 @@ class PaperVisionReviewer:
                         page_start,
                         page_end,
                     )
+                    missing_images = [url for url in required_image_urls if url not in reviewed]
+                    if missing_images:
+                        raise ValueError(
+                            "视觉复核丢失 MinerU 题目图片位置引用：" + ", ".join(missing_images)
+                        )
                     return payload, reviewed
                 except (httpx.HTTPError, KeyError, TypeError, ValueError) as error:
                     last_error = error
@@ -393,6 +410,9 @@ Requirements:
 - Remove answer lines, examiner-use boxes, barcodes, headers, footers, and blank space.
 - For a diagram needed to answer a question, add a concise bracketed visual description
   containing every visible label, coordinate, dimension, curve, and shaded boundary.
+- Preserve every Markdown image reference whose URL page number matches the physical
+  page being reviewed, exactly at the same reading position. Do not copy references
+  belonging to other pages. A visual description may supplement an image but never replace it.
 - Return exactly one object for every physical PDF page from {page_start} through
   {page_end}, including an object with empty Markdown for a genuinely blank page.
 - Never merge two physical pages. Do not add page-marker comments yourself; the

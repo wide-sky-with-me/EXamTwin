@@ -106,6 +106,8 @@ class Settings(BaseSettings):
     paper_lease_seconds: int = Field(default=60, ge=30, le=3600)
     paper_worker_poll_seconds: float = Field(default=2.0, ge=0.2, le=60)
     paper_mineru_timeout: int = Field(default=600, ge=60, le=1800)
+    paper_mineru_max_attempts: int = Field(default=3, ge=1, le=5)
+    paper_mineru_retry_delay_seconds: float = Field(default=2, ge=0, le=60)
     paper_question_max_attempts: int = Field(default=3, ge=1, le=5)
     paper_question_retry_delay_seconds: float = Field(default=2, ge=0, le=60)
     paper_question_concurrency: int = Field(default=4, ge=1, le=8)

@@ -95,6 +95,57 @@ def test_vision_review_retries_and_restores_missing_subpart(
     assert retry_records[0].error_type == "HTTPStatusError"
 
 
+def test_vision_review_retries_when_mineru_image_position_is_lost(tmp_path: Path) -> None:
+    source = tmp_path / "paper.pdf"
+    writer = PdfWriter()
+    writer.add_blank_page(width=595, height=842)
+    with source.open("wb") as output:
+        writer.write(output)
+    image_url = f"/api/v1/papers/jobs/job-1/question-images/p0001-{'a' * 64}.png"
+    calls = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        image = f"\n\n![Force diagram]({image_url})" if calls > 1 else ""
+        content = json.dumps(
+            {
+                "pages": [
+                    {
+                        "page_number": 1,
+                        "markdown": f"1 Use the diagram.{image}\n\nCalculate the force. [2 marks]",
+                    }
+                ],
+                "repairs": [],
+                "confidence": 0.99,
+            }
+        )
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": content}}]},
+        )
+
+    settings = Settings(
+        openai_compat_api_key="test-key",
+        paper_vision_max_attempts=2,
+        paper_vision_retry_delay_seconds=0,
+    )
+    markdown = (
+        f"1 Use the diagram.\n\n![Force diagram]({image_url})\n\nCalculate the force. [2 marks]"
+    )
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        result = PaperVisionReviewer(settings, client=client).review_chunk(
+            source,
+            markdown,
+            1,
+            1,
+        )
+
+    assert calls == 2
+    assert image_url in result.markdown
+    assert result.markdown.index(image_url) < result.markdown.index("Calculate the force")
+
+
 def test_vision_review_does_not_retry_permanent_http_error(tmp_path: Path) -> None:
     source = tmp_path / "paper.pdf"
     writer = PdfWriter()

@@ -33,11 +33,6 @@ const DATE_FORMATTER = new Intl.DateTimeFormat("zh-CN", {
 type HistoryRange = "all" | "7" | "30" | "90";
 
 
-function canDeleteJob(item: PaperJobSummary): boolean {
-  return TERMINAL_STATUSES.has(item.status)
-    && !item.replacement_for_job_id
-    && !item.replaced_by_job_id;
-}
 function createdAfter(range: HistoryRange): string | undefined {
   if (range === "all") return undefined;
   const date = new Date();
@@ -204,7 +199,7 @@ export function PaperJobHistory({
 
   const selectableIds =
     history?.items
-      .filter(canDeleteJob)
+      .filter((item) => !item.replacement_for_job_id && !item.replaced_by_job_id)
       .map((item) => item.job_id) ?? [];
   const allPageSelected =
     selectableIds.length > 0 && selectableIds.every((jobId) => selectedIds.has(jobId));
@@ -371,7 +366,7 @@ export function PaperJobHistory({
         <ul className="paper-history-list">
           {history.items.map((item) => {
             const deletingThis = deleteCandidate?.job_id === item.job_id;
-            const selectable = canDeleteJob(item);
+            const selectable = !item.replacement_for_job_id && !item.replaced_by_job_id;
             const unverified = item.source_integrity_status === "legacy_unverified"
               || item.source_integrity_status === "replacement_queued";
             const repairingThis = repairingId === item.job_id;
@@ -383,7 +378,7 @@ export function PaperJobHistory({
                   className="paper-history-checkbox"
                   disabled={!selectable || deleting}
                   onChange={() => toggleSelection(item.job_id)}
-                  title={selectable ? "选择记录" : "处理中记录不能删除"}
+                  title={selectable ? "选择记录" : "具有替代审计关系的记录不能删除"}
                   type="checkbox"
                 />
                 <div className="paper-history-main">
@@ -410,7 +405,9 @@ export function PaperJobHistory({
                 </span>
                 {deletingThis ? (
                   <div className="paper-history-confirm" role="alert">
-                    <span>确认删除？</span>
+                    <span>
+                      {TERMINAL_STATUSES.has(item.status) ? "确认删除？" : "确认取消并删除？"}
+                    </span>
                     <button disabled={deleting} onClick={() => setDeleteCandidate(null)} type="button">
                       取消
                     </button>
@@ -453,7 +450,7 @@ export function PaperJobHistory({
                           setBulkConfirming(false);
                           setDeleteCandidate(item);
                         }}
-                        title="删除记录"
+                        title={TERMINAL_STATUSES.has(item.status) ? "删除记录" : "取消并删除任务"}
                         type="button"
                       >
                         <Trash2 size={15} />

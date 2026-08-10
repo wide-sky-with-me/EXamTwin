@@ -157,6 +157,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/grading/papers/{paper_job_id}/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Grading Overview */
+        get: operations["grading_overview_api_v1_grading_papers__paper_job_id__overview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/grading/papers/{paper_job_id}/questions/{position}/assess": {
         parameters: {
             query?: never;
@@ -237,6 +254,40 @@ export interface paths {
         get: operations["rubric_detail_api_v1_grading_rubrics__rubric_id__get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/grading/rubrics/{rubric_id}/ai-review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ai Review Rubric Criteria */
+        post: operations["ai_review_rubric_criteria_api_v1_grading_rubrics__rubric_id__ai_review_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/grading/rubrics/{rubric_id}/batch-review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Batch Review Rubric Criteria */
+        post: operations["batch_review_rubric_criteria_api_v1_grading_rubrics__rubric_id__batch_review_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -534,6 +585,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/papers/jobs/{job_id}/question-images/{asset_name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Paper Job Question Image */
+        get: operations["paper_job_question_image_api_v1_papers_jobs__job_id__question_images__asset_name__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/papers/jobs/{job_id}/questions/{position}/retry": {
         parameters: {
             query?: never;
@@ -704,6 +772,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/subject-workspaces/batch-delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Batch Delete Subject Workspaces */
+        post: operations["batch_delete_subject_workspaces_api_v1_subject_workspaces_batch_delete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/subject-workspaces/{workspace_id}/documents": {
         parameters: {
             query?: never;
@@ -782,6 +867,33 @@ export interface components {
             status: "running" | "completed" | "failed";
             /** Tool Name */
             tool_name: string | null;
+        };
+        /** AiReviewRubricCriteriaRequest */
+        AiReviewRubricCriteriaRequest: {
+            /** Criterion Ids */
+            criterion_ids: string[];
+        };
+        /** AiRubricCriterionReviewResponse */
+        AiRubricCriterionReviewResponse: {
+            /** Confidence */
+            confidence: number;
+            /** Criterion Fingerprint */
+            criterion_fingerprint: string;
+            /** Model */
+            model: string;
+            /** Rationale */
+            rationale: string;
+            /**
+             * Recommendation
+             * @enum {string}
+             */
+            recommendation: "accept" | "reject" | "revise";
+            /**
+             * Reviewed At
+             * Format: date-time
+             */
+            reviewed_at: string;
+            suggested_updates: components["schemas"]["RubricCriterionPatch"] | null;
         };
         /** AnswerDiagram */
         AnswerDiagram: {
@@ -906,6 +1018,40 @@ export interface components {
             knowledge_base_version_ids: string[];
             /** Warnings */
             warnings: string[];
+        };
+        /** BatchDeleteSubjectsRequest */
+        BatchDeleteSubjectsRequest: {
+            /** Subject Ids */
+            subject_ids: string[];
+        };
+        /** BatchDeleteSubjectsResponse */
+        BatchDeleteSubjectsResponse: {
+            /** Deleted Count */
+            deleted_count: number;
+            /** Deleted Ids */
+            deleted_ids: string[];
+        };
+        /** BatchReviewRubricCriteriaRequest */
+        BatchReviewRubricCriteriaRequest: {
+            /** Decisions */
+            decisions: components["schemas"]["BatchRubricCriterionDecision"][];
+            /** Reviewer */
+            reviewer: string;
+        };
+        /** BatchRubricCriterionDecision */
+        BatchRubricCriterionDecision: {
+            /** Criterion Id */
+            criterion_id: string;
+            /** Expected Criterion Fingerprint */
+            expected_criterion_fingerprint?: string | null;
+            /** Note */
+            note?: string | null;
+            /**
+             * Review Status
+             * @enum {string}
+             */
+            review_status: "accepted" | "rejected";
+            updates?: components["schemas"]["RubricCriterionPatch"] | null;
         };
         /** Body_answer_paper_api_v1_papers_answer_post */
         Body_answer_paper_api_v1_papers_answer_post: {
@@ -1143,6 +1289,59 @@ export interface components {
             total_awarded: number;
             /** Warnings */
             warnings: string[];
+        };
+        /** GradingOverviewQuestionResponse */
+        GradingOverviewQuestionResponse: {
+            /** Available */
+            available: number;
+            /** Awarded */
+            awarded: number | null;
+            /** Confidence */
+            confidence: number | null;
+            /** Error Types */
+            error_types: string[];
+            /** Position */
+            position: number;
+            /** Question Number */
+            question_number: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "unassessed" | "pending_review" | "confirmed" | "overridden";
+            /** Suggestions */
+            suggestions: string[];
+        };
+        /** GradingOverviewResponse */
+        GradingOverviewResponse: {
+            /** Common Error Types */
+            common_error_types: string[];
+            /** Completed Questions */
+            completed_questions: number;
+            /** Confirmed Count */
+            confirmed_count: number;
+            /** Incomplete */
+            incomplete: boolean;
+            /** Overall Suggestion */
+            overall_suggestion: string;
+            /** Overridden Count */
+            overridden_count: number;
+            /** Paper Job Id */
+            paper_job_id: string;
+            /** Pending Review Count */
+            pending_review_count: number;
+            /** Percentage */
+            percentage: number | null;
+            /** Questions */
+            questions: components["schemas"]["GradingOverviewQuestionResponse"][];
+            /** Rubric Set Id */
+            rubric_set_id: string;
+            /** Total Available */
+            total_available: number;
+            /** Total Awarded */
+            total_awarded: number;
+            /** Total Questions */
+            total_questions: number;
         };
         /** GradingPaperSummary */
         GradingPaperSummary: {
@@ -2006,6 +2205,7 @@ export interface components {
         RubricCriterionResponse: {
             /** Accuracy Requirement */
             accuracy_requirement: string | null;
+            ai_review: components["schemas"]["AiRubricCriterionReviewResponse"] | null;
             /** Alternatives */
             alternatives: string[];
             /** Confidence */
@@ -2664,6 +2864,42 @@ export interface operations {
             };
         };
     };
+    grading_overview_api_v1_grading_papers__paper_job_id__overview_get: {
+        parameters: {
+            query: {
+                rubric_set_id: string;
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path: {
+                paper_job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GradingOverviewResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     assess_paper_question_api_v1_grading_papers__paper_job_id__questions__position__assess_post: {
         parameters: {
             query?: {
@@ -2882,6 +3118,98 @@ export interface operations {
             };
         };
     };
+    ai_review_rubric_criteria_api_v1_grading_rubrics__rubric_id__ai_review_post: {
+        parameters: {
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path: {
+                rubric_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AiReviewRubricCriteriaRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RubricSetResponse"];
+                };
+            };
+            /** @description Rubric conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    batch_review_rubric_criteria_api_v1_grading_rubrics__rubric_id__batch_review_post: {
+        parameters: {
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path: {
+                rubric_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatchReviewRubricCriteriaRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RubricSetResponse"];
+                };
+            };
+            /** @description Rubric conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     confirm_rubric_api_v1_grading_rubrics__rubric_id__confirm_post: {
         parameters: {
             query?: {
@@ -2909,6 +3237,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["RubricSetResponse"];
                 };
+            };
+            /** @description Rubric conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -2949,6 +3284,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["RubricSetResponse"];
                 };
+            };
+            /** @description Rubric conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -3557,6 +3899,40 @@ export interface operations {
             };
         };
     };
+    paper_job_question_image_api_v1_papers_jobs__job_id__question_images__asset_name__get: {
+        parameters: {
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path: {
+                job_id: string;
+                asset_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     retry_paper_question_api_v1_papers_jobs__job_id__questions__position__retry_post: {
         parameters: {
             query?: {
@@ -3890,6 +4266,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SubjectPackResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    batch_delete_subject_workspaces_api_v1_subject_workspaces_batch_delete_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatchDeleteSubjectsRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchDeleteSubjectsResponse"];
                 };
             };
             /** @description Validation Error */

@@ -28,6 +28,10 @@ describe("PaperAnswering", () => {
   });
 
   test("presents completion as answer status instead of evidence status", async () => {
+    const imageUrl = (
+      "/api/v1/papers/jobs/job-1/question-images/"
+      + `p0001-${"a".repeat(64)}.png`
+    );
     const completedJob: PaperJobResult = {
       job_id: "job-1",
       filename: "paper.pdf",
@@ -54,7 +58,7 @@ describe("PaperAnswering", () => {
       questions: [{
         position: 0,
         number: "1",
-        question_markdown: "Solve x + 1 = 2.",
+        question_markdown: `Solve x + 1 = 2.\n\n![Equation diagram](${imageUrl})`,
         answer_markdown: "x = 1",
         diagrams: [],
         images: [],
@@ -89,5 +93,9 @@ describe("PaperAnswering", () => {
     expect(await screen.findByText("已作答")).toBeInTheDocument();
     expect(screen.getByText("Q1 · 已作答")).toBeInTheDocument();
     expect(screen.queryByText("证据充分")).not.toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Equation diagram" })).toHaveAttribute(
+      "src",
+      imageUrl,
+    );
   });
 });

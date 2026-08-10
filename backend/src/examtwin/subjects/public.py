@@ -11,6 +11,13 @@ from examtwin.platform.database.session import create_session_factory
 from examtwin.subjects import BoardPack, SubjectPack, UnitRule, get_subject_pack
 from examtwin.subjects.contracts import SubjectSkill
 from examtwin.subjects.dashboard_repository import DashboardRepository
+from examtwin.subjects.document_assignment import (
+    DocumentAssignment,
+    resolve_document_assignment,
+    resolve_document_assignment_after_file_validation,
+    resolve_document_assignment_before_file_validation,
+    validate_document_source_type,
+)
 from examtwin.subjects.packages import (
     AnsweringManifest,
     CurriculumManifest,
@@ -300,6 +307,7 @@ __all__ = [
     "BoardPack",
     "CurriculumManifest",
     "DashboardRepository",
+    "DocumentAssignment",
     "RuntimeManifest",
     "SubjectContext",
     "SubjectPackage",
@@ -315,7 +323,11 @@ __all__ = [
     "get_subject_package",
     "mathematics_source_plot_overlay_mode",
     "select_economics_answer_visual_tool",
+    "resolve_document_assignment",
+    "resolve_document_assignment_after_file_validation",
+    "resolve_document_assignment_before_file_validation",
     "select_mathematics_answer_visual_tool",
     "subject_context",
+    "validate_document_source_type",
     "subject_package_registry",
 ]

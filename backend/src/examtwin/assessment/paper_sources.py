@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import threading
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
@@ -12,6 +13,8 @@ import pymupdf
 
 from examtwin.platform.database.session import utcnow
 from examtwin.platform.storage import LocalObjectStore, ManagedObjectStore, ObjectMetadata
+
+_QUESTION_IMAGE_ASSET = re.compile(r"^p\d{4}-[0-9a-f]{64}\.(?:bmp|gif|jpeg|jpg|png|webp)$")
 
 
 @dataclass
@@ -128,6 +131,15 @@ class PaperSourceStore:
                 pixmap = page.get_pixmap(matrix=pymupdf.Matrix(1.8, 1.8), alpha=False)
                 content = pixmap.tobytes("jpeg", jpg_quality=88)
             return self.write(relative_path, content)
+
+    def question_image(self, job_id: str, asset_name: str) -> Path:
+        if not _QUESTION_IMAGE_ASSET.fullmatch(asset_name):
+            raise ValueError("题目图片资源名无效")
+        key = self._key(f"{job_id}/question-images/{asset_name}")
+        try:
+            return self.store.materialize(key)
+        except LookupError as error:
+            raise LookupError("题目图片不存在") from error
 
     @contextmanager
     def _page_lock(self, key: str) -> Iterator[None]:

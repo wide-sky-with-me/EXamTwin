@@ -48,9 +48,9 @@ SubjectPack 课程结构仍包含 9660 的 227 个知识节点 / 371 条关系�
 | 语料清点 | 按 SubjectPack 扫描本地资料，识别来源类型、权威等级、校验和、页数及考试身份 | 严格配对只在年份、考季、Unit 都能解析时成立；样卷、章节练习和显式属于其他资格代码的试卷不进入当前科目严格配对 |
 | 文档转换与知识版本 | 用 MinerU 保留 OCR、公式、表格和页码；按来源策略生成层级文档块；核心/补充知识库独立构建并通过 Qdrant live alias 原子发布 | 核心库只接受 syllabus / textbook；补充库只接受获授权教学资料；评估资料不进入 RAG；失败保留上一 live 版本 |
 | 知识图谱与难度 | 从课纲生成课程结构；为 Topic / Learning Objective 从已发布核心库匹配课纲和授权教材原文，按 Unit 批量让模型直接评级并经引用门禁后事务发布；另可从知识版本生成证据化节点/关系草稿并审核发布 | 图谱发布前不参与检索；D 级模型评级不是题目难度或官方表现统计；缺资料、模型失败或引用不实即保留上一版，A/B/C 级证据流水线仍未完成 |
-| 整卷证据作答 | 上传 PDF 或 Markdown，持久 Worker 分类、视觉复核、分批拆题并用受控 Agent 逐题作答；运行账本冻结知识库/图谱版本和可重放工具结果 | 只有高置信 Question Paper 继续；Mark Scheme / Examiner Report 不可检索；Insert 仅按同场次、当前题需要读取；部分失败可单题重试 |
-| 自动初评 | 从已完成作答选择严格配对 Mark Scheme，逐条接受、拒绝或修改类型化评分原子；全部原子经审核且至少一条接受后确认版本，再逐题生成建议分、答案证据、错误类型和改进建议 | 后端按科目隔离评分规则，并在创建时强制 Question Paper / Mark Scheme 的年份、考季、Unit 完全一致；只按当前题已接受原子评分，缺少已确认版本时拒绝 |
-| 人工复核 | 评分原子每次审核保存审核人、时间、状态、备注和修改前后值；assessment 另进入待复核队列，教师可确认建议分或填写最终分改分 | 不提供“一键全部接受”；自动建议分不直接发布；当前没有学生账号和正式成绩发布链路 |
+| 整卷证据作答 | 上传 PDF 或 Markdown，持久 Worker 分类、视觉复核、分批拆题并用受控 Agent 逐题作答；MinerU 题内图片按物理页归档并保留在题干原位置；运行账本冻结知识库/图谱版本和可重放工具结果 | 只有高置信 Question Paper 继续；Mark Scheme / Examiner Report 不可检索；Insert 仅按同场次、当前题需要读取；部分失败可单题重试 |
+| 自动初评 | 从已完成作答选择严格配对 Mark Scheme，审核类型化评分原子；支持当前筛选下至多 200 条原子的原子批量人工决策，以及独立保存、须教师确认后才能应用的 AI 接受 / 拒绝 / 修改建议；规则确认后逐题生成建议分并汇总整卷完成度、得分、共性问题和逐题建议 | Mark Scheme 转换产物按来源校验和不可变保存，规则冻结来源文档与校验和；批量人工审核全有或全无且逐条追加审计；AI 建议不改变人工状态；总览只取指定规则下每题最新持久 assessment |
+| 人工复核 | 评分原子单条或批量审核均保存审核人、时间、状态、备注和修改前后值；AI 建议另行追加保存；assessment 另进入待复核队列，教师可确认建议分或填写最终分改分 | 批量拒绝和应用 AI 建议须明确确认；自动建议分与 AI 建议都不直接发布；当前没有学生账号和正式成绩发布链路 |
 | 运维入口 | CLI/API 支持数据库升级、清点、转换、知识版本、图谱、检索评测与持久 Worker；Web 提供科目、资料、知识、作答、评分和复核工作区 | PostgreSQL、Qdrant、对象存储和外部模型服务是运行依赖；API/基础设施仅绑定 loopback |
 
 ## 使用路径
@@ -110,29 +110,36 @@ PDF 文本层只是恢复定位证据：它可以指出视觉分题完全漏掉�
 ### 从已完成作答到教师复核
 
 教师在评分工作区选择已完成或部分完成的整卷作答，再选择同科目、同年份、同考季、同 Unit
-且身份完整的官方 Mark Scheme。系统把评分方案解析为版本化、可审核的 point-based /
-levels-based 原子，保留题号、子问、分值类型、依赖、替代路径、精度、单位、FT 规则和来源
-摘录；题号显示格式会规范映射回持久化试卷题号。教师须逐条接受、拒绝或修改，系统保存每次
-审核的前后值。只有所有原子都有审核记录且至少一条被接受，评分规则版本才能确认并用于评分。
+且身份完整的官方 Mark Scheme。转换产物与精确来源校验和绑定；来源变化后旧评分规则不会被新
+内容静默复用。系统把评分方案解析为版本化、可审核的 point-based / levels-based 原子，保留
+题号、子问、分值类型、依赖、替代路径、精度、单位、FT 规则和来源摘录。教师可单条审核，也
+可对当前筛选下的原子执行原子批量接受 / 拒绝；每条决定仍独立审计，整批事务全有或全无。
+AI 审核只追加接受 / 拒绝 / 需修改建议、置信度、理由和建议 patch；教师填写审核人并确认应用
+后，接受 / 拒绝建议才进入人工状态，需修改项仍须单条编辑。只有所有原子都有人工审核记录且
+至少一条被接受，评分规则版本才能确认并用于评分。
 
 ```mermaid
 flowchart LR
     A[已保存题目与模型答案] --> D[确认后的评分规则版本]
-    B[严格配对 Mark Scheme] --> C[结构化评分原子草稿]
-    C --> H{人工审核}
+    B[校验和冻结的 Mark Scheme] --> C[结构化评分原子草稿]
+    C --> H{单条或批量人工审核}
+    C --> R[AI 审核建议]
+    R --> H
     H --> D
     D --> E[LLM 逐原子初评<br/>受限 CAS 佐证]
     E --> F[(Assessment<br/>pending_review)]
+    F --> O[整卷确定性总览]
     F --> G{教师复核}
     G -->|确认| I[confirmed]
     G -->|填写最终分| J[overridden]
 ```
 
 每次初评只读取当前试题的已接受评分原子，并保存逐原子建议分、学生答案证据、理由、置信度、
-错误类型、改进建议和所用知识库/图谱版本；服务把单项和总分限制在合法范围。人工改分的最终
-分数必须位于 `[0, total_available]`，该约束由仓储事务内的领域校验强制，不只依赖 HTTP 或
-前端输入校验。评分原子审核和 assessment 的人工确认或改分分别写入追加式审计记录，没有
-批量接受评分原子或绕过复核直接形成最终成绩的接口。
+错误类型、改进建议和所用知识库/图谱版本；服务把单项和总分限制在合法范围。整卷总览按指定
+评分规则选择每题最新 assessment，使用持久化最终分，明确显示缺失题目并确定性聚合共性问题、
+总体建议和逐题建议，不新增第二个总分事实源。人工改分的最终分数必须位于
+`[0, total_available]`，该约束由仓储事务内的领域校验强制。评分原子人工审核、AI 建议和
+assessment 人工确认 / 改分分别写入追加式记录，任何模型输出都不能绕过人工门禁形成最终成绩。
 
 ## 当前界面与交互
 
@@ -148,8 +155,9 @@ flowchart LR
   审计关系的替代任务；
 - **知识库**：资料工作区负责分类、授权和上传；核心/补充知识库负责版本输入与发布；图谱生产
   页生成、可视化编辑、审核并发布节点关系；层级浏览显示课程结构；
-- **答案评分**：选择既有作答和严格配对的官方 Mark Scheme，逐条筛选、编辑、接受或拒绝评分
-  原子；满足确认门禁后逐题生成可审计评分报告；
+- **答案评分**：四步完成材料配对、评分原子审核、逐题评分和整卷总览；支持筛选后批量人工
+  决策、独立 AI 建议与确认应用、草稿恢复、规则版本切换、逐题诊断轨和缺口提示；材料、审核、
+  评分写入期间冻结冲突上下文，危险批量操作有确认与审计；
 - **复核队列**：填写复核人，可确认建议分或输入最终分改分，侧栏同步显示待复核数量。
 
 主题支持浅色、跟随系统和深色。所有科目相关请求携带显式科目上下文；未选择科目或科目未
@@ -176,8 +184,11 @@ flowchart TB
 ```
 
 - Web 入口负责五个工作页面和 API 状态反馈，不保存跨刷新会话状态。
-- FastAPI 负责输入校验、错误到 HTTP 状态的映射和服务组合；应用启动时初始化数据库 schema
-  并幂等写入种子知识结构。
+- FastAPI 只负责协议输入输出与错误到 HTTP 状态的映射；依赖构造集中在应用组合根，不在
+  handler 内拼装持久化或供应商实现。
+- 资料分类、授权等级与知识库归属由 subjects 统一决策；knowledge 应用服务拥有资料注册、
+  对象写入失败补偿、重复考试身份合并，以及知识库版本的转换、索引、发布和失败回写。
+  应用启动时初始化数据库 schema 并幂等写入种子知识结构。
 - PostgreSQL 保存资料清单、知识节点与关系、难度证据表、assessment 和 review。
 - Qdrant 只保存从已转换 Markdown 构建的向量节点；关系数据和审核状态不写入 Qdrant。
 - 外部供应商负责 MinerU 文档解析、Embedding、Rerank 和 LLM；项目没有离线模型回退。
@@ -256,6 +267,7 @@ flowchart TB
 | 项目定位、启动和公开契约 | [`README.md`](../../README.md)、[`pyproject.toml`](../../pyproject.toml)、[`compose.yaml`](../../compose.yaml) |
 | REST 接口与输入/输出 | [`backend/src/examtwin/app/api/router.py`](../../backend/src/examtwin/app/api/router.py)、[`backend/src/examtwin/contracts/`](../../backend/src/examtwin/contracts/) |
 | 数据表与持久化边界 | [`backend/src/examtwin/platform/database/`](../../backend/src/examtwin/platform/database/)、[`backend/migrations/`](../../backend/migrations/) |
+| 资料归属、上传与知识版本构建 | [`backend/src/examtwin/subjects/document_assignment.py`](../../backend/src/examtwin/subjects/document_assignment.py)、[`backend/src/examtwin/knowledge/workspace_service.py`](../../backend/src/examtwin/knowledge/workspace_service.py) |
 | 清点、分类和严格配对 | [`backend/src/examtwin/knowledge/inventory.py`](../../backend/src/examtwin/knowledge/inventory.py)、[`subject-packs/`](../../subject-packs/) |
 | MinerU 转换与 Qdrant 发布 | [`backend/src/examtwin/knowledge/ingestion.py`](../../backend/src/examtwin/knowledge/ingestion.py)、[`backend/src/examtwin/knowledge/vector_retrieval.py`](../../backend/src/examtwin/knowledge/vector_retrieval.py) |
 | 知识构建和难度 | [`backend/src/examtwin/knowledge/pipeline.py`](../../backend/src/examtwin/knowledge/pipeline.py)、[`backend/src/examtwin/knowledge/difficulty.py`](../../backend/src/examtwin/knowledge/difficulty.py) |

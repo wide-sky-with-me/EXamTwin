@@ -265,6 +265,36 @@ def answer_image_asset(
     )
 
 
+@router.get(
+    "/papers/jobs/{job_id}/question-images/{asset_name}",
+    response_class=FileResponse,
+)
+def paper_job_question_image(
+    job_id: str,
+    asset_name: str,
+    jobs: PaperJobService = Depends(get_paper_jobs),
+) -> FileResponse:
+    try:
+        path = jobs.question_image(job_id, asset_name)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    media_types = {
+        ".bmp": "image/bmp",
+        ".gif": "image/gif",
+        ".jpeg": "image/jpeg",
+        ".jpg": "image/jpeg",
+        ".png": "image/png",
+        ".webp": "image/webp",
+    }
+    return FileResponse(
+        path,
+        media_type=media_types[path.suffix.lower()],
+        headers={"Cache-Control": "private, max-age=31536000, immutable"},
+    )
+
+
 @router.get("/papers/jobs/{job_id}/source/pages/{page_number}", response_class=FileResponse)
 def paper_job_source_page(
     job_id: str,

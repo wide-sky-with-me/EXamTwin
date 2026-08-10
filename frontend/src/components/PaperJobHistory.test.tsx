@@ -122,6 +122,42 @@ describe("PaperJobHistory", () => {
     expect(onDeleted).toHaveBeenCalledWith("job-1");
   });
 
+  test("allows an unclaimed active task to be cancelled and deleted", async () => {
+    const user = userEvent.setup();
+    const onDeleted = vi.fn();
+    listMock.mockResolvedValue({
+      ...history,
+      items: [{
+        ...history.items[0],
+        job_id: "queued-job",
+        filename: "stuck-paper.pdf",
+        status: "queued",
+        stage: "queued",
+        total_questions: 0,
+        completed_questions: 0,
+      }],
+    });
+    render(
+      <PaperJobHistory
+        currentJobId="queued-job"
+        onDeleted={onDeleted}
+        onOpen={vi.fn()}
+        refreshKey={0}
+        subject={subject}
+      />,
+    );
+
+    await user.click(await screen.findByRole(
+      "button",
+      { name: "删除记录 stuck-paper.pdf" },
+    ));
+    expect(screen.getByText("确认取消并删除？")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "确认删除" }));
+
+    await waitFor(() => expect(deleteMock).toHaveBeenCalledWith(["queued-job"]));
+    expect(onDeleted).toHaveBeenCalledWith("queued-job");
+  });
+
   test("selects every deletable row on the page and confirms one bulk deletion", async () => {
     const user = userEvent.setup();
     const onDeleted = vi.fn();

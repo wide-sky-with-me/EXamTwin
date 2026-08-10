@@ -18,7 +18,9 @@ from sqlalchemy import func, select
 
 
 @pytest.mark.integration
-def test_delete_graph_version_preserves_other_versions_and_clears_active_pointer() -> None:
+def test_delete_graph_version_preserves_other_versions_and_clears_active_pointer(
+    request: pytest.FixtureRequest,
+) -> None:
     settings = get_settings()
     upgrade_database(settings.database_url)
     sessions = create_session_factory(settings.database_url)
@@ -28,6 +30,14 @@ def test_delete_graph_version_preserves_other_versions_and_clears_active_pointer
     first_id = f"graph-first-{token}"
     active_id = f"graph-active-{token}"
     now = utcnow()
+
+    def cleanup_subjects() -> None:
+        with sessions.begin() as session:
+            session.query(SubjectModel).filter(
+                SubjectModel.id.in_([subject_id, other_subject_id])
+            ).delete(synchronize_session=False)
+
+    request.addfinalizer(cleanup_subjects)
 
     with sessions.begin() as session:
         session.add_all(
