@@ -37,21 +37,30 @@ function isNullableStringArray(value: unknown): value is string[] | null {
 function isRubricCriterionPatch(value: unknown): value is RubricCriterionPatch {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const patch = value as UnknownRubricCriterionPatch;
-  return isNullableString(patch.accuracy_requirement)
-    && isNullableStringArray(patch.alternatives)
-    && isNullableStringArray(patch.dependencies)
-    && isNullableString(patch.description)
-    && isNullableString(patch.follow_through_policy)
-    && isNullableString(patch.mark_type)
-    && (typeof patch.max_marks === "number" || patch.max_marks === null)
+  return (patch.accuracy_requirement === undefined || isNullableString(patch.accuracy_requirement))
+    && (patch.alternatives === undefined || isNullableStringArray(patch.alternatives))
+    && (patch.dependencies === undefined || isNullableStringArray(patch.dependencies))
+    && (patch.description === undefined || isNullableString(patch.description))
+    && (patch.follow_through_policy === undefined || isNullableString(patch.follow_through_policy))
+    && (patch.mark_type === undefined || isNullableString(patch.mark_type))
     && (
-      patch.scoring_mode === "point_based"
-      || patch.scoring_mode === "levels_based"
-      || patch.scoring_mode === null
+      patch.max_marks === undefined
+      || typeof patch.max_marks === "number"
+      || patch.max_marks === null
     )
-    && isNullableString(patch.source_excerpt)
-    && (typeof patch.source_page === "number" || patch.source_page === null)
-    && isNullableStringArray(patch.units);
+    && (
+      patch.scoring_mode === undefined
+      || patch.scoring_mode === null
+      || patch.scoring_mode === "point_based"
+      || patch.scoring_mode === "levels_based"
+    )
+    && (patch.source_excerpt === undefined || isNullableString(patch.source_excerpt))
+    && (
+      patch.source_page === undefined
+      || typeof patch.source_page === "number"
+      || patch.source_page === null
+    )
+    && (patch.units === undefined || isNullableStringArray(patch.units));
 }
 
 function criterionFingerprint(criterion: RubricCriterion): string {
@@ -164,9 +173,29 @@ const UPDATE_LABELS: Record<string, string> = {
 };
 
 function updateValue(value: unknown): string {
-  if (value == null) return "未设置";
   if (Array.isArray(value)) return value.length ? value.join("、") : "空";
   return String(value);
+}
+
+function samePatchValue(current: unknown, proposed: unknown): boolean {
+  if (Array.isArray(current) && Array.isArray(proposed)) {
+    return current.length === proposed.length
+      && current.every((item, index) => item === proposed[index]);
+  }
+  return current === proposed;
+}
+
+function actionableSuggestedUpdates(
+  criterion: RubricCriterion,
+  patch: RubricCriterionPatch | null | undefined,
+): RubricCriterionPatch | null {
+  if (!patch) return null;
+  const entries = Object.entries(patch).filter(([field, value]) => (
+    value !== null
+    && value !== undefined
+    && !samePatchValue(criterion[field as keyof RubricCriterion], value)
+  ));
+  return entries.length ? Object.fromEntries(entries) as RubricCriterionPatch : null;
 }
 
 export function RubricCriterionEditor({
@@ -255,6 +284,10 @@ export function RubricCriterionEditor({
   );
   const dirty = draftIsDirty(activeDraft, criterion);
   const controlsDisabled = disabled || submitting;
+  const suggestedUpdates = actionableSuggestedUpdates(
+    criterion,
+    criterion.ai_review?.suggested_updates,
+  );
 
   useEffect(() => {
     const previous = previousCriterionRef.current;
@@ -338,7 +371,7 @@ export function RubricCriterionEditor({
   }
 
   function loadSuggestedUpdates() {
-    const suggested = criterion.ai_review?.suggested_updates;
+    const suggested = suggestedUpdates;
     if (!suggested) return;
     setDraft((current) => ({
       ...current,
@@ -356,6 +389,16 @@ export function RubricCriterionEditor({
         ? suggested.source_excerpt ?? ""
         : current.sourceExcerpt,
     }));
+  }
+
+  async function applySuggestedUpdates() {
+    const suggested = suggestedUpdates;
+    if (!suggested) return;
+    await submitReview(
+      "accepted",
+      "已核对并应用 AI 审核建议",
+      suggested,
+    );
   }
 
   function revertDraft() {
@@ -417,8 +460,8 @@ export function RubricCriterionEditor({
 
   const aiReview = criterion.ai_review;
   const suggestionLabel = aiReview?.recommendation === "accept"
-    ? "建议接受"
-    : aiReview?.recommendation === "reject" ? "建议拒绝" : "建议修改";
+    ? "建议保留"
+    : aiReview?.recommendation === "reject" ? "建议排除" : "建议修改";
 
   return (
     <article
@@ -449,8 +492,8 @@ export function RubricCriterionEditor({
         <div className="rubric-criterion-score">
           <span className={`criterion-status ${criterion.review_status}`} id={statusId}>
             {criterion.review_status === "accepted"
-              ? "已接受"
-              : criterion.review_status === "rejected" ? "已拒绝" : "待审核"}
+              ? "已保留"
+              : criterion.review_status === "rejected" ? "已排除" : "待处理"}
           </span>
           <b>{criterion.max_marks} 分</b>
         </div>
@@ -530,7 +573,7 @@ export function RubricCriterionEditor({
               ...current,
               note: event.target.value,
             }))}
-            placeholder="可选；修改或拒绝时建议填写"
+            placeholder="可选；修改或排除时建议填写"
             value={note}
           />
         </label>
@@ -539,8 +582,8 @@ export function RubricCriterionEditor({
         <div className="criterion-dirty-notice" id={dirtyId} role="status">
           <span>
             {fieldDirty
-              ? "有未保存字段修改；请保存并接受，或放弃修改后再使用拒绝和批量审核。"
-              : "有未提交审核说明；可直接拒绝并提交说明，或放弃说明后再使用批量审核。"}
+              ? "有未保存字段修改；请保存并保留，或放弃修改后再使用排除和批量操作。"
+              : "有未提交审核说明；可直接排除并提交说明，或放弃说明后再使用批量操作。"}
           </span>
           <button
             className="secondary"
@@ -597,11 +640,11 @@ export function RubricCriterionEditor({
           <div className="rubric-rich criterion-ai-rationale">
             <Markdown>{aiReview.rationale}</Markdown>
           </div>
-          {aiReview.suggested_updates && (
+          {suggestedUpdates && (
             <div className="criterion-ai-updates">
               <strong>建议修改</strong>
               <dl>
-                {Object.entries(aiReview.suggested_updates).map(([field, value]) => (
+                {Object.entries(suggestedUpdates).map(([field, value]) => (
                   <div key={field}>
                     <dt>{UPDATE_LABELS[field] ?? field}</dt>
                     <dd><Markdown>{updateValue(value)}</Markdown></dd>
@@ -609,15 +652,26 @@ export function RubricCriterionEditor({
                 ))}
               </dl>
               {reviewable && (
-                <button
-                  aria-label={`载入 Q${criterion.question_number} · ${criterion.criterion_id} 的全部建议修改`}
-                  className="secondary"
-                  disabled={controlsDisabled}
-                  onClick={loadSuggestedUpdates}
-                  type="button"
-                >
-                  载入全部建议修改
-                </button>
+                <div className="criterion-ai-update-actions">
+                  <button
+                    aria-label={`载入 Q${criterion.question_number} · ${criterion.criterion_id} 的建议后继续编辑`}
+                    className="secondary"
+                    disabled={controlsDisabled}
+                    onClick={loadSuggestedUpdates}
+                    type="button"
+                  >
+                    载入后编辑
+                  </button>
+                  <button
+                    aria-label={`应用 Q${criterion.question_number} · ${criterion.criterion_id} 的建议修改并保留规则`}
+                    className="primary"
+                    disabled={controlsDisabled}
+                    onClick={() => void applySuggestedUpdates()}
+                    type="button"
+                  >
+                    应用修改并保留
+                  </button>
+                </div>
               )}
             </div>
           )}
@@ -635,7 +689,7 @@ export function RubricCriterionEditor({
       {reviewable && (
         <footer>
           <button
-            aria-label={`拒绝 Q${criterion.question_number} · ${criterion.criterion_id}`}
+            aria-label={`排除 Q${criterion.question_number} · ${criterion.criterion_id}`}
             aria-describedby={dirty ? dirtyId : undefined}
             className="secondary danger"
             data-rubric-review-action="reject"
@@ -645,14 +699,14 @@ export function RubricCriterionEditor({
             type="button"
           >
             <XCircle size={16} />
-            拒绝
+            排除规则
           </button>
           <button
             aria-describedby={[
               descriptionError ? descriptionErrorId : null,
               marksError ? marksErrorId : null,
             ].filter(Boolean).join(" ") || undefined}
-            aria-label={`${fieldDirty ? "保存修改并接受" : "接受"} Q${criterion.question_number} · ${criterion.criterion_id}`}
+            aria-label={`${fieldDirty ? "保存修改并保留" : "保留"} Q${criterion.question_number} · ${criterion.criterion_id}`}
             className="secondary"
             data-rubric-review-action="accept"
             disabled={controlsDisabled || invalid}
@@ -661,7 +715,7 @@ export function RubricCriterionEditor({
             type="button"
           >
             <CheckCircle2 size={16} />
-            {fieldDirty ? "保存修改并接受" : "接受"}
+            {fieldDirty ? "保存修改并保留" : "保留规则"}
           </button>
         </footer>
       )}

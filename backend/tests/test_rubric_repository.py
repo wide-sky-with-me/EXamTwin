@@ -5,7 +5,11 @@ from collections.abc import Iterator
 from typing import Any
 
 import pytest
-from examtwin.assessment.rubric_repository import RubricConflictError, RubricRepository
+from examtwin.assessment.rubric_repository import (
+    RubricConflictError,
+    RubricRepository,
+    _rubric_criterion_sort_key,
+)
 from examtwin.platform.config import get_settings
 from examtwin.platform.database.migrations import upgrade_database
 from examtwin.platform.database.models import (
@@ -18,6 +22,42 @@ from examtwin.platform.database.models import (
     SubjectModel,
 )
 from examtwin.platform.database.session import create_session_factory, utcnow
+
+
+def test_rubric_criteria_use_natural_question_and_mark_sequence() -> None:
+    def criterion(question: str, subpart: str, criterion_id: str) -> RubricCriterionModel:
+        return RubricCriterionModel(
+            id=criterion_id,
+            rubric_set_id="rubric",
+            question_number=question,
+            subpart=subpart,
+            criterion_id=criterion_id,
+            scoring_mode="point_based",
+            max_marks=1,
+            description=criterion_id,
+            source_excerpt=criterion_id,
+            confidence=1,
+        )
+
+    criteria = [
+        criterion("10", "whole", "Q10-B1"),
+        criterion("2", "whole", "Q2-A2"),
+        criterion("2", "whole", "Q2-M2"),
+        criterion("1", "(a)", "Q1a_A1"),
+        criterion("2", "whole", "Q2-A1"),
+        criterion("2", "whole", "Q2-M1"),
+        criterion("1", "(a)", "Q1a_M1"),
+    ]
+
+    assert [item.criterion_id for item in sorted(criteria, key=_rubric_criterion_sort_key)] == [
+        "Q1a_M1",
+        "Q1a_A1",
+        "Q2-M1",
+        "Q2-A1",
+        "Q2-M2",
+        "Q2-A2",
+        "Q10-B1",
+    ]
 
 
 @pytest.fixture

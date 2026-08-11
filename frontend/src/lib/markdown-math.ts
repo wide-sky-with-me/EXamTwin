@@ -66,8 +66,38 @@ function normalizeDelimiters(value: string) {
 }
 
 const quotedBareLatexPattern = /(["“])([^"”\n]*\\[A-Za-z]+[^"”\n]*)(["”])/g;
-const bareLatexTokenPattern = /(?:\\[ \t]|[^\s$"`])*\\[A-Za-z]+(?:\\[ \t]|[^\s$"`])*/g;
 const delimitedMathPattern = /(\$\$[\s\S]*?\$\$|\$[^$\n]+\$)/g;
+const bareLatexCommandPattern = /\\[A-Za-z]+/g;
+
+function replaceBareLatexTokens(value: string) {
+  let output = "";
+  let cursor = 0;
+  bareLatexCommandPattern.lastIndex = 0;
+  for (let match = bareLatexCommandPattern.exec(value); match; match = bareLatexCommandPattern.exec(value)) {
+    if (match.index < cursor) continue;
+    let start = match.index;
+    while (start > cursor && !/[\s$"`]/.test(value[start - 1])) start -= 1;
+
+    let end = start;
+    let braceDepth = 0;
+    while (end < value.length) {
+      const character = value[end];
+      if (character === "\\" && /\s/.test(value[end + 1] ?? "")) {
+        end += 2;
+        continue;
+      }
+      if (character === "{") braceDepth += 1;
+      if (character === "}") braceDepth = Math.max(0, braceDepth - 1);
+      if (braceDepth === 0 && /[\s$"`]/.test(character)) break;
+      end += 1;
+    }
+    if (braceDepth !== 0) continue;
+    output += `${value.slice(cursor, start)}$${value.slice(start, end)}$`;
+    cursor = end;
+    bareLatexCommandPattern.lastIndex = end;
+  }
+  return output + value.slice(cursor);
+}
 
 function normalizeBareLatex(value: string) {
   const quoted = value.replace(
@@ -80,7 +110,7 @@ function normalizeBareLatex(value: string) {
     .map((segment, index) =>
       index % 2 === 1
         ? segment
-        : segment.replace(bareLatexTokenPattern, (math) => `$${math}$`))
+        : replaceBareLatexTokens(segment))
     .join("");
 }
 

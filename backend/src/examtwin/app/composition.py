@@ -23,6 +23,7 @@ from examtwin.knowledge.pipeline import KnowledgeBuildPipeline
 from examtwin.knowledge.retrieval_trace_repository import RetrievalTraceRepository
 from examtwin.knowledge.vector_index_repository import VectorIndexRepository
 from examtwin.knowledge.workspace_service import CorpusWorkspaceService
+from examtwin.platform.cache_paths import MarkdownCacheStore
 from examtwin.platform.config import Settings
 from examtwin.platform.database.session import create_session_factory
 from examtwin.platform.object_catalog_repository import ObjectCatalogRepository
@@ -178,6 +179,7 @@ def build_rubric_service(
         RubricRepository(sessions),
         assessments,
         grading,
+        markdown_cache=MarkdownCacheStore(build_object_store(settings)),
     )
 
 

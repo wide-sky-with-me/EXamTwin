@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "fixture_id": "oxfordaqa-mathematics-9660-2019-jan-p1-synthetic-v1",
+  "pair_key": "9660:2019:JAN:P1",
+  "maximum_marks": 80,
+  "expected_marks": 74,
+  "score_status": "manual_estimate",
+  "questions": [
+    {
+      "number": "1",
+      "maximum_marks": 4,
+      "expected_marks": 4,
+      "intentional_errors": []
+    },
+    {
+      "number": "2",
+      "maximum_marks": 5,
+      "expected_marks": 4,
+      "intentional_errors": [
+        {
+          "id": "E01",
+          "subpart": "(b)",
+          "type": "exponentiation_error",
+          "observed": "x^(2/3)",
+          "expected": "x^(4/3)"
+        }
+      ]
+    },
+    {
+      "number": "3",
+      "maximum_marks": 11,
+      "expected_marks": 11,
+      "intentional_errors": []
+    },
+    {
+      "number": "4",
+      "maximum_marks": 6,
+      "expected_marks": 6,
+      "intentional_errors": []
+    },
+    {
+      "number": "5",
+      "maximum_marks": 10,
+      "expected_marks": 9,
+      "intentional_errors": [
+        {
+          "id": "E02",
+          "subpart": "(b)(iii)",
+          "type": "conceptual_error",
+          "observed": "minimum",
+          "expected": "maximum"
+        }
+      ]
+    },
+    {
+      "number": "6",
+      "maximum_marks": 7,
+      "expected_marks": 5,
+      "intentional_errors": [
+        {
+          "id": "E03",
+          "subpart": "(b)(i)",
+          "type": "approximation_direction_error",
+          "observed": "under-estimate",
+          "expected": "over-estimate"
+        }
+      ]
+    },
+    {
+      "number": "7",
+      "maximum_marks": 10,
+      "expected_marks": 10,
+      "intentional_errors": []
+    },
+    {
+      "number": "8",
+      "maximum_marks": 11,
+      "expected_marks": 10,
+      "intentional_errors": [
+        {
+          "id": "E04",
+          "subpart": "(b)(ii)",
+          "type": "arithmetic_root_error",
+          "observed": "k=15",
+          "expected": "k=16"
+        }
+      ]
+    },
+    {
+      "number": "9",
+      "maximum_marks": 10,
+      "expected_marks": 10,
+      "intentional_errors": []
+    },
+    {
+      "number": "10",
+      "maximum_marks": 6,
+      "expected_marks": 5,
+      "intentional_errors": [
+        {
+          "id": "E05",
+          "subpart": "(b)",
+          "type": "incomplete_solution_set",
+          "observed": "k >= sqrt(6)",
+          "expected": "k <= -sqrt(6) or k >= sqrt(6)"
+        }
+      ]
+    }
+  ],
+  "review_note": "Expected marks are a manual functional-test oracle, not an official awarded score. Teacher review remains authoritative."
+}

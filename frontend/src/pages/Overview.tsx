@@ -67,6 +67,8 @@ export function Overview({
             ...subjectDraft,
             capability_profile_id: null,
             language: "en",
+            icon: "book-open",
+            color: "#2F6FED",
           },
         }),
       );

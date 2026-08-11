@@ -208,6 +208,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/grading/reviews/all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** All Reviews */
+        get: operations["all_reviews_api_v1_grading_reviews_all_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/grading/reviews/{assessment_id}": {
         parameters: {
             query?: never;
@@ -237,6 +254,23 @@ export interface paths {
         put?: never;
         /** Create Rubric */
         post: operations["create_rubric_api_v1_grading_rubrics_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/grading/rubrics/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Generate Rubric */
+        post: operations["generate_rubric_api_v1_grading_rubrics_generate_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -533,6 +567,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/papers/import-answer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import Answered Paper */
+        post: operations["import_answered_paper_api_v1_papers_import_answer_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/papers/jobs": {
         parameters: {
             query?: never;
@@ -582,7 +633,8 @@ export interface paths {
         delete: operations["delete_paper_job_api_v1_papers_jobs__job_id__delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        /** Rename Paper Job */
+        patch: operations["rename_paper_job_api_v1_papers_jobs__job_id__patch"];
         trace?: never;
     };
     "/api/v1/papers/jobs/{job_id}/question-images/{asset_name}": {
@@ -789,6 +841,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/subject-workspaces/{workspace_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Subject Workspace */
+        patch: operations["update_subject_workspace_api_v1_subject_workspaces__workspace_id__patch"];
+        trace?: never;
+    };
     "/api/v1/subject-workspaces/{workspace_id}/documents": {
         parameters: {
             query?: never;
@@ -805,6 +874,24 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/subject-workspaces/{workspace_id}/documents/{document_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Workspace Document */
+        delete: operations["delete_workspace_document_api_v1_subject_workspaces__workspace_id__documents__document_id__delete"];
+        options?: never;
+        head?: never;
+        /** Rename Workspace Document */
+        patch: operations["rename_workspace_document_api_v1_subject_workspaces__workspace_id__documents__document_id__patch"];
         trace?: never;
     };
     "/api/v1/subjects": {
@@ -1067,6 +1154,15 @@ export interface components {
             /** Unit Code */
             unit_code?: string | null;
         };
+        /** Body_import_answered_paper_api_v1_papers_import_answer_post */
+        Body_import_answered_paper_api_v1_papers_import_answer_post: {
+            /** Answer File */
+            answer_file: string;
+            /** Question File */
+            question_file: string;
+            /** Unit Code */
+            unit_code?: string | null;
+        };
         /** Body_upload_workspace_document_api_v1_subject_workspaces__workspace_id__documents_post */
         Body_upload_workspace_document_api_v1_subject_workspaces__workspace_id__documents_post: {
             /** File */
@@ -1156,6 +1252,17 @@ export interface components {
             board_name: string;
             /** Capability Profile Id */
             capability_profile_id?: string | null;
+            /**
+             * Color
+             * @default #2F6FED
+             */
+            color: string;
+            /**
+             * Icon
+             * @default book-open
+             * @enum {string}
+             */
+            icon: "book-open" | "calculator" | "chart-no-axes-combined" | "flask-conical" | "languages" | "landmark" | "atom" | "graduation-cap";
             /** Id */
             id: string;
             /**
@@ -1249,6 +1356,11 @@ export interface components {
              * @enum {string}
              */
             tone: "default" | "primary" | "secondary" | "tertiary" | "muted";
+        };
+        /** GenerateRubricRequest */
+        GenerateRubricRequest: {
+            /** Paper Job Id */
+            paper_job_id: string;
         };
         /** GradePaperQuestionRequest */
         GradePaperQuestionRequest: {
@@ -1347,6 +1459,8 @@ export interface components {
         GradingPaperSummary: {
             /** Completed Questions */
             completed_questions: number;
+            /** Display Name */
+            display_name: string | null;
             /** Failed Questions */
             failed_questions: number;
             /** Filename */
@@ -1912,6 +2026,8 @@ export interface components {
             completed_questions: number;
             /** Created At */
             created_at: string;
+            /** Display Name */
+            display_name: string | null;
             /** Error */
             error: string | null;
             /** Failed Questions */
@@ -1970,6 +2086,8 @@ export interface components {
             completed_questions: number;
             /** Created At */
             created_at: string;
+            /** Display Name */
+            display_name: string | null;
             /** Failed Questions */
             failed_questions: number;
             /** Filename */
@@ -2045,6 +2163,16 @@ export interface components {
             infrastructure: components["schemas"]["InfrastructureHealthResponse"];
             /** Subjects */
             subjects: components["schemas"]["SubjectStatusResponse"][];
+        };
+        /** RenamePaperJobRequest */
+        RenamePaperJobRequest: {
+            /** Display Name */
+            display_name: string;
+        };
+        /** RenameSourceDocumentRequest */
+        RenameSourceDocumentRequest: {
+            /** Display Name */
+            display_name: string;
         };
         /** ReviewAllRequest */
         ReviewAllRequest: {
@@ -2357,6 +2485,8 @@ export interface components {
             authority_tier: string;
             /** Checksum */
             checksum: string;
+            /** Display Name */
+            display_name: string | null;
             /** Error */
             error: string | null;
             /** Filename */
@@ -2445,6 +2575,11 @@ export interface components {
             board_name: string;
             /** Capability Profile Id */
             capability_profile_id: string | null;
+            /**
+             * Color
+             * @default #2F6FED
+             */
+            color: string;
             /** Digest */
             digest: string;
             /**
@@ -2452,6 +2587,11 @@ export interface components {
              * @default true
              */
             generic_qa_enabled: boolean;
+            /**
+             * Icon
+             * @default book-open
+             */
+            icon: string;
             /** Id */
             id: string;
             /** Knowledge Bases */
@@ -2477,6 +2617,11 @@ export interface components {
             board_name: string;
             /** Capability Profile Id */
             capability_profile_id: string | null;
+            /**
+             * Color
+             * @default #2F6FED
+             */
+            color: string;
             /** Digest */
             digest: string;
             /**
@@ -2484,6 +2629,11 @@ export interface components {
              * @default true
              */
             generic_qa_enabled: boolean;
+            /**
+             * Icon
+             * @default book-open
+             */
+            icon: string;
             /** Id */
             id: string;
             /** Knowledge Bases */
@@ -2551,6 +2701,18 @@ export interface components {
             expected: string;
             /** Student */
             student: string;
+        };
+        /** UpdateSubjectRequest */
+        UpdateSubjectRequest: {
+            /** Color */
+            color: string;
+            /**
+             * Icon
+             * @enum {string}
+             */
+            icon: "book-open" | "calculator" | "chart-no-axes-combined" | "flask-conical" | "languages" | "landmark" | "atom" | "graduation-cap";
+            /** Title */
+            title: string;
         };
         /** ValidationError */
         ValidationError: {
@@ -2973,6 +3135,26 @@ export interface operations {
             };
         };
     };
+    all_reviews_api_v1_grading_reviews_all_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewQueueItem"][];
+                };
+            };
+        };
+    };
     review_api_v1_grading_reviews__assessment_id__post: {
         parameters: {
             query?: {
@@ -3060,6 +3242,43 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["CreateRubricRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RubricSetResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    generate_rubric_api_v1_grading_rubrics_generate_post: {
+        parameters: {
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GenerateRubricRequest"];
             };
         };
         responses: {
@@ -3755,6 +3974,43 @@ export interface operations {
             };
         };
     };
+    import_answered_paper_api_v1_papers_import_answer_post: {
+        parameters: {
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_import_answered_paper_api_v1_papers_import_answer_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaperJobCreated"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     paper_jobs_api_v1_papers_jobs_get: {
         parameters: {
             query?: {
@@ -3887,6 +4143,45 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rename_paper_job_api_v1_papers_jobs__job_id__patch: {
+        parameters: {
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenamePaperJobRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaperJobResponse"];
+                };
             };
             /** @description Validation Error */
             422: {
@@ -4312,6 +4607,41 @@ export interface operations {
             };
         };
     };
+    update_subject_workspace_api_v1_subject_workspaces__workspace_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateSubjectRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubjectPackResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     workspace_documents_api_v1_subject_workspaces__workspace_id__documents_get: {
         parameters: {
             query?: {
@@ -4368,6 +4698,80 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceDocumentResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_workspace_document_api_v1_subject_workspaces__workspace_id__documents__document_id__delete: {
+        parameters: {
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path: {
+                workspace_id: string;
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rename_workspace_document_api_v1_subject_workspaces__workspace_id__documents__document_id__patch: {
+        parameters: {
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path: {
+                workspace_id: string;
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenameSourceDocumentRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };

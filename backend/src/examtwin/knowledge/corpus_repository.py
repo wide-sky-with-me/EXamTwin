@@ -30,6 +30,53 @@ class CorpusRepository:
     def __init__(self, sessions: sessionmaker[Session]) -> None:
         self.sessions = sessions
 
+    def register_generated_mark_scheme(
+        self,
+        *,
+        document_id: str,
+        subject_id: str,
+        subject_code: str,
+        filename: str,
+        checksum: str,
+        pair_key: str,
+        markdown_path: str,
+    ) -> dict[str, Any]:
+        now = utcnow()
+        values = {
+            "id": document_id,
+            "subject_id": subject_id,
+            "subject_code": subject_code,
+            "knowledge_base_id": None,
+            "path": f"generated://mark-schemes/{document_id}",
+            "filename": filename,
+            "source_type": "mark_scheme",
+            "authority_tier": "assessment",
+            "source_role": "excluded",
+            "license_confirmed": True,
+            "checksum": checksum,
+            "pair_key": pair_key,
+            "unit_code": None,
+            "exam_year": None,
+            "exam_session": None,
+            "identity_status": "complete",
+            "identity_error": None,
+            "page_count": None,
+            "status": "converted",
+            "object_key": None,
+            "markdown_path": markdown_path,
+            "converted_source_checksum": checksum,
+            "metadata_json": json.dumps({"source_kind": "ai_generated"}, ensure_ascii=False),
+            "error": None,
+            "created_at": now,
+            "updated_at": now,
+        }
+        with self.sessions.begin() as session:
+            session.add(SourceDocumentModel(**values))
+        document = self.get(document_id)
+        if document is None:
+            raise RuntimeError("AI Mark Scheme 保存失败")
+        return document
+
     def register_discovery(
         self,
         document: Mapping[str, Any],
@@ -250,6 +297,53 @@ class CorpusRepository:
             row = session.get(SourceDocumentModel, document_id)
         return None if row is None else _document_dict(row)
 
+    def get_active(self, document_id: str) -> dict[str, Any] | None:
+        statement = select(SourceDocumentModel).where(
+            SourceDocumentModel.id == document_id,
+            SourceDocumentModel.status != "deleted",
+        )
+        with self.sessions() as session:
+            row = session.scalar(statement)
+        return None if row is None else _document_dict(row)
+
+    def rename(self, document_id: str, *, subject_code: str, display_name: str) -> dict[str, Any]:
+        with self.sessions.begin() as session:
+            result = session.execute(
+                update(SourceDocumentModel)
+                .where(
+                    SourceDocumentModel.id == document_id,
+                    SourceDocumentModel.subject_code == subject_code,
+                    SourceDocumentModel.status != "deleted",
+                )
+                .values(display_name=display_name, updated_at=utcnow())
+            )
+            if affected_rows(result) != 1:
+                raise LookupError("资料不存在或已删除")
+        document = self.get_active(document_id)
+        if document is None:
+            raise LookupError("资料不存在或已删除")
+        return document
+
+    def archive(self, document_id: str, *, subject_code: str) -> None:
+        now = utcnow()
+        with self.sessions.begin() as session:
+            result = session.execute(
+                update(SourceDocumentModel)
+                .where(
+                    SourceDocumentModel.id == document_id,
+                    SourceDocumentModel.subject_code == subject_code,
+                    SourceDocumentModel.status != "deleted",
+                )
+                .values(status="deleted", updated_at=now)
+            )
+            if affected_rows(result) != 1:
+                raise LookupError("资料不存在或已删除")
+            session.execute(
+                update(SourceDocumentLocationModel)
+                .where(SourceDocumentLocationModel.document_id == document_id)
+                .values(present=False, last_seen_at=now)
+            )
+
     def list(
         self,
         *,
@@ -261,6 +355,7 @@ class CorpusRepository:
         limit: int | None = None,
     ) -> list[dict[str, Any]]:
         statement = select(SourceDocumentModel)
+        statement = statement.where(SourceDocumentModel.status != "deleted")
         if subject_code:
             statement = statement.where(SourceDocumentModel.subject_code == subject_code)
         if document_ids:
@@ -289,6 +384,7 @@ class CorpusRepository:
         subject_code: str | None = None,
     ) -> list[dict[str, Any]]:
         statement = select(SourceDocumentModel)
+        statement = statement.where(SourceDocumentModel.status != "deleted")
         if subject_code:
             statement = statement.where(SourceDocumentModel.subject_code == subject_code)
         if source_type:
@@ -307,6 +403,7 @@ class CorpusRepository:
         fields = (
             "id",
             "filename",
+            "display_name",
             "source_type",
             "authority_tier",
             "source_role",

@@ -703,6 +703,7 @@ def test_workspace_router_upload_returns_created_response() -> None:
     assert response.json() == {
         "id": "document-1",
         "filename": "notes.md",
+        "display_name": None,
         "source_type": "textbook",
         "source_role": "core_knowledge",
         "authority_tier": "licensed_core",

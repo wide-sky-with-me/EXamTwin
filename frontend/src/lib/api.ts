@@ -6,6 +6,7 @@ import type {
   PaperJobBulkDeleteResult,
   PaperJobHistoryStatus,
   PaperJobList,
+  PaperJobResult,
   SourceContextResult,
   SourceDocument,
 } from "../types";
@@ -67,6 +68,25 @@ export class ApiError extends Error {
   }
 }
 
+export function apiErrorMessage(detail: unknown, fallback: string): string {
+  if (typeof detail === "string" && detail.trim()) return detail;
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((item) => apiErrorMessage(item, ""))
+      .filter(Boolean);
+    return messages.length ? messages.join("；") : fallback;
+  }
+  if (detail && typeof detail === "object") {
+    const record = detail as Record<string, unknown>;
+    const message = apiErrorMessage(record.message ?? record.msg, "");
+    const code = typeof record.code === "string" ? record.code : "";
+    if (message && code) return `${message}（${code}）`;
+    if (message) return message;
+    if (code) return code;
+  }
+  return fallback;
+}
+
 async function checkedFetch(path: string, init?: RequestInit): Promise<Response> {
   const isFormData = init?.body instanceof FormData;
   const response = await fetch(new URL(`${API_BASE}${path}`, window.location.origin), {
@@ -79,8 +99,11 @@ async function checkedFetch(path: string, init?: RequestInit): Promise<Response>
         }),
   });
   if (!response.ok) {
-    const payload = await response.json().catch(() => ({ detail: response.statusText }));
-    throw new ApiError(response.status, payload.detail ?? response.statusText);
+    const payload: unknown = await response.json().catch(() => null);
+    const detail = payload && typeof payload === "object" && "detail" in payload
+      ? (payload as { detail: unknown }).detail
+      : payload;
+    throw new ApiError(response.status, apiErrorMessage(detail, response.statusText));
   }
   return response;
 }
@@ -89,14 +112,14 @@ export async function unwrapApi<Data, ErrorPayload>(
   request: Promise<{ data?: Data; error?: ErrorPayload; response: Response }>,
 ): Promise<Data> {
   const { data, error, response } = await request;
-  if (!response.ok || data === undefined) {
-    const detail =
+  if (!response.ok || (data === undefined && response.status !== 204)) {
+    const detail: unknown =
       error && typeof error === "object" && "detail" in error
-        ? String(error.detail)
+        ? error.detail
         : response.statusText;
-    throw new ApiError(response.status, detail);
+    throw new ApiError(response.status, apiErrorMessage(detail, response.statusText));
   }
-  return data;
+  return data as Data;
 }
 export type PaperJobHistoryFilters = {
   status?: PaperJobHistoryStatus;
@@ -134,6 +157,28 @@ export async function deletePaperJobs(jobIds: string[]): Promise<PaperJobBulkDel
   );
 }
 
+export async function renamePaperJob(jobId: string, displayName: string): Promise<PaperJobResult> {
+  return await unwrapApi(
+    apiClient.PATCH("/api/v1/papers/jobs/{job_id}", {
+      params: { path: { job_id: jobId } },
+      body: { display_name: displayName },
+    }),
+  ) as unknown as PaperJobResult;
+}
+
+export async function renameWorkspaceDocument(
+  workspaceId: string,
+  documentId: string,
+  displayName: string,
+): Promise<SourceDocument> {
+  return unwrapApi(
+    apiClient.PATCH("/api/v1/subject-workspaces/{workspace_id}/documents/{document_id}", {
+      params: { path: { workspace_id: workspaceId, document_id: documentId } },
+      body: { display_name: displayName },
+    }),
+  );
+}
+
 export async function replacePaperJob(jobId: string): Promise<PaperJobCreated> {
   return unwrapApi(
     apiClient.POST("/api/v1/papers/jobs/{job_id}/replace", {
@@ -148,6 +193,19 @@ export async function uploadPaper(file: File, unitCode: string): Promise<PaperJo
   form.append("file", file);
   if (unitCode) form.append("unit_code", unitCode);
   const response = await checkedFetch("/papers/answer", { method: "POST", body: form });
+  return response.json() as Promise<PaperJobCreated>;
+}
+
+export async function importAnsweredPaper(
+  questionFile: File,
+  answerFile: File,
+  unitCode = "",
+): Promise<PaperJobCreated> {
+  const form = new FormData();
+  form.append("question_file", questionFile);
+  form.append("answer_file", answerFile);
+  if (unitCode) form.append("unit_code", unitCode);
+  const response = await checkedFetch("/papers/import-answer", { method: "POST", body: form });
   return response.json() as Promise<PaperJobCreated>;
 }
 

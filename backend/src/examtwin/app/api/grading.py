@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from examtwin.app.api.dependencies import get_grading_service, get_rubric_service
 from examtwin.app.api.errors import upstream_http_error
+from examtwin.app.composition import build_grading_service
 from examtwin.assessment.grading import GradingService
 from examtwin.assessment.rubric_repository import RubricConflictError
 from examtwin.assessment.rubrics import RubricService
@@ -18,6 +19,7 @@ from examtwin.contracts.rubrics import (
     BatchReviewRubricCriteriaRequest,
     ConfirmRubricRequest,
     CreateRubricRequest,
+    GenerateRubricRequest,
     GradePaperQuestionRequest,
     GradingOverviewResponse,
     GradingPaperSummary,
@@ -26,6 +28,8 @@ from examtwin.contracts.rubrics import (
     RubricSetResponse,
     RubricSetSummary,
 )
+from examtwin.platform.config import Settings, get_settings
+from examtwin.subjects.public import all_subject_contexts
 
 router = APIRouter()
 
@@ -50,6 +54,25 @@ def create_rubric(
         raise upstream_http_error(
             "RUBRIC_EXTRACTION_FAILED",
             "评分方案解析失败，请检查文档转换状态后重试",
+            error,
+        ) from error
+
+
+@router.post("/grading/rubrics/generate", response_model=RubricSetResponse)
+def generate_rubric(
+    request: GenerateRubricRequest,
+    service: RubricService = Depends(get_rubric_service),
+) -> RubricSetResponse:
+    try:
+        return RubricSetResponse.model_validate(service.generate(paper_job_id=request.paper_job_id))
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except Exception as error:
+        raise upstream_http_error(
+            "RUBRIC_GENERATION_FAILED",
+            "AI 评分标准生成失败，请稍后重试",
             error,
         ) from error
 
@@ -243,6 +266,16 @@ def grading_overview(
         raise HTTPException(status_code=404, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@router.get("/grading/reviews/all", response_model=list[ReviewQueueItem])
+def all_reviews(settings: Settings = Depends(get_settings)) -> list[ReviewQueueItem]:
+    items = [
+        ReviewQueueItem.model_validate(item)
+        for subject in all_subject_contexts(settings)
+        for item in build_grading_service(settings, subject).pending_reviews()
+    ]
+    return sorted(items, key=lambda item: item.created_at, reverse=True)
 
 
 @router.get("/grading/reviews", response_model=list[ReviewQueueItem])

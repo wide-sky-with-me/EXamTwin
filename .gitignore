@@ -11,7 +11,9 @@ htmlcov/
 .venv/
 .uv-cache/
 .codegraph/
-data/
+data/*
+!data/test-fixtures/
+!data/test-fixtures/**
 var/
 frontend/.pnpm-cache/
 frontend/.pnpm-state/

@@ -99,7 +99,7 @@ describe("PaperJobHistory", () => {
     expect(onOpen).toHaveBeenCalledWith("job-1");
   });
 
-  test("requires inline confirmation before deleting a terminal record", async () => {
+  test("requires dialog confirmation before deleting a terminal record", async () => {
     const user = userEvent.setup();
     const onDeleted = vi.fn();
     render(
@@ -114,10 +114,11 @@ describe("PaperJobHistory", () => {
 
     await screen.findByText("QP-2026-P1.pdf");
     await user.click(screen.getByRole("button", { name: "删除记录 QP-2026-P1.pdf" }));
-    expect(screen.getByText("确认删除？")).toBeInTheDocument();
+    expect(screen.getByRole("alertdialog", { name: "确认删除作答记录" })).toBeInTheDocument();
+    expect(screen.getByText(/将删除“QP-2026-P1\.pdf”及其全部作答结果/)).toBeInTheDocument();
     expect(deleteMock).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole("button", { name: "确认删除" }));
+    await user.click(screen.getByRole("button", { name: "删除作答记录" }));
     await waitFor(() => expect(deleteMock).toHaveBeenCalledWith(["job-1"]));
     expect(onDeleted).toHaveBeenCalledWith("job-1");
   });
@@ -151,8 +152,9 @@ describe("PaperJobHistory", () => {
       "button",
       { name: "删除记录 stuck-paper.pdf" },
     ));
-    expect(screen.getByText("确认取消并删除？")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "确认删除" }));
+    expect(screen.getByRole("alertdialog", { name: "确认删除作答记录" })).toBeInTheDocument();
+    expect(screen.getByText(/将删除“stuck-paper\.pdf”及其全部作答结果/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "删除作答记录" }));
 
     await waitFor(() => expect(deleteMock).toHaveBeenCalledWith(["queued-job"]));
     expect(onDeleted).toHaveBeenCalledWith("queued-job");
@@ -192,10 +194,11 @@ describe("PaperJobHistory", () => {
     expect(screen.getByText("已选择 2 条")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "批量删除" }));
-    expect(screen.getByText("确认删除选中的 2 条记录？")).toBeInTheDocument();
+    expect(screen.getByRole("alertdialog", { name: "确认批量删除" })).toBeInTheDocument();
+    expect(screen.getByText(/将删除选中的 2 条作答记录及其结果/)).toBeInTheDocument();
     expect(deleteMock).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole("button", { name: "确认批量删除" }));
+    await user.click(screen.getByRole("button", { name: "删除 2 条记录" }));
     await waitFor(() => expect(deleteMock).toHaveBeenCalledWith(["job-1", "job-2"]));
     expect(onDeleted).toHaveBeenCalledWith("job-2");
   });

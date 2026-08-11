@@ -66,6 +66,14 @@ class GradingDraft(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+def _non_verbatim_evidence(payload: GradingDraft, answer_markdown: str) -> list[str]:
+    return [
+        item.student_evidence
+        for item in payload.rubric_awards
+        if item.student_evidence and item.student_evidence not in answer_markdown
+    ]
+
+
 def _grading_model(settings: Settings) -> StructuredModelPort:
     credential = settings.llm_provider_api_key
     if credential is None or not credential.get_secret_value():
@@ -228,11 +236,24 @@ RELEVANT KNOWLEDGE CODES:
 {", ".join(request.knowledge_codes) or "None supplied."}
 """.strip()
         runner = StructuredTaskRunner(self.structured_model or _grading_model(self.settings))
-        payload = runner.run(
-            StructuredTask(system_prompt=system_prompt, user_content=user_content),
-            GradingDraft,
-            timeout=self.settings.grading_timeout,
-        )
+        task = StructuredTask(system_prompt=system_prompt, user_content=user_content)
+        payload = runner.run(task, GradingDraft, timeout=self.settings.grading_timeout)
+        invalid_evidence = _non_verbatim_evidence(payload, request.answer_markdown)
+        if invalid_evidence:
+            payload = runner.run(
+                StructuredTask(
+                    system_prompt=system_prompt,
+                    user_content=(
+                        f"{user_content}\n\n"
+                        "CORRECTION REQUIRED: Every student_evidence value must be an exact, "
+                        "contiguous quote from STUDENT ANSWER. Do not paraphrase evidence."
+                    ),
+                ),
+                GradingDraft,
+                timeout=self.settings.grading_timeout,
+            )
+            if _non_verbatim_evidence(payload, request.answer_markdown):
+                raise ValueError("The model returned student evidence that was not verbatim")
         awards: list[RubricAward] = []
         for number, item in enumerate(payload.rubric_awards, start=1):
             maximum = max(0.0, item.max_marks)

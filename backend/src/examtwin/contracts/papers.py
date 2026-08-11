@@ -146,9 +146,14 @@ class PaperJobBulkDeleteResponse(SerializedResponse):
     deleted_count: int = Field(ge=1)
 
 
+class RenamePaperJobRequest(SerializedResponse):
+    display_name: str = Field(min_length=1, max_length=200)
+
+
 class PaperJobSummary(SerializedResponse):
     job_id: str
     filename: str
+    display_name: str | None = None
     unit_code: str | None
     status: PaperJobStatus
     stage: PaperJobStage
@@ -173,6 +178,7 @@ class PaperJobListResponse(SerializedResponse):
 class PaperJobResponse(SerializedResponse):
     job_id: str
     filename: str
+    display_name: str | None = None
     subject_pack_id: str
     subject_code: str
     unit_code: str | None
