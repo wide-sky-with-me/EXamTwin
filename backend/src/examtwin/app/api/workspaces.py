@@ -15,7 +15,9 @@ from examtwin.contracts.workspaces import (
     CreateSubjectRequest,
     KnowledgeBaseBuildResponse,
     KnowledgeBaseVersionResponse,
+    RenameSourceDocumentRequest,
     SourceDocumentResponse,
+    UpdateSubjectRequest,
 )
 from examtwin.knowledge.workspace_service import (
     CorpusWorkspaceService,
@@ -70,9 +72,28 @@ def create_subject_workspace(
                 detail="能力模板只能绑定到相同科目代码，避免复用错误的试卷和评分规则",
             )
     try:
-        created = _workspaces(settings).create_subject(**request.model_dump())
+        values = request.model_dump(exclude={"id"})
+        created = _workspaces(settings).create_subject(subject_id=request.id, **values)
         context = subject_context(settings, str(created["id"]))
         return _subject_response(context, settings)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@router.patch(
+    "/subject-workspaces/{workspace_id}",
+    response_model=SubjectPackResponse,
+)
+def update_subject_workspace(
+    workspace_id: str,
+    request: UpdateSubjectRequest,
+    settings: Settings = Depends(get_settings),
+) -> SubjectPackResponse:
+    try:
+        _workspaces(settings).update_subject_presentation(workspace_id, **request.model_dump())
+        return _subject_response(subject_context(settings, workspace_id), settings)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
@@ -85,14 +106,17 @@ def batch_delete_subject_workspaces(
     request: BatchDeleteSubjectsRequest,
     settings: Settings = Depends(get_settings),
 ) -> BatchDeleteSubjectsResponse:
-    installed_ids = tuple(
+    installed_ids = {
         package.pack.id for package in subject_package_registry(settings.subject_packages_dir).all()
-    )
-    try:
-        deleted_ids = _workspaces(settings).delete_subjects(
-            request.subject_ids,
-            protected_subject_ids=installed_ids,
+    }
+    protected = installed_ids.intersection(request.subject_ids)
+    if protected:
+        raise HTTPException(
+            status_code=409,
+            detail="内置科目工作区不能删除",
         )
+    try:
+        deleted_ids = _workspaces(settings).delete_subjects(request.subject_ids)
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     except ValueError as error:
@@ -121,6 +145,51 @@ def workspace_documents(
         subject_code=subject.subject_code,
     )
     return [SourceDocumentResponse.model_validate(row) for row in rows]
+
+
+@router.delete(
+    "/subject-workspaces/{workspace_id}/documents/{document_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_workspace_document(
+    workspace_id: str,
+    document_id: str,
+    settings: Settings = Depends(get_settings),
+    subject: SubjectContext = Depends(get_subject_context),
+) -> None:
+    if workspace_id != subject.id:
+        raise HTTPException(status_code=404, detail="科目工作区不存在")
+    try:
+        corpus_repository(settings).archive(document_id, subject_code=subject.subject_code)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@router.patch(
+    "/subject-workspaces/{workspace_id}/documents/{document_id}",
+    response_model=SourceDocumentResponse,
+)
+def rename_workspace_document(
+    workspace_id: str,
+    document_id: str,
+    request: RenameSourceDocumentRequest,
+    settings: Settings = Depends(get_settings),
+    subject: SubjectContext = Depends(get_subject_context),
+) -> SourceDocumentResponse:
+    if workspace_id != subject.id:
+        raise HTTPException(status_code=404, detail="科目工作区不存在")
+    normalized = request.display_name.strip()
+    if not normalized:
+        raise HTTPException(status_code=422, detail="显示名称不能为空")
+    try:
+        row = corpus_repository(settings).rename(
+            document_id,
+            subject_code=subject.subject_code,
+            display_name=normalized,
+        )
+        return SourceDocumentResponse.model_validate(row)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
 
 
 @router.post(

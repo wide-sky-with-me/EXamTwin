@@ -1,9 +1,13 @@
+import { Select, Tooltip } from "@radix-ui/themes";
 import {
   ArrowRight,
   BookOpenCheck,
   FileCheck2,
+  FileText,
   LoaderCircle,
   RefreshCw,
+  Settings2,
+  Sparkles,
   UploadCloud,
 } from "lucide-react";
 import { type ChangeEvent, useEffect, useRef, useState } from "react";
@@ -14,7 +18,12 @@ import type {
   RubricSet,
   SourceDocument,
 } from "../../types";
+import { paperMaterialMeta, schemeMaterialMeta } from "../../lib/grading-materials";
 import { ErrorBanner } from "../Feedback";
+import {
+  AnswerRecordManagerDialog,
+  MarkSchemeManagerDialog,
+} from "./GradingMaterialManagerDialog";
 
 export function GradingMaterialsStage({
   papers,
@@ -32,7 +41,13 @@ export function GradingMaterialsStage({
   onRetryDiscovery,
   onChoosePaper,
   onChooseDocument,
+  onDeleteDocument,
+  onDeletePaper,
+  onRenameDocument = async () => undefined,
+  onRenamePaper = async () => undefined,
   onUploadScheme,
+  onGenerateScheme = async () => undefined,
+  onImportExternal = async () => undefined,
   onContinue,
 }: {
   papers: GradingPaper[];
@@ -50,17 +65,27 @@ export function GradingMaterialsStage({
   onRetryDiscovery: () => Promise<void>;
   onChoosePaper: (paperId: string) => void;
   onChooseDocument: (documentId: string) => void;
+  onDeleteDocument: (documentId: string) => Promise<void>;
+  onDeletePaper: (paperId: string) => Promise<void>;
+  onRenameDocument?: (documentId: string, displayName: string) => Promise<void>;
+  onRenamePaper?: (paperId: string, displayName: string) => Promise<void>;
   onUploadScheme: (event: ChangeEvent<HTMLInputElement>) => Promise<void>;
+  onGenerateScheme?: () => Promise<void>;
+  onImportExternal?: (questionFile: File, answerFile: File) => Promise<void>;
   onContinue: () => Promise<void>;
 }) {
-  const paperSelectRef = useRef<HTMLSelectElement>(null);
-  const documentSelectRef = useRef<HTMLSelectElement>(null);
+  const paperSelectRef = useRef<HTMLButtonElement>(null);
+  const documentSelectRef = useRef<HTMLButtonElement>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const retryButtonRef = useRef<HTMLButtonElement>(null);
   const [retryPhase, setRetryPhase] = useState<"idle" | "pending" | "settled">("idle");
   const [retryAnnouncement, setRetryAnnouncement] = useState("");
-  const selectedPaperSummary = papers.find((item) => item.job_id === paperId) ?? null;
-  const selectedDocument = documents.find((item) => item.id === documentId) ?? null;
+  const [sourceMode, setSourceMode] = useState<"system" | "upload">("system");
+  const [paperManagerOpen, setPaperManagerOpen] = useState(false);
+  const [schemeManagerOpen, setSchemeManagerOpen] = useState(false);
+  const [questionFile, setQuestionFile] = useState<File | null>(null);
+  const [answerFile, setAnswerFile] = useState<File | null>(null);
+  const [importNotice, setImportNotice] = useState("");
   const matchingRubric = rubric?.paper_job_id === paperId && rubric.source_document_id === documentId
     ? rubric
     : null;
@@ -98,6 +123,15 @@ export function GradingMaterialsStage({
     }
   }
 
+  async function importExternal() {
+    if (!questionFile || !answerFile) return;
+    setImportNotice("");
+    await onImportExternal(questionFile, answerFile);
+    setImportNotice("文件已提交解析。任务完成后会出现在“系统作答记录”中。");
+    setQuestionFile(null);
+    setAnswerFile(null);
+  }
+
   useEffect(() => {
     if (retryPhase !== "settled" || discoveryLoading) return;
     setRetryPhase("idle");
@@ -123,11 +157,13 @@ export function GradingMaterialsStage({
     >
       <header className="grading-stage-header">
         <div>
-          <span className="grading-accent-text">步骤 1 · 材料准备</span>
-          <h2>先确认本次评分使用的两份材料</h2>
-          <p>答卷来自已完成的整卷作答；Mark Scheme 必须是对应试卷的官方版本。</p>
+          <h2>评分材料</h2>
         </div>
       </header>
+      <div className="segmented-control grading-source-mode" role="group" aria-label="答卷来源">
+        <button aria-pressed={sourceMode === "system"} onClick={() => setSourceMode("system")} type="button">系统记录</button>
+        <button aria-pressed={sourceMode === "upload"} onClick={() => setSourceMode("upload")} type="button">上传答卷</button>
+      </div>
       {contextLoading && (
         <div
           aria-atomic="true"
@@ -142,30 +178,49 @@ export function GradingMaterialsStage({
         </div>
       )}
 
+      {sourceMode === "system" ? (
       <div className="grading-source-cards">
         <section aria-busy={papersLoading} className="grading-source-card grading-contrast-boundary">
           <div className="grading-source-heading">
-            <span className="grading-accent-text">A</span>
+            <span className="grading-source-icon"><FileCheck2 aria-hidden="true" size={18} /></span>
             <div>
-              <strong>已完成作答</strong>
-              <small>选择需要评分的答卷记录</small>
+              <strong>作答记录</strong>
             </div>
+            <button
+              className="secondary grading-manage-materials"
+              disabled={materialSelectionBusy || papersLoading}
+              onClick={() => setPaperManagerOpen(true)}
+              type="button"
+            >
+              <Settings2 aria-hidden="true" size={15} />管理答卷
+            </button>
           </div>
-          <select
-            aria-label="选择作答记录"
-            className="grading-control-boundary"
+          <Select.Root
             disabled={materialSelectionBusy || papersLoading || papersError !== null || papers.length === 0}
-            onChange={(event) => onChoosePaper(event.target.value)}
+            onValueChange={onChoosePaper}
             value={paperId}
-            ref={paperSelectRef}
           >
-            <option value="">{paperPlaceholder}</option>
-            {papers.map((item) => (
-              <option key={item.job_id} value={item.job_id}>
-                {item.filename} · {item.completed_questions}/{item.total_questions} 题
-              </option>
-            ))}
-          </select>
+            <Select.Trigger
+              aria-label="选择作答记录"
+              className="grading-control-boundary grading-material-select-trigger"
+              placeholder={paperPlaceholder}
+              ref={paperSelectRef}
+              value={paperId}
+            />
+            <Select.Content className="grading-material-select-content" position="popper">
+              {papers.map((item) => (
+                <Select.Item key={item.job_id} value={item.job_id}>
+                  <span className="grading-material-option">
+                    <FileCheck2 aria-hidden="true" size={17} />
+                    <span>
+                      <strong>{item.display_name || item.filename}</strong>
+                      <small>{paperMaterialMeta(item)}</small>
+                    </span>
+                  </span>
+                </Select.Item>
+              ))}
+            </Select.Content>
+          </Select.Root>
           {papersLoading ? (
             <div className="grading-discovery-state is-loading" role="status">
               <LoaderCircle aria-hidden="true" className="spin" size={15} />
@@ -180,21 +235,6 @@ export function GradingMaterialsStage({
               还没有已完成的作答记录。请先完成整卷作答，再返回此处评分。
             </div>
           ) : null}
-          {selectedPaperSummary && (
-            <div className="grading-source-summary">
-              <FileCheck2 size={19} />
-              <div>
-                <strong>{selectedPaperSummary.filename}</strong>
-                <span>
-                  {selectedPaperSummary.completed_questions} / {selectedPaperSummary.total_questions}
-                  {" "}题已有答案
-                  {selectedPaperSummary.failed_questions
-                    ? ` · ${selectedPaperSummary.failed_questions} 题需处理`
-                    : " · 作答完整"}
-                </span>
-              </div>
-            </div>
-          )}
           {paper && (
             <div className="grading-question-sample" aria-label="所选答卷内容">
               {paper.questions.slice(0, 4).map((item) => (
@@ -210,49 +250,80 @@ export function GradingMaterialsStage({
 
         <section aria-busy={documentsLoading} className="grading-source-card grading-contrast-boundary">
           <div className="grading-source-heading">
-            <span className="grading-accent-text">B</span>
+            <span className="grading-source-icon"><BookOpenCheck aria-hidden="true" size={18} /></span>
             <div>
-              <strong>官方 Mark Scheme</strong>
-              <small>选择已转换版本，或上传新文件</small>
+              <strong>Mark Scheme</strong>
             </div>
+            <button
+              className="secondary grading-manage-materials"
+              disabled={materialSelectionBusy || documentsLoading}
+              onClick={() => setSchemeManagerOpen(true)}
+              type="button"
+            >
+              <Settings2 aria-hidden="true" size={15} />管理标准
+            </button>
           </div>
           <div className="scheme-picker">
-            <select
-              aria-label="选择 Mark Scheme"
-              className="grading-control-boundary"
+            <Select.Root
               disabled={
                 materialSelectionBusy
                 || documentsLoading
                 || documentsError !== null
                 || documents.length === 0
               }
-              onChange={(event) => onChooseDocument(event.target.value)}
+              onValueChange={onChooseDocument}
               value={documentId}
-              ref={documentSelectRef}
             >
-              <option value="">{documentPlaceholder}</option>
-              {documents.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.filename} · {item.status}
-                </option>
-              ))}
-            </select>
-            <label
-              aria-disabled={busy !== null}
-              className="secondary file-button grading-control-boundary"
-            >
-              {busy === "upload"
-                ? <LoaderCircle className="spin" size={15} />
-                : <UploadCloud size={15} />}
-              上传
-              <input
-                accept=".pdf,.md,.markdown"
-                disabled={busy !== null}
-                onChange={(event) => void onUploadScheme(event)}
-                type="file"
-                ref={uploadInputRef}
+              <Select.Trigger
+                aria-label="选择 Mark Scheme"
+                className="grading-control-boundary grading-material-select-trigger"
+                placeholder={documentPlaceholder}
+                ref={documentSelectRef}
+                value={documentId}
               />
-            </label>
+              <Select.Content className="grading-material-select-content" position="popper">
+                {documents.map((item) => (
+                  <Select.Item key={item.id} value={item.id}>
+                    <span className="grading-material-option">
+                      <BookOpenCheck aria-hidden="true" size={17} />
+                      <span>
+                        <strong>{item.display_name || item.filename}</strong>
+                        <small>{schemeMaterialMeta(item)}</small>
+                      </span>
+                    </span>
+                  </Select.Item>
+                ))}
+              </Select.Content>
+            </Select.Root>
+            <Tooltip content="上传官方版本" delayDuration={300} disableHoverableContent>
+              <label
+                aria-disabled={busy !== null}
+                className="secondary file-button grading-control-boundary grading-scheme-upload"
+              >
+                {busy === "upload"
+                  ? <LoaderCircle aria-hidden="true" className="spin" size={17} />
+                  : <UploadCloud aria-hidden="true" size={17} />}
+                <input
+                  aria-label="上传官方 Mark Scheme"
+                  accept=".pdf,.md,.markdown"
+                  disabled={busy !== null}
+                  onChange={(event) => void onUploadScheme(event)}
+                  ref={uploadInputRef}
+                  type="file"
+                />
+              </label>
+            </Tooltip>
+            <button
+              className="secondary grading-control-boundary"
+              disabled={!paperId || busy !== null}
+              onClick={() => void onGenerateScheme()}
+              type="button"
+            >
+              {busy === "generate-rubric"
+                ? <LoaderCircle className="spin" size={15} />
+                : <Sparkles size={15} />}
+              AI 生成临时标准
+            </button>
           </div>
           {documentsLoading ? (
             <div className="grading-discovery-state is-loading" role="status">
@@ -268,23 +339,26 @@ export function GradingMaterialsStage({
               还没有已转换的 Mark Scheme。你可以在此上传官方文件并完成转换。
             </div>
           ) : null}
-          {selectedDocument && (
-            <div className="grading-source-summary">
-              <BookOpenCheck size={19} />
-              <div>
-                <strong>{selectedDocument.filename}</strong>
-                <span>
-                  {(["converted", "indexed"] as string[]).includes(selectedDocument.status)
-                    ? "内容已就绪，可解析评分标准"
-                    : selectedDocument.status}
-                  {selectedDocument.page_count ? ` · ${selectedDocument.page_count} 页` : ""}
-                </span>
-              </div>
-            </div>
-          )}
         </section>
       </div>
-      {discoveryError && (
+      ) : (
+        <section className="grading-external-upload">
+          <div className="grading-source-card grading-contrast-boundary">
+            <div className="grading-source-heading"><span className="grading-source-icon"><FileText aria-hidden="true" size={18} /></span><div><strong>试卷文件</strong><small>PDF 或 Markdown</small></div></div>
+            <input accept=".pdf,.md,.markdown" onChange={(event) => setQuestionFile(event.target.files?.[0] ?? null)} type="file" />
+          </div>
+          <div className="grading-source-card grading-contrast-boundary">
+            <div className="grading-source-heading"><span className="grading-source-icon"><FileCheck2 aria-hidden="true" size={18} /></span><div><strong>答案文件</strong><small>PDF 或 Markdown</small></div></div>
+            <input accept=".pdf,.md,.markdown" onChange={(event) => setAnswerFile(event.target.files?.[0] ?? null)} type="file" />
+          </div>
+          <button className="primary" disabled={!questionFile || !answerFile || busy !== null} onClick={() => void importExternal()} type="button">
+            {busy === "import-answer" ? <LoaderCircle className="spin" size={16} /> : <UploadCloud size={16} />}
+            导入并解析答卷
+          </button>
+          {importNotice && <div className="notice" role="status">{importNotice}</div>}
+        </section>
+      )}
+      {sourceMode === "system" && discoveryError && (
         <div className="grading-discovery-retry">
           <button
             className="secondary grading-control-boundary"
@@ -298,7 +372,6 @@ export function GradingMaterialsStage({
               : <RefreshCw aria-hidden="true" size={15} />}
             {discoveryLoading ? "正在重试材料列表…" : "重试材料列表"}
           </button>
-          <small>将同时重新检查作答记录和 Mark Scheme。</small>
         </div>
       )}
       <div
@@ -311,14 +384,7 @@ export function GradingMaterialsStage({
       </div>
 
       <ErrorBanner message={error} />
-      <footer className="grading-stage-actions">
-        <small>
-          {confirmedRubric
-            ? "评分标准已经确认，可直接核对这份答卷的判分结果。"
-            : matchingRubric
-              ? "这版评分标准尚未确认，开始判分前需要先核对得分点。"
-              : "解析后需要先确认评分标准；此步骤不会立即给答案评分。"}
-        </small>
+      {sourceMode === "system" && <footer className="grading-stage-actions">
         <button
           className="primary grading-primary-action"
           disabled={
@@ -338,10 +404,28 @@ export function GradingMaterialsStage({
           {confirmedRubric
             ? "开始逐题判分"
             : matchingRubric
-              ? "确认评分标准"
+              ? "审核评分标准"
               : "解析评分标准"}
         </button>
-      </footer>
+      </footer>}
+      <AnswerRecordManagerDialog
+        onDelete={onDeletePaper}
+        onOpenChange={setPaperManagerOpen}
+        onRename={onRenamePaper}
+        onSelect={onChoosePaper}
+        open={paperManagerOpen}
+        papers={papers}
+        selectedId={paperId}
+      />
+      <MarkSchemeManagerDialog
+        documents={documents}
+        onDelete={onDeleteDocument}
+        onOpenChange={setSchemeManagerOpen}
+        onRename={onRenameDocument}
+        onSelect={onChooseDocument}
+        open={schemeManagerOpen}
+        selectedId={documentId}
+      />
     </article>
   );
 }

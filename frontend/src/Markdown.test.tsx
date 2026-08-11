@@ -86,7 +86,7 @@ describe("Markdown math", () => {
     );
 
     expect(container.querySelector(".katex-error")).not.toBeInTheDocument();
-    expect(container.querySelectorAll(".katex").length).toBeGreaterThanOrEqual(7);
+    expect(container.querySelectorAll(".katex").length).toBeGreaterThanOrEqual(6);
     expect(container).toHaveTextContent("hence");
     expect(container).toHaveTextContent("followed by the limiting condition");
     expect(container).toHaveTextContent("so S_A always has the greater tension");

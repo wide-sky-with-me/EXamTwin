@@ -271,23 +271,11 @@ def subject_context(settings: Settings, selector: str | None = None) -> SubjectC
     repository = WorkspaceRepository(create_session_factory(settings.database_url))
     try:
         workspace = repository.resolve_subject(selected)
-    except SQLAlchemyError:
-        workspace = None
-    if workspace is not None:
-        return _context_from_workspace(settings, workspace)
-
-    registry = subject_package_registry(settings.subject_packages_dir)
-    package = registry.resolve(selected)
-    runtime = package.manifest.runtime
-    return SubjectContext(
-        package=package,
-        workspace_id=package.pack.id,
-        board_name=package.pack.board.name,
-        capability_profile_id=package.pack.id,
-        corpus_dir=settings.resolved(Path(runtime.corpus_root)),
-        vector_collection=runtime.vector_collection,
-        vector_alias=runtime.vector_alias,
-    )
+    except SQLAlchemyError as error:
+        raise ValueError("科目目录暂不可用") from error
+    if workspace is None:
+        raise ValueError(f"科目工作区不存在：{selected}")
+    return _context_from_workspace(settings, workspace)
 
 
 def all_subject_contexts(settings: Settings) -> tuple[SubjectContext, ...]:
@@ -295,11 +283,8 @@ def all_subject_contexts(settings: Settings) -> tuple[SubjectContext, ...]:
     try:
         workspaces = repository.list_subjects()
     except SQLAlchemyError:
-        workspaces = []
-    if workspaces:
-        return tuple(_context_from_workspace(settings, workspace) for workspace in workspaces)
-    registry = subject_package_registry(settings.subject_packages_dir)
-    return tuple(subject_context(settings, package.pack.id) for package in registry.all())
+        return ()
+    return tuple(_context_from_workspace(settings, workspace) for workspace in workspaces)
 
 
 __all__ = [

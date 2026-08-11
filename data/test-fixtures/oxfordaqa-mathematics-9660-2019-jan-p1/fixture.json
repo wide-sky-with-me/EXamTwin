@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "fixture_id": "oxfordaqa-mathematics-9660-2019-jan-p1-synthetic-v1",
+  "description": "Synthetic uploaded-answer fixture with five intentional mathematical errors.",
+  "synthetic": true,
+  "real_student_response": false,
+  "contains_personal_data": false,
+  "subject_pack_id": "oxfordaqa-mathematics-9660",
+  "subject_code": "9660",
+  "exam_year": 2019,
+  "exam_session": "JAN",
+  "unit_code": "P1",
+  "pair_key": "9660:2019:JAN:P1",
+  "question_paper": {
+    "relative_path": "data/牛津AQA/数学/5.AQA-alevel数学-历年真题/AS/2019 January/as-level-maths-unit-1-question-paper-Jan19.pdf",
+    "pages": 24,
+    "sha256": "5bca3e27e02a0640a12148ecebaf4639615221064eeb28660f8025eb694cf2e2"
+  },
+  "mark_scheme": {
+    "relative_path": "data/牛津AQA/数学/5.AQA-alevel数学-历年真题/AS/2019 January/as-level-maths-unit-1-mark-scheme-Jan19.pdf",
+    "pages": 13,
+    "sha256": "42db3a6fb60dd01564e8574fb2a6be5967f5982ff80cb879ecb234a638755ca9"
+  },
+  "answer_file": "student-answer.synthetic.md",
+  "expected_top_level_questions": ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"],
+  "intended_error_ids": ["E01", "E02", "E03", "E04", "E05"],
+  "expected_score": {
+    "marks": 74,
+    "maximum_marks": 80,
+    "status": "manual_estimate",
+    "note": "Estimate based on the paired official mark scheme; automated model scoring may vary and requires teacher review."
+  },
+  "allowed_uses": [
+    "local external-answer import testing",
+    "question splitting regression testing",
+    "grading and human-review workflow testing"
+  ],
+  "forbidden_claims": [
+    "real student response",
+    "official OxfordAQA exemplar",
+    "evidence of population or individual student performance"
+  ]
+}

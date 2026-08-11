@@ -111,6 +111,10 @@ class CreateRubricRequest(BaseModel):
     source_document_id: str
 
 
+class GenerateRubricRequest(BaseModel):
+    paper_job_id: str
+
+
 class BatchRubricCriterionDecision(BaseModel):
     criterion_id: str = Field(min_length=1)
     expected_criterion_fingerprint: str | None = Field(
@@ -189,6 +193,7 @@ class GradingOverviewResponse(SerializedResponse):
 class GradingPaperSummary(SerializedResponse):
     job_id: str
     filename: str
+    display_name: str | None = None
     unit_code: str | None = None
     status: Literal["completed", "partial_failed"]
     total_questions: int

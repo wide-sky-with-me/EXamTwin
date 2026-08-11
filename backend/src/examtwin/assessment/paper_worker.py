@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -33,9 +34,11 @@ from examtwin.assessment.paper_parsing import (
     question_has_unresolved_source_placeholder,
 )
 from examtwin.assessment.paper_vision import (
+    VISION_REVIEW_CONTRACT_VERSION,
     PaperVisionReviewer,
     VisionReviewResult,
     format_physical_page_markdown,
+    validate_page_classification_records,
     validate_physical_page_markdown,
 )
 from examtwin.assessment.task_events import PaperJobWakeup, SleepPaperJobWakeup
@@ -48,6 +51,34 @@ from examtwin.subjects.public import SubjectContext, WorkspaceRepository
 logger = logging.getLogger(__name__)
 
 _QUESTION_IMAGE_SUFFIXES = {".bmp", ".gif", ".jpeg", ".jpg", ".png", ".webp"}
+_UPLOADED_ANSWER_HEADING = re.compile(
+    r"(?im)^(?:#{1,6}\s*(?:question|q)?\s*|(?:question|q)\s*)"
+    r"(?P<number>\d+(?:\s*\([a-z0-9]+\))*)(?:\s*[:.)-]\s*)?"
+)
+_UPLOADED_ANSWER_NUMBER = re.compile(r"(?im)^(?P<number>\d+(?:\s*\([a-z0-9]+\))*)\s*[.)-]\s+")
+
+
+def _answer_number(value: str) -> str:
+    match = re.match(r"\d+", value.strip())
+    return str(int(match.group(0))) if match is not None else value.strip()
+
+
+def _split_uploaded_answers(markdown: str) -> dict[str, str]:
+    markers = sorted(
+        [
+            *list(_UPLOADED_ANSWER_HEADING.finditer(markdown)),
+            *list(_UPLOADED_ANSWER_NUMBER.finditer(markdown)),
+        ],
+        key=lambda match: match.start(),
+    )
+    sections: dict[str, list[str]] = {}
+    for index, marker in enumerate(markers):
+        end = markers[index + 1].start() if index + 1 < len(markers) else len(markdown)
+        answer = markdown[marker.end() : end].strip()
+        if not answer:
+            continue
+        sections.setdefault(_answer_number(marker.group("number")), []).append(answer)
+    return {number: "\n\n".join(dict.fromkeys(parts)) for number, parts in sections.items()}
 
 
 class StageFailure(RuntimeError):
@@ -289,6 +320,7 @@ class PaperWorker:
                                 chunk["page_start"],
                                 chunk["page_end"],
                                 parsed,
+                                source_path=source_path,
                             )
                             if isinstance(parsed, ParsedPaperChunk)
                             else parsed
@@ -344,10 +376,26 @@ class PaperWorker:
                 classification_sections.append(markdown)
                 if vision_review_enabled:
                     reviewed_path = markdown_path.with_suffix(".vision.md")
+                    review_path = markdown_path.with_suffix(".vision.json")
                     reviewed_is_valid = False
                     if reviewed_path.is_file():
                         cached = reviewed_path.read_text(encoding="utf-8")
                         try:
+                            review_metadata = json.loads(review_path.read_text(encoding="utf-8"))
+                            if (
+                                review_metadata.get("contract_version")
+                                != VISION_REVIEW_CONTRACT_VERSION
+                            ):
+                                raise ValueError("旧版视觉检查点需要重新复核")
+                            source_digest = hashlib.sha256(markdown.encode("utf-8")).hexdigest()
+                            if review_metadata.get("source_digest") != source_digest:
+                                raise ValueError("视觉检查点输入摘要不一致")
+                            validate_page_classification_records(
+                                review_metadata.get("page_classifications"),
+                                chunk["page_start"],
+                                chunk["page_end"],
+                                min_confidence=self.settings.paper_vision_min_confidence,
+                            )
                             validate_physical_page_markdown(
                                 cached,
                                 chunk["page_start"],
@@ -355,7 +403,7 @@ class PaperWorker:
                             )
                             markdown = cached
                             reviewed_is_valid = True
-                        except ValueError:
+                        except (OSError, TypeError, ValueError, json.JSONDecodeError):
                             logger.warning(
                                 "paper_job=%s stage=vision_review "
                                 "pages=%s-%s invalid_cached_provenance=1",
@@ -389,11 +437,11 @@ class PaperWorker:
                             markdown,
                             chunk["page_start"],
                             chunk["page_end"],
-                        ): (chunk, time.monotonic())
+                        ): (chunk, markdown, time.monotonic())
                         for chunk, markdown in pending_reviews
                     }
                     for future in as_completed(futures):
-                        chunk, review_started = futures[future]
+                        chunk, source_markdown, review_started = futures[future]
                         try:
                             review = future.result()
                             markdown = review.markdown
@@ -401,6 +449,15 @@ class PaperWorker:
                                 markdown,
                                 chunk["page_start"],
                                 chunk["page_end"],
+                            )
+                            validate_page_classification_records(
+                                [
+                                    classification.as_dict()
+                                    for classification in review.page_classifications
+                                ],
+                                chunk["page_start"],
+                                chunk["page_end"],
+                                min_confidence=self.settings.paper_vision_min_confidence,
                             )
                             reviewed_rel = str(
                                 Path(chunk["markdown_path"]).with_suffix(".vision.md")
@@ -413,11 +470,19 @@ class PaperWorker:
                                 review_rel,
                                 json.dumps(
                                     {
+                                        "contract_version": VISION_REVIEW_CONTRACT_VERSION,
                                         "model": review.model,
                                         "page_start": chunk["page_start"],
                                         "page_end": chunk["page_end"],
+                                        "source_digest": hashlib.sha256(
+                                            source_markdown.encode("utf-8")
+                                        ).hexdigest(),
                                         "confidence": review.confidence,
                                         "repairs": list(review.repairs),
+                                        "page_classifications": [
+                                            classification.as_dict()
+                                            for classification in review.page_classifications
+                                        ],
                                     },
                                     ensure_ascii=False,
                                     indent=2,
@@ -571,11 +636,73 @@ class PaperWorker:
             },
         )
 
+    def _uploaded_answer_markdown(self, job: dict[str, Any]) -> str:
+        relative_path = str(job.get("answer_source_path") or "")
+        suffix = str(job.get("answer_suffix") or "").lower()
+        if not relative_path:
+            raise ValueError("外部答卷缺少答案文件")
+        path = self.jobs.resolve_file(relative_path)
+        if suffix in {".md", ".markdown"}:
+            markdown = path.read_text(encoding="utf-8-sig")
+        elif suffix == ".pdf":
+            markdown = "\n\n".join(
+                (page.extract_text() or "").strip() for page in PdfReader(path).pages
+            )
+        else:
+            raise ValueError("答案文件格式不受支持")
+        if len(markdown.strip()) < 3:
+            raise ValueError("答案 PDF 没有可提取文字；当前不支持扫描件或手写答案 OCR")
+        return markdown
+
+    def _complete_uploaded_answers(
+        self,
+        job_id: str,
+        token: str,
+        pending: list[dict[str, Any]],
+        markdown: str,
+    ) -> None:
+        answers = _split_uploaded_answers(markdown)
+        if not answers:
+            raise ValueError("答案文件未识别到以 Q1、Question 1 或“1.”开头的题号")
+        for item in pending:
+            number = _answer_number(str(item["number"]))
+            answer = answers.get(number)
+            self.jobs.start_question(job_id, token, item["position"])
+            if not answer:
+                self.jobs.fail_question(
+                    job_id,
+                    token,
+                    item["position"],
+                    ValueError(f"答案文件未找到第 {item['number']} 题答案"),
+                )
+                continue
+            self.jobs.complete_question(
+                job_id,
+                token,
+                item["position"],
+                PaperQuestionAnswer(
+                    number=str(item["number"]),
+                    question_markdown=str(item["question_markdown"]),
+                    answer_markdown=answer,
+                    confidence=1,
+                    grounded=False,
+                    warnings=["答案来自用户上传文件，未执行自动作答。"],
+                ),
+            )
+
     def _answer(self, job: dict[str, Any], token: str) -> None:
         job_id = job["id"]
         pending = [item for item in self.jobs.list_questions(job_id) if item["status"] == "pending"]
         self.jobs.set_stage(job_id, token, "answering")
         if not pending:
+            return
+        if job.get("answer_mode") == "uploaded":
+            self._complete_uploaded_answers(
+                job_id,
+                token,
+                pending,
+                self._uploaded_answer_markdown(job),
+            )
             return
         with ThreadPoolExecutor(
             max_workers=min(self.settings.paper_question_concurrency, len(pending))
@@ -780,17 +907,20 @@ class PaperWorker:
         page_start: int,
         page_end: int,
         chunk: ParsedPaperChunk,
+        *,
+        source_path: Path | None = None,
     ) -> str:
         markdown = chunk.markdown
+        referenced_images: list[tuple[Any, str, list[str]]] = []
         for image in chunk.images:
             name = Path(image.name).name
             suffix = Path(name).suffix.lower()
             if suffix not in _QUESTION_IMAGE_SUFFIXES:
                 continue
-            source_path = image.path.replace("\\", "/").lstrip("/")
+            image_source_path = image.path.replace("\\", "/").lstrip("/")
             targets = {
-                source_path,
-                source_path.removeprefix("./"),
+                image_source_path,
+                image_source_path.removeprefix("./"),
                 name,
                 f"images/{name}",
                 f"./images/{name}",
@@ -798,14 +928,32 @@ class PaperWorker:
             referenced = [target for target in targets if target and target in markdown]
             if not referenced:
                 continue
+            referenced_images.append((image, suffix, referenced))
+
+        fallback_page: int | None = None
+        unpositioned_count = sum(
+            image.page_index is None for image, _suffix, _referenced in referenced_images
+        )
+        if page_start != page_end and unpositioned_count:
+            if source_path is not None:
+                source = PdfReader(str(source_path))
+                image_pages: list[tuple[int, int]] = []
+                for page_number in range(page_start, page_end + 1):
+                    image_count = len(list(source.pages[page_number - 1].images))
+                    if image_count:
+                        image_pages.append((page_number, image_count))
+                if len(image_pages) == 1 and image_pages[0][1] == unpositioned_count:
+                    fallback_page = image_pages[0][0]
+            if fallback_page is None:
+                raise ValueError("MinerU 题目图片缺少物理页位置")
+
+        for image, suffix, referenced in referenced_images:
             digest = hashlib.sha256(image.content).hexdigest()
             if image.page_index is None:
-                if page_start != page_end:
-                    raise ValueError("MinerU 题目图片缺少物理页位置")
-                page_number = page_start
+                page_number = fallback_page or page_start
             else:
                 page_number = page_start + image.page_index
-                if page_number > page_end:
+                if page_number < page_start or page_number > page_end:
                     raise ValueError("MinerU 题目图片的物理页位置超出页段")
             asset_name = f"p{page_number:04d}-{digest}{suffix}"
             self.jobs.write_file(

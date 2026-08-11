@@ -1,4 +1,5 @@
 import { Laptop, Moon, Sun } from "lucide-react";
+import { Tooltip } from "@radix-ui/themes";
 import { useEffect, useState } from "react";
 
 import {
@@ -30,20 +31,26 @@ export function ThemeSwitch() {
   return (
     <div className="theme-switch" role="group" aria-label="界面主题">
       {choices.map(({ value, label, icon: Icon }) => (
-        <button
-          type="button"
+        <Tooltip
+          content={label}
+          delayDuration={300}
+          disableHoverableContent
           key={value}
-          className={preference === value ? "active" : ""}
-          aria-label={label}
-          aria-pressed={preference === value}
-          title={label}
-          onClick={() => {
-            setPreference(value);
-            saveTheme(value);
-          }}
+          side="right"
         >
-          <Icon size={15} />
-        </button>
+          <button
+            type="button"
+            className={`theme-switch-button${preference === value ? " active" : ""}`}
+            aria-label={label}
+            aria-pressed={preference === value}
+            onClick={() => {
+              setPreference(value);
+              saveTheme(value);
+            }}
+          >
+            <Icon aria-hidden="true" size={15} />
+          </button>
+        </Tooltip>
       ))}
     </div>
   );

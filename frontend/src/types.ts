@@ -6,9 +6,17 @@ type Schemas = components["schemas"];
 // UI-only compositions in this file so backend schema changes cannot silently drift.
 export type Stats = Schemas["StatsResponse"];
 export type Health = Schemas["HealthResponse"];
-export type SubjectPack = Schemas["SubjectPackResponse"];
-export type SubjectStatus = Schemas["SubjectStatusResponse"];
-export type PlatformStatus = Schemas["PlatformStatusResponse"];
+export type SubjectPack = Omit<Schemas["SubjectPackResponse"], "icon" | "color"> & {
+  icon?: Schemas["SubjectPackResponse"]["icon"];
+  color?: string;
+};
+export type SubjectStatus = Omit<Schemas["SubjectStatusResponse"], "icon" | "color"> & {
+  icon?: Schemas["SubjectStatusResponse"]["icon"];
+  color?: string;
+};
+export type PlatformStatus = Omit<Schemas["PlatformStatusResponse"], "subjects"> & {
+  subjects: SubjectStatus[];
+};
 export type KnowledgePoint = Schemas["KnowledgePointResponse"];
 export type KnowledgeRelation = Schemas["KnowledgeRelationResponse"];
 export type Citation = Schemas["Citation"];
@@ -28,18 +36,28 @@ export type AnswerRequirement = Schemas["SubpartRequirement"];
 export type PaperJobQuestion = Schemas["PaperJobQuestion"];
 export type SourceContextResult = Schemas["SourceContextResponse"];
 export type PaperJobChunk = Schemas["PaperJobChunk"];
-export type PaperJobResult = Schemas["PaperJobResponse"];
-export type PaperJobList = Schemas["PaperJobListResponse"];
+export type PaperJobResult = Omit<Schemas["PaperJobResponse"], "display_name"> & {
+  display_name?: string | null;
+};
+export type PaperJobList = Omit<Schemas["PaperJobListResponse"], "items"> & {
+  items: PaperJobSummary[];
+};
 export type PaperJobBulkDeleteResult = Schemas["PaperJobBulkDeleteResponse"];
-export type PaperJobSummary = Schemas["PaperJobSummary"];
+export type PaperJobSummary = Omit<Schemas["PaperJobSummary"], "display_name"> & {
+  display_name?: string | null;
+};
 export type PaperJobHistoryStatus = PaperJobSummary["status"] | "active";
 export type RubricAward = Schemas["RubricAward"];
 export type SymbolicCheck = Schemas["SymbolicCheck"];
 export type GradeResult = Schemas["GradeResponse"];
 export type ReviewItem = Schemas["ReviewQueueItem"];
 export type InventoryResult = Schemas["InventoryResponse"];
-export type SourceDocument = Schemas["SourceDocumentResponse"];
-export type GradingPaper = Schemas["GradingPaperSummary"];
+export type SourceDocument = Omit<Schemas["SourceDocumentResponse"], "display_name"> & {
+  display_name?: string | null;
+};
+export type GradingPaper = Omit<Schemas["GradingPaperSummary"], "display_name"> & {
+  display_name?: string | null;
+};
 export type RubricSetSummary = Schemas["RubricSetSummary"];
 export type RubricSet = Schemas["RubricSetResponse"];
 export type RubricCriterionPatch = Schemas["RubricCriterionPatch"];

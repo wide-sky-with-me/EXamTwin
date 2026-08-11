@@ -7,6 +7,17 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from examtwin.contracts.base import SerializedResponse
 
+SubjectIcon = Literal[
+    "book-open",
+    "calculator",
+    "chart-no-axes-combined",
+    "flask-conical",
+    "languages",
+    "landmark",
+    "atom",
+    "graduation-cap",
+]
+
 
 class KnowledgeBaseVersionResponse(SerializedResponse):
     id: str
@@ -33,12 +44,22 @@ class KnowledgeBaseResponse(SerializedResponse):
 class CreateSubjectRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    id: str = Field(min_length=2, max_length=63)
+    id: str = Field(min_length=2, max_length=63, pattern=r"^[a-z0-9][a-z0-9-]{1,62}$")
     subject_code: str = Field(min_length=2, max_length=32)
     title: str = Field(min_length=1, max_length=200)
     board_name: str = Field(min_length=1, max_length=200)
     language: str = Field(default="en", min_length=2, max_length=16)
     capability_profile_id: str | None = None
+    icon: SubjectIcon = "book-open"
+    color: str = Field(default="#2F6FED", pattern=r"^#[0-9A-Fa-f]{6}$")
+
+
+class UpdateSubjectRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1, max_length=200)
+    icon: SubjectIcon
+    color: str = Field(pattern=r"^#[0-9A-Fa-f]{6}$")
 
 
 class BatchDeleteSubjectsRequest(BaseModel):
@@ -55,6 +76,7 @@ class BatchDeleteSubjectsResponse(SerializedResponse):
 class SourceDocumentResponse(SerializedResponse):
     id: str
     filename: str
+    display_name: str | None = None
     source_type: str
     source_role: str
     authority_tier: str
@@ -65,6 +87,12 @@ class SourceDocumentResponse(SerializedResponse):
     object_key: str | None = None
     page_count: int | None = None
     error: str | None = None
+
+
+class RenameSourceDocumentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    display_name: str = Field(min_length=1, max_length=200)
 
 
 class KnowledgeBaseBuildResponse(SerializedResponse):

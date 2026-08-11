@@ -35,6 +35,27 @@ from examtwin.subjects.document_assignment import KNOWLEDGE_SOURCE_TYPES
 SUBJECT_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{1,62}$")
 SUBJECT_CODE_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{1,31}$")
 SUBJECT_DELETION_TERMINAL_JOB_STATUSES = ("completed", "partial_failed", "failed")
+SUBJECT_COLOR_PATTERN = re.compile(r"^#[0-9A-Fa-f]{6}$")
+SUBJECT_ICONS = frozenset(
+    {
+        "book-open",
+        "calculator",
+        "chart-no-axes-combined",
+        "flask-conical",
+        "languages",
+        "landmark",
+        "atom",
+        "graduation-cap",
+    }
+)
+SUBJECT_PRESENTATION_DEFAULTS = {
+    "9640": ("chart-no-axes-combined", "#0F766E"),
+    "9660": ("calculator", "#2563EB"),
+}
+
+
+def _subject_presentation(subject_code: str) -> tuple[str, str]:
+    return SUBJECT_PRESENTATION_DEFAULTS.get(subject_code, ("book-open", "#2F6FED"))
 
 
 def _slug(value: str) -> str:
@@ -75,12 +96,15 @@ class WorkspaceRepository:
         with self.sessions.begin() as session:
             for package in packages:
                 subject_id = package.pack.id
+                icon, color = _subject_presentation(package.pack.subject_code)
                 values = {
                     "id": subject_id,
                     "subject_code": package.pack.subject_code,
                     "title": package.pack.title,
                     "board_name": package.pack.board.name,
                     "language": "en",
+                    "icon": icon,
+                    "color": color,
                     "capability_profile_id": subject_id,
                     "status": "active",
                     "created_at": now,
@@ -91,7 +115,11 @@ class WorkspaceRepository:
                     .values(**values)
                     .on_conflict_do_update(
                         index_elements=[SubjectModel.id],
-                        set_={key: value for key, value in values.items() if key != "created_at"},
+                        set_={
+                            key: value
+                            for key, value in values.items()
+                            if key not in {"created_at", "title", "icon", "color"}
+                        },
                     )
                 )
                 default_base_id = str(
@@ -173,17 +201,22 @@ class WorkspaceRepository:
         board_name: str,
         language: str = "en",
         capability_profile_id: str | None = None,
+        icon: str = "book-open",
+        color: str = "#2F6FED",
     ) -> dict[str, Any]:
         subject_id = subject_id.strip().lower()
         subject_code = subject_code.strip()
         title = title.strip()
         board_name = board_name.strip()
+        icon = icon.strip()
+        color = color.strip().upper()
         if not SUBJECT_ID_PATTERN.fullmatch(subject_id):
             raise ValueError("科目标识只能包含小写字母、数字和连字符，长度为 2 到 63")
         if not SUBJECT_CODE_PATTERN.fullmatch(subject_code):
             raise ValueError("科目代码只能包含字母、数字、点、下划线和连字符，长度为 2 到 32")
         if not title or not board_name:
             raise ValueError("科目名称和课程体系不能为空")
+        self._validate_presentation(icon, color)
         now = utcnow()
         with self.sessions.begin() as session:
             if session.get(SubjectModel, subject_id) is not None:
@@ -198,6 +231,8 @@ class WorkspaceRepository:
                 title=title,
                 board_name=board_name,
                 language=language.strip() or "en",
+                icon=icon,
+                color=color,
                 capability_profile_id=capability_profile_id,
                 active_graph_version_id=None,
                 status="active",
@@ -220,6 +255,37 @@ class WorkspaceRepository:
                 )
         return self.require_subject(subject_id)
 
+    @staticmethod
+    def _validate_presentation(icon: str, color: str) -> None:
+        if icon not in SUBJECT_ICONS:
+            raise ValueError("科目图标不受支持")
+        if not SUBJECT_COLOR_PATTERN.fullmatch(color):
+            raise ValueError("科目颜色必须是六位十六进制颜色")
+
+    def update_subject_presentation(
+        self,
+        subject_id: str,
+        *,
+        title: str,
+        icon: str,
+        color: str,
+    ) -> dict[str, Any]:
+        title = title.strip()
+        icon = icon.strip()
+        color = color.strip().upper()
+        if not title:
+            raise ValueError("科目名称不能为空")
+        self._validate_presentation(icon, color)
+        with self.sessions.begin() as session:
+            subject = session.get(SubjectModel, subject_id)
+            if subject is None or subject.status != "active":
+                raise LookupError("科目工作区不存在")
+            subject.title = title
+            subject.icon = icon
+            subject.color = color
+            subject.updated_at = utcnow()
+        return self.require_subject(subject_id)
+
     def list_subjects(self) -> list[dict[str, Any]]:
         with self.sessions() as session:
             rows = list(
@@ -231,23 +297,13 @@ class WorkspaceRepository:
             )
         return [self._subject_with_bases(row) for row in rows]
 
-    def delete_subjects(
-        self,
-        subject_ids: Sequence[str],
-        *,
-        protected_subject_ids: Sequence[str] = (),
-    ) -> list[str]:
+    def delete_subjects(self, subject_ids: Sequence[str]) -> list[str]:
         requested = tuple(subject_ids)
         unique_ids = tuple(dict.fromkeys(requested))
         if not requested:
             raise ValueError("至少选择一个科目工作区")
         if len(unique_ids) != len(requested):
             raise ValueError("批量删除不能包含重复的科目工作区")
-
-        protected = set(protected_subject_ids)
-        protected_requested = [subject_id for subject_id in unique_ids if subject_id in protected]
-        if protected_requested:
-            raise ValueError("内置科目工作区不能删除")
 
         with self.sessions.begin() as session:
             subjects = list(

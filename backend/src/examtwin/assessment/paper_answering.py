@@ -49,7 +49,7 @@ from examtwin.platform.providers import build_llm
 from examtwin.platform.structured_model import LiteLLMStructuredModel
 from examtwin.subjects.public import SubjectContext
 
-SPLIT_CONTRACT_VERSION = "paper-question-split-v6"
+SPLIT_CONTRACT_VERSION = "paper-question-split-v7"
 
 PAGE_SECTION = re.compile(
     r"(?=<!--\s*(?:pages?\s+\d+|examtwin:physical-page=\d+))",
@@ -74,12 +74,21 @@ class _QuestionRepairGroup(BaseModel):
 
     number: str = Field(min_length=1, max_length=32)
     candidate_indexes: list[int] = Field(min_length=1)
+    preferred_candidate_index: int | None = Field(default=None, ge=0)
 
 
 class _QuestionRepairPlan(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     groups: list[_QuestionRepairGroup] = Field(min_length=1)
+
+
+class _QuestionCandidateConflict(ValueError):
+    """A same-source overlap conflict that may be resolved against the trusted source."""
+
+    def __init__(self, message: str, *, question_numbers: tuple[str, ...] = ()) -> None:
+        super().__init__(message)
+        self.question_numbers = question_numbers
 
 
 def _build_question_repair_model(settings: Settings) -> StructuredModelPort:
@@ -133,7 +142,8 @@ def _question_number_identity(number: str) -> tuple[str, str | None, bool]:
 
 
 def _normalized_subpart_label(label: object) -> str:
-    return re.sub(r"\s+", "", str(label)).lower()
+    normalized = re.sub(r"\s+", "", str(label)).lower()
+    return re.sub(r"^\d+(?=\()", "", normalized)
 
 
 def _candidate_sections(item: dict[str, Any]) -> tuple[str, dict[str, str]]:
@@ -187,7 +197,7 @@ def _merge_compatible_source_text(current: str, candidate: str, *, field: str) -
         return candidate
     if normalized_current.startswith(normalized_candidate):
         return current
-    raise ValueError(f"同题号主源{field}冲突，不能按文本长度择优")
+    raise _QuestionCandidateConflict(f"同题号主源{field}冲突，不能按文本长度择优")
 
 
 def _without_split_metadata(item: dict[str, Any]) -> dict[str, Any]:
@@ -287,7 +297,7 @@ def _merge_top_level_candidates(
                 continue
             if label not in requirements:
                 requirement_order.append(label)
-                requirements[label] = dict(requirement)
+                requirements[label] = {**requirement, "label": label}
                 continue
             current = requirements[label]
             for key, value in requirement.items():
@@ -305,7 +315,7 @@ def _merge_top_level_candidates(
                     ):
                         current[key] = "proof"
                         continue
-                    raise ValueError(f"同题号主源子问 {label} 的 {key} 冲突")
+                    raise _QuestionCandidateConflict(f"同题号主源子问 {label} 的 {key} 冲突")
         for code in item.get("knowledge_codes") or []:
             normalized_code = str(code).strip()
             if normalized_code and normalized_code not in knowledge_codes:
@@ -346,7 +356,14 @@ def _merge_split_questions(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for group in groups:
         top_level = [item for item, is_top_level in group if is_top_level]
         if top_level:
-            repaired = _merge_top_level_candidates(top_level)
+            try:
+                repaired = _merge_top_level_candidates(top_level)
+            except _QuestionCandidateConflict as error:
+                number = str(group[0][0].get("number", "?")).strip() or "?"
+                raise _QuestionCandidateConflict(
+                    str(error),
+                    question_numbers=(number,),
+                ) from error
             repaired["number"] = group[0][0].get("number", repaired.get("number"))
             merged.append(repaired)
         else:
@@ -357,6 +374,8 @@ def _merge_split_questions(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def _combine_repair_group(
     items: list[dict[str, Any]],
     group: _QuestionRepairGroup,
+    *,
+    preferred_item: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     target_compact, target_canonical, _target_is_top_level = _question_number_identity(group.number)
     identities = [_question_number_identity(str(item.get("number", "?")).strip()) for item in items]
@@ -377,7 +396,23 @@ def _combine_repair_group(
             else compact == target_compact
         )
     ]
-    if exact_top_level:
+    if preferred_item is not None:
+        preferred_identity = _question_number_identity(
+            str(preferred_item.get("number", "?")).strip()
+        )
+        preferred_compact, preferred_canonical, preferred_is_top_level = preferred_identity
+        preferred_matches = (
+            preferred_canonical == target_canonical
+            if target_canonical is not None
+            else preferred_compact == target_compact
+        )
+        if not preferred_matches or (exact_top_level and not preferred_is_top_level):
+            raise ValueError(f"结构修复模型为第 {group.number} 题选择了不匹配的权威候选")
+
+    if preferred_item is not None:
+        repaired = _without_split_metadata(dict(preferred_item))
+        repaired.pop("source_pages", None)
+    elif exact_top_level:
         repaired = _merge_top_level_candidates(exact_top_level)
     else:
         repaired = dict(items[0])
@@ -394,19 +429,52 @@ def _combine_repair_group(
         bool(item.get("requires_visual_context")) for item in items
     )
 
+    ordered_items = (
+        [preferred_item, *(item for item in items if item is not preferred_item)]
+        if preferred_item is not None
+        else items
+    )
     knowledge_codes: list[str] = []
     requirements: list[Any] = []
     requirement_keys: set[str] = set()
-    for item in items:
+    requirements_by_label: dict[str, dict[str, Any]] = {}
+    for item in ordered_items:
         for code in item.get("knowledge_codes") or []:
             normalized_code = str(code).strip()
             if normalized_code and normalized_code not in knowledge_codes:
                 knowledge_codes.append(normalized_code)
         for requirement in item.get("answer_requirements") or []:
+            if preferred_item is not None and isinstance(requirement, dict):
+                label = _normalized_subpart_label(requirement.get("label", ""))
+                if not label:
+                    continue
+                current = requirements_by_label.get(label)
+                if current is None:
+                    normalized = {**requirement, "label": label}
+                    requirements_by_label[label] = normalized
+                    requirements.append(normalized)
+                    continue
+                for key, value in requirement.items():
+                    if key == "label":
+                        continue
+                    if current.get(key) in (None, "", []) and value not in (None, "", []):
+                        current[key] = value
+                continue
             key = json.dumps(requirement, ensure_ascii=False, sort_keys=True)
             if key not in requirement_keys:
                 requirement_keys.add(key)
                 requirements.append(requirement)
+    if preferred_item is not None and any(
+        isinstance(requirement, dict)
+        and _normalized_subpart_label(requirement.get("label", "")) != "whole"
+        for requirement in requirements
+    ):
+        requirements = [
+            requirement
+            for requirement in requirements
+            if not isinstance(requirement, dict)
+            or _normalized_subpart_label(requirement.get("label", "")) != "whole"
+        ]
     if knowledge_codes:
         repaired["knowledge_codes"] = knowledge_codes
     if requirements:
@@ -429,13 +497,24 @@ def _apply_question_repair_plan(
     group_identities: set[str] = set()
     repaired: list[dict[str, Any]] = []
     for group in plan.groups:
+        if len(group.candidate_indexes) > 1 and group.preferred_candidate_index is None:
+            raise ValueError(f"结构修复模型必须为第 {group.number} 题选择权威候选")
         compact, canonical, _is_top_level = _question_number_identity(group.number)
         identity = canonical or compact
         if not identity or identity in group_identities:
             raise ValueError(f"结构修复模型返回了重复或无效的顶层题号：{group.number}")
         group_identities.add(identity)
+        preferred_item: dict[str, Any] | None = None
+        if group.preferred_candidate_index is not None:
+            if group.preferred_candidate_index not in group.candidate_indexes:
+                raise ValueError(f"结构修复模型为第 {group.number} 题选择了组外候选")
+            preferred_item = items[group.preferred_candidate_index]
         repaired.append(
-            _combine_repair_group([items[index] for index in group.candidate_indexes], group)
+            _combine_repair_group(
+                [items[index] for index in group.candidate_indexes],
+                group,
+                preferred_item=preferred_item,
+            )
         )
     return repaired
 
@@ -669,7 +748,7 @@ Paper Markdown:
                 tagged["_split_source_digest"] = source_digest
                 tagged["_split_batch_index"] = batch_index
                 extracted.append(tagged)
-        return _merge_split_questions(extracted)
+        return extracted
 
     @staticmethod
     def _cited_knowledge_codes(
@@ -877,6 +956,8 @@ Paper Markdown:
                 "number": str(item.get("number", "?")),
                 "question_excerpt": str(item.get("question_markdown", ""))[:excerpt_limit],
                 "answer_requirements": item.get("answer_requirements") or [],
+                "source_kind": item.get("_split_source", "primary"),
+                "batch_index": item.get("_split_batch_index"),
             }
             for index, item in enumerate(items)
         ]
@@ -894,7 +975,10 @@ Paper Markdown:
                 "candidates. Return one group per top-level question in trusted source order. "
                 "Group duplicate candidates and subquestion fragments under their top-level "
                 "question. Use every candidate_index exactly once. Keep each group's number "
-                "within the number family present in that group's candidates. Do not solve, "
+                "within the number family present in that group's candidates. For every group, "
+                "set preferred_candidate_index to the candidate whose wording and subpart/mark "
+                "structure best match the trusted source. Prefer primary over recovery. The "
+                "preferred index must belong to that group's candidate_indexes. Do not solve, "
                 "rewrite, discard, or add questions, and do not infer source page numbers."
             ),
             user_content=json.dumps(
@@ -936,13 +1020,26 @@ Paper Markdown:
         catalog = self._catalog(unit_code)
         trusted_source = source_markdown or markdown
         if self.splitter is None:
-            questions = self._split_with_llm(
+            extracted = self._split_with_llm(
                 markdown,
                 catalog,
                 primary_markdown=source_markdown,
                 load_checkpoint=load_checkpoint,
                 save_checkpoint=save_checkpoint,
             )
+            try:
+                questions = _merge_split_questions(extracted)
+            except _QuestionCandidateConflict as merge_error:
+                try:
+                    questions = self._repair_question_structure(
+                        trusted_source,
+                        extracted,
+                        merge_error.question_numbers,
+                    )
+                except Exception as repair_error:
+                    raise ValueError(
+                        f"{merge_error}；模型定向修复失败：{repair_error}"
+                    ) from repair_error
         else:
             questions = self.splitter(markdown, catalog)
         normalized = [item for item in questions if str(item.get("question_markdown", "")).strip()]

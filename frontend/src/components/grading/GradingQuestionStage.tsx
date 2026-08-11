@@ -219,7 +219,7 @@ export function GradingQuestionStage({
           <div className="panel-title">
             <div>
               <span>作答记录</span>
-              <h2>{paper?.filename ?? "未选择试卷"}</h2>
+              <h2>{paper?.display_name || paper?.filename || "未选择试卷"}</h2>
             </div>
           </div>
           <div className="grading-question-picker">

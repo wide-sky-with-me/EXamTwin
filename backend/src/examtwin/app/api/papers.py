@@ -40,6 +40,7 @@ from examtwin.contracts.papers import (
     PaperJobFilterStatus,
     PaperJobListResponse,
     PaperJobResponse,
+    RenamePaperJobRequest,
 )
 from examtwin.platform.config import Settings, get_settings
 from examtwin.platform.database.session import create_session_factory
@@ -124,6 +125,49 @@ async def answer_paper(
         ) from error
 
 
+@router.post(
+    "/papers/import-answer",
+    response_model=PaperJobCreated,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def import_answered_paper(
+    question_file: UploadFile = File(...),
+    answer_file: UploadFile = File(...),
+    unit_code: str | None = Form(default=None),
+    settings: Settings = Depends(get_settings),
+    subject: SubjectContext = Depends(get_subject_context),
+) -> PaperJobCreated:
+    try:
+        subject.require_paper_capability()
+        repository = WorkspaceRepository(create_session_factory(settings.database_url))
+        snapshot = repository.active_retrieval_snapshot(subject.id)
+        collections = tuple(str(item) for item in snapshot["collections"])
+        if not collections:
+            raise ValueError("导入答卷前必须先构建并发布知识库版本")
+        selected_subject = subject.with_retrieval_snapshot(
+            version_ids=tuple(str(item) for item in snapshot["version_ids"]),
+            collections=collections,
+            graph_version_id=snapshot.get("graph_version_id"),
+        )
+        jobs = build_paper_job_service(settings, selected_subject)
+        return await run_in_threadpool(
+            jobs.create_job_from_stream,
+            question_file.filename or "question-paper.pdf",
+            question_file.file,
+            unit_code=unit_code,
+            answer_filename=answer_file.filename or "answers.pdf",
+            answer_stream=answer_file.file,
+        )
+    except (LookupError, ValueError) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except Exception as error:
+        raise upstream_http_error(
+            "ANSWER_IMPORT_FAILED",
+            "答卷导入失败，请稍后重试",
+            error,
+        ) from error
+
+
 @router.get("/papers/jobs", response_model=PaperJobListResponse)
 def paper_jobs(
     status_filter: PaperJobFilterStatus | None = Query(default=None, alias="status"),
@@ -184,6 +228,20 @@ def paper_job(
         return jobs.get_job(job_id)
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@router.patch("/papers/jobs/{job_id}", response_model=PaperJobResponse)
+def rename_paper_job(
+    job_id: str,
+    request: RenamePaperJobRequest,
+    jobs: PaperJobService = Depends(get_paper_jobs),
+) -> PaperJobResponse:
+    try:
+        return jobs.rename_job(job_id, request.display_name)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 @router.delete(

@@ -609,6 +609,35 @@ def test_split_merge_rejects_conflicting_primary_stems() -> None:
         _merge_split_questions(candidates)
 
 
+def test_split_merge_normalizes_question_number_prefixed_subpart_labels() -> None:
+    candidates = [
+        {
+            "number": "4",
+            "question_markdown": "4 (a) Find p. [5 marks]\n\n4 (b) Find q. [3 marks]",
+            "answer_requirements": [
+                {"label": "4 (a)", "marks": 5, "answer_kind": "numeric"},
+                {"label": "4 (b)", "marks": 3, "answer_kind": "numeric"},
+            ],
+            "_split_source": "primary",
+            "_split_source_digest": "trusted-source",
+            "_split_batch_index": 0,
+        },
+        {
+            "number": "4",
+            "question_markdown": "4 (b) Find q. [3 marks]",
+            "answer_requirements": [{"label": "(b)", "marks": 3, "answer_kind": "numeric"}],
+            "_split_source": "primary",
+            "_split_source_digest": "trusted-source",
+            "_split_batch_index": 1,
+        },
+    ]
+
+    [merged] = _merge_split_questions(candidates)
+
+    assert [item["label"] for item in merged["answer_requirements"]] == ["(a)", "(b)"]
+    assert merged["total_marks"] == 8
+
+
 def test_split_contract_rejects_silent_subpart_omission() -> None:
     source = format_physical_page_markdown(
         [
@@ -884,6 +913,167 @@ def test_split_rejects_structured_repair_that_drops_a_candidate() -> None:
     )
 
     with pytest.raises(ValueError, match="恰好使用一次"):
+        service.split_questions(source_markdown, unit_code="P2")
+
+
+def test_split_uses_model_selected_candidate_for_overlapping_primary_conflicts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_markdown = format_physical_page_markdown(
+        [
+            (
+                17,
+                "9 The polynomial is $p(x)=x^3+5x^2-x-21$.\n\n"
+                "(a) Show that $a=5$. [2 marks]\n\n"
+                "(b) Factorise $p(x)$. [3 marks]",
+            ),
+            (
+                19,
+                "10 A geometric series has positive common ratio $r$.\n\n"
+                "(a) Find the allowed values. [3 marks]\n\n"
+                "(b) Find the sum. [4 marks]\n\nEND OF QUESTIONS",
+            ),
+        ]
+    )
+    candidates = [
+        {
+            "number": "9",
+            "question_markdown": (
+                "The polynomial is $p(x)=x^3+5x^2-x-2 1$.\n\n"
+                "(a) Show that $a=5$. [2 marks]\n\n"
+                "(b) Factorise $p(x)$. [3 marks]"
+            ),
+            "answer_requirements": [
+                {"label": "(a)", "marks": 2, "answer_kind": "proof"},
+                {"label": "(b)", "marks": 3, "answer_kind": "expression"},
+            ],
+            "_split_source": "primary",
+            "_split_source_digest": "trusted-source",
+            "_split_batch_index": 1,
+        },
+        {
+            "number": "9",
+            "question_markdown": (
+                "The polynomial is $p(x)=x^3+5x^2-x-21$.\n\n"
+                "(a) Show that $a=5$. [2 marks]\n\n"
+                "(b) Factorise $p(x)$. [3 marks]"
+            ),
+            "answer_requirements": [
+                {"label": "(a)", "marks": 2, "answer_kind": "proof"},
+                {"label": "(b)", "marks": 3, "answer_kind": "expression"},
+            ],
+            "_split_source": "primary",
+            "_split_source_digest": "trusted-source",
+            "_split_batch_index": 2,
+        },
+        {
+            "number": "10",
+            "question_markdown": "A geometric series has ratio q. [3 marks]",
+            "answer_requirements": [{"label": "whole", "marks": 3, "answer_kind": "numeric"}],
+            "_split_source": "primary",
+            "_split_source_digest": "trusted-source",
+            "_split_batch_index": 2,
+        },
+        {
+            "number": "10",
+            "question_markdown": (
+                "A geometric series has positive common ratio $r$.\n\n"
+                "(a) Find the allowed values. [3 marks]\n\n"
+                "(b) Find the sum. [4 marks]"
+            ),
+            "answer_requirements": [
+                {"label": "(a)", "marks": 3, "answer_kind": "expression"},
+                {"label": "(b)", "marks": 4, "answer_kind": "numeric"},
+            ],
+            "_split_source": "primary",
+            "_split_source_digest": "trusted-source",
+            "_split_batch_index": 3,
+        },
+    ]
+    model = FakeQuestionRepairModel(
+        [
+            {
+                "number": "9",
+                "candidate_indexes": [0, 1],
+                "preferred_candidate_index": 1,
+            },
+            {
+                "number": "10",
+                "candidate_indexes": [2, 3],
+                "preferred_candidate_index": 3,
+            },
+        ]
+    )
+    settings = Settings()
+    service = PaperAnswerService(
+        settings,
+        subject_context(settings),
+        catalog_loader=fake_catalog,
+        rag=object(),
+        structured_model=model,
+    )
+    monkeypatch.setattr(service, "_split_with_llm", lambda *_args, **_kwargs: candidates)
+
+    result = service.split_questions(source_markdown, unit_code="P2")
+
+    assert model.calls == 1
+    assert [item["number"] for item in result] == ["9", "10"]
+    assert "$p(x)=x^3+5x^2-x-21$" in result[0]["question_markdown"]
+    assert [part["label"] for part in result[1]["answer_requirements"]] == ["(a)", "(b)"]
+    assert result[1]["total_marks"] == 7
+    assert not any(key.startswith("_split_") for item in result for key in item)
+
+
+@pytest.mark.parametrize(
+    ("preferred_candidate_index", "expected_error"),
+    [(None, "必须为第 1 题选择权威候选"), (2, "组外候选")],
+)
+def test_split_rejects_invalid_model_candidate_selection(
+    monkeypatch: pytest.MonkeyPatch,
+    preferred_candidate_index: int | None,
+    expected_error: str,
+) -> None:
+    source_markdown = format_physical_page_markdown(
+        [(1, "1 Find $x$. [2 marks]\n\nEND OF QUESTIONS")]
+    )
+    candidates = [
+        {
+            "number": "1",
+            "question_markdown": "Find $x$. [2 marks]",
+            "answer_requirements": [{"label": "whole", "marks": 2, "answer_kind": "numeric"}],
+            "_split_source": "primary",
+            "_split_source_digest": "trusted-source",
+            "_split_batch_index": 0,
+        },
+        {
+            "number": "1",
+            "question_markdown": "Find a different $x$. [2 marks]",
+            "answer_requirements": [{"label": "whole", "marks": 2, "answer_kind": "numeric"}],
+            "_split_source": "primary",
+            "_split_source_digest": "trusted-source",
+            "_split_batch_index": 1,
+        },
+    ]
+    model = FakeQuestionRepairModel(
+        [
+            {
+                "number": "1",
+                "candidate_indexes": [0, 1],
+                "preferred_candidate_index": preferred_candidate_index,
+            }
+        ]
+    )
+    settings = Settings()
+    service = PaperAnswerService(
+        settings,
+        subject_context(settings),
+        catalog_loader=fake_catalog,
+        rag=object(),
+        structured_model=model,
+    )
+    monkeypatch.setattr(service, "_split_with_llm", lambda *_args, **_kwargs: candidates)
+
+    with pytest.raises(ValueError, match=expected_error):
         service.split_questions(source_markdown, unit_code="P2")
 
 

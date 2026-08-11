@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   backendResourceUrl,
   setApiSubject,
+  unwrapApi,
   uploadPaper,
   websocketUrl,
 } from "./api";
@@ -13,6 +14,12 @@ afterEach(() => {
 });
 
 describe("subject-scoped transport", () => {
+  it("accepts successful no-content API responses", async () => {
+    await expect(unwrapApi(Promise.resolve({
+      response: new Response(null, { status: 204 }),
+    }))).resolves.toBeUndefined();
+  });
+
   it("carries the selected package across uploads, assets, and WebSocket handshakes", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ job_id: "job-1", status: "queued", stage: "queued" }), {

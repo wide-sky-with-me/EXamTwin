@@ -121,6 +121,7 @@ class PaperJobService:
                 PaperJobSummary(
                     job_id=row["id"],
                     filename=row["filename"],
+                    display_name=row.get("display_name"),
                     unit_code=row["unit_code"],
                     status=row["status"],
                     stage=row["stage"],
@@ -156,6 +157,20 @@ class PaperJobService:
     def delete_job(self, job_id: str) -> None:
         self.delete_jobs((job_id,))
 
+    def rename_job(self, job_id: str, display_name: str) -> PaperJobResponse:
+        normalized = display_name.strip()
+        if not normalized:
+            raise ValueError("显示名称不能为空")
+        if len(normalized) > 200:
+            raise ValueError("显示名称不能超过 200 个字符")
+        self._require_job(job_id)
+        self.repository.rename(
+            job_id,
+            subject_code=self.subject.subject_code,
+            display_name=normalized,
+        )
+        return self.get_job(job_id)
+
     def create_job(
         self,
         filename: str,
@@ -175,6 +190,8 @@ class PaperJobService:
         stream: BinaryIO,
         *,
         unit_code: str | None = None,
+        answer_filename: str | None = None,
+        answer_stream: BinaryIO | None = None,
     ) -> PaperJobCreated:
         self.subject.require_paper_capability()
         if not self.subject.knowledge_base_version_ids:
@@ -182,6 +199,11 @@ class PaperJobService:
         suffix = Path(filename).suffix.lower()
         if suffix not in SUPPORTED_SUFFIXES:
             raise ValueError("仅支持 Markdown（.md/.markdown）或 PDF 试卷")
+        if (answer_filename is None) != (answer_stream is None):
+            raise ValueError("上传外部答案时必须同时提供答案文件名和内容")
+        answer_suffix = Path(answer_filename).suffix.lower() if answer_filename else None
+        if answer_suffix is not None and answer_suffix not in SUPPORTED_SUFFIXES:
+            raise ValueError("答案文件仅支持 Markdown（.md/.markdown）或 PDF")
         if classify_source(Path(filename)) == "mark_scheme":
             raise ValueError(
                 "上传文件被识别为 Mark Scheme（评分标准），请选择 Question Paper（试题）文件"
@@ -197,7 +219,11 @@ class PaperJobService:
 
         job_id = str(uuid4())
         source_rel = f"{job_id}/source{suffix}"
+        answer_source_rel = (
+            f"{job_id}/answer-source{answer_suffix}" if answer_suffix is not None else None
+        )
         source_path: Path | None = None
+        answer_source_path: Path | None = None
         try:
             source_path, _size = self.files.write_upload(
                 source_rel,
@@ -211,6 +237,17 @@ class PaperJobService:
                             pass
                 except UnicodeDecodeError as error:
                     raise ValueError("Markdown 必须使用 UTF-8 编码") from error
+            if answer_source_rel is not None and answer_stream is not None:
+                answer_source_path, _answer_size = self.files.write_upload(
+                    answer_source_rel,
+                    answer_stream,
+                    max_bytes=MAX_UPLOAD_BYTES,
+                )
+                if answer_suffix in {".md", ".markdown"}:
+                    try:
+                        answer_source_path.read_text(encoding="utf-8-sig")
+                    except UnicodeDecodeError as error:
+                        raise ValueError("答案 Markdown 必须使用 UTF-8 编码") from error
             now = utcnow()
             self.repository.create(
                 {
@@ -219,6 +256,10 @@ class PaperJobService:
                     "subject_code": self.subject.subject_code,
                     "filename": Path(filename).name,
                     "suffix": suffix,
+                    "answer_mode": "uploaded" if answer_source_rel else "generated",
+                    "answer_filename": Path(answer_filename).name if answer_filename else None,
+                    "answer_suffix": answer_suffix,
+                    "answer_source_path": answer_source_rel,
                     "unit_code": resolved_unit_code,
                     "knowledge_base_version_ids_json": json.dumps(
                         self.subject.knowledge_base_version_ids, ensure_ascii=False
@@ -248,6 +289,8 @@ class PaperJobService:
         except Exception:
             if source_path is not None:
                 self.files.remove(source_rel)
+            if answer_source_rel is not None and answer_source_path is not None:
+                self.files.remove(answer_source_rel)
             raise
         return PaperJobCreated(job_id=job_id, status="queued", stage="queued")
 
@@ -331,6 +374,7 @@ class PaperJobService:
         return PaperJobResponse(
             job_id=job["id"],
             filename=job["filename"],
+            display_name=job.get("display_name"),
             subject_pack_id=job["subject_pack_id"],
             subject_code=job["subject_code"],
             unit_code=job["unit_code"],

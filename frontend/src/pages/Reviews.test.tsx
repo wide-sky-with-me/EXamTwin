@@ -41,7 +41,6 @@ describe("Reviews", () => {
       { status: 200, headers: { "Content-Type": "application/json" } },
     ));
     vi.stubGlobal("fetch", fetch);
-    vi.stubGlobal("confirm", vi.fn(() => true));
     render(<Reviews items={[item]} refresh={refresh} />);
 
     await user.clear(screen.getByRole("textbox", { name: "复核人" }));
@@ -49,6 +48,7 @@ describe("Reviews", () => {
     expect(window.localStorage.getItem("examtwin.reviewerName")).toBe("Ms Chen");
     await user.type(screen.getByRole("spinbutton", { name: "Q1 最终得分" }), "1.5");
     await user.click(screen.getByRole("button", { name: "改分并确认" }));
+    await user.click(screen.getByRole("button", { name: "确认改分" }));
 
     await waitFor(() => expect(refresh).toHaveBeenCalledOnce());
     const request = fetch.mock.calls[0][0] as Request;
@@ -63,13 +63,14 @@ describe("Reviews", () => {
     const user = userEvent.setup();
     const fetch = vi.fn();
     vi.stubGlobal("fetch", fetch);
-    vi.stubGlobal("confirm", vi.fn(() => false));
     render(<Reviews items={[item]} refresh={vi.fn()} />);
 
     await user.type(screen.getByRole("textbox", { name: "复核人" }), "Ms Chen");
     await user.click(screen.getByRole("button", { name: "确认评分" }));
+    expect(screen.getByRole("alertdialog", { name: "确认评分？" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "取消" }));
 
-    expect(confirm).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("alertdialog", { name: "确认评分？" })).not.toBeInTheDocument();
     expect(fetch).not.toHaveBeenCalled();
   });
 });

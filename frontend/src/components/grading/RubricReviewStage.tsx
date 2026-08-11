@@ -1,11 +1,11 @@
 import {
-  ArrowLeft,
   ArrowRight,
   BookOpenCheck,
   CheckCircle2,
   LoaderCircle,
   Sparkles,
   TriangleAlert,
+  X,
   XCircle,
 } from "lucide-react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
@@ -57,6 +57,27 @@ type QuestionReviewSummary = {
 };
 
 const EMPTY_CRITERION_IDS = new Set<string>();
+const NATURAL_COLLATOR = new Intl.Collator("zh-CN", { numeric: true, sensitivity: "base" });
+const MARK_SEQUENCE: Record<string, number> = { M: 0, A: 1, B: 2 };
+
+function criterionSequence(criterionId: string): [number, number] {
+  const match = criterionId.match(/(?:^|[_-])([MAB])(\d+)$/i);
+  return match
+    ? [Number(match[2]), MARK_SEQUENCE[match[1].toUpperCase()] ?? 9]
+    : [Number.MAX_SAFE_INTEGER, 9];
+}
+
+function compareCriteria(left: RubricCriterion, right: RubricCriterion): number {
+  const question = NATURAL_COLLATOR.compare(left.question_number, right.question_number);
+  if (question !== 0) return question;
+  const subpart = NATURAL_COLLATOR.compare(left.subpart, right.subpart);
+  if (subpart !== 0) return subpart;
+  const [leftIndex, leftType] = criterionSequence(left.criterion_id);
+  const [rightIndex, rightType] = criterionSequence(right.criterion_id);
+  if (leftIndex !== rightIndex) return leftIndex - rightIndex;
+  if (leftType !== rightType) return leftType - rightType;
+  return NATURAL_COLLATOR.compare(left.criterion_id, right.criterion_id);
+}
 
 export function RubricReviewStage({
   rubric,
@@ -92,9 +113,9 @@ export function RubricReviewStage({
   onBack: () => void;
   onNext: () => void;
 }) {
-  const [questionFilter, setQuestionFilter] = useState(
-    () => rubric?.criteria[0]?.question_number ?? "ALL",
-  );
+  const [questionFilter, setQuestionFilter] = useState(() => (
+    rubric ? [...rubric.criteria].sort(compareCriteria)[0]?.question_number ?? "ALL" : "ALL"
+  ));
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [dirtyCriterionState, setDirtyCriterionState] = useState<DirtyCriterionState>(() => ({
@@ -129,9 +150,13 @@ export function RubricReviewStage({
   const acceptedCriteria = rubric?.criteria.filter((item) => item.review_status === "accepted").length ?? 0;
   const pendingCriteria = rubric?.criteria.filter((item) => item.review_status === "pending").length ?? 0;
   const rejectedCriteria = rubric?.criteria.filter((item) => item.review_status === "rejected").length ?? 0;
+  const orderedCriteria = useMemo(
+    () => [...(rubric?.criteria ?? [])].sort(compareCriteria),
+    [rubric],
+  );
   const questionSummaries = useMemo<QuestionReviewSummary[]>(() => {
     const summaries = new Map<string, QuestionReviewSummary>();
-    for (const criterion of rubric?.criteria ?? []) {
+    for (const criterion of orderedCriteria) {
       let summary = summaries.get(criterion.question_number);
       if (!summary) {
         summary = {
@@ -157,7 +182,7 @@ export function RubricReviewStage({
       }
     }
     return [...summaries.values()];
-  }, [rubric]);
+  }, [orderedCriteria]);
   const visibleQuestionGroups = useMemo(
     () => questionSummaries
       .filter((summary) => questionFilter === "ALL" || summary.number === questionFilter)
@@ -241,7 +266,7 @@ export function RubricReviewStage({
     const rubricChanged = selectedRubricIdRef.current !== rubric?.id;
     selectedRubricIdRef.current = rubric?.id;
     if (rubricChanged) {
-      setQuestionFilter(rubric?.criteria[0]?.question_number ?? "ALL");
+      setQuestionFilter(orderedCriteria[0]?.question_number ?? "ALL");
     }
     setSelectedIds((current) => {
       if (rubricChanged) return current.size === 0 ? current : new Set();
@@ -250,7 +275,7 @@ export function RubricReviewStage({
       return next;
     });
     setConfirmation(null);
-  }, [questionFilter, rubric?.criteria, rubric?.id, selectableVisibleIds, statusFilter]);
+  }, [orderedCriteria, questionFilter, rubric?.id, selectableVisibleIds, statusFilter]);
 
   useEffect(() => {
     if (selectAllRef.current) {
@@ -319,8 +344,8 @@ export function RubricReviewStage({
     setReviewCompletion({
       sequence: ++reviewCompletionSequenceRef.current,
       message: criterion
-        ? `Q${criterion.question_number} · ${criterion.criterion_id} 已${reviewStatus === "accepted" ? "接受" : "拒绝"}。`
-        : `得分点已${reviewStatus === "accepted" ? "接受" : "拒绝"}。`,
+        ? `Q${criterion.question_number} · ${criterion.criterion_id} 已${reviewStatus === "accepted" ? "保留" : "排除"}。`
+        : `得分规则已${reviewStatus === "accepted" ? "保留" : "排除"}。`,
       nextCriterionIds,
     });
     return true;
@@ -463,20 +488,25 @@ export function RubricReviewStage({
   return (
     <article className="panel grading-stage rubric-review" ref={stageRef}>
       <header className="grading-stage-header">
-        <button className="stage-back" disabled={controlsLocked} onClick={onBack} type="button">
-          <ArrowLeft size={16} />
-          返回材料选择
+        <button
+          aria-label="关闭评分标准审核"
+          className="rubric-modal-close"
+          data-modal-close=""
+          disabled={controlsLocked}
+          onClick={onBack}
+          type="button"
+        >
+          <X size={17} />
         </button>
         <div>
-          <span>材料准备 · 评分标准</span>
+          <span>评分标准</span>
           <h2 id="grading-stage-2-heading" ref={stageHeadingRef} tabIndex={-1}>
-            确认评分标准
+            审核评分标准
           </h2>
-          <p>这里只确认得分规则本身；具体答案是否得分，将在逐题判分页按学生证据核对。</p>
         </div>
         {rubric && (
           <b className={`status-pill ${rubric.status}`}>
-            {rubric.status === "confirmed" ? "已确认" : "待审核"}
+            {rubric.status === "confirmed" ? "已确认" : "规则草稿"}
           </b>
         )}
       </header>
@@ -515,9 +545,9 @@ export function RubricReviewStage({
         <>
           <div className="rubric-stats">
             <span><b>{rubric.criteria.length}</b> 条规则</span>
-            <span><b>{acceptedCriteria}</b> 已接受</span>
-            <span><b>{rejectedCriteria}</b> 已拒绝</span>
-            <span><b>{pendingCriteria}</b> 待审核</span>
+            <span><b>{acceptedCriteria}</b> 已保留</span>
+            <span><b>{rejectedCriteria}</b> 已排除</span>
+            <span><b>{pendingCriteria}</b> 待处理</span>
           </div>
           <div className="rubric-review-filters">
             <label>
@@ -549,9 +579,9 @@ export function RubricReviewStage({
                 value={statusFilter}
               >
                 <option value="all">全部状态</option>
-                <option value="pending">待审核</option>
-                <option value="accepted">已接受</option>
-                <option value="rejected">已拒绝</option>
+                <option value="pending">待处理</option>
+                <option value="accepted">已保留</option>
+                <option value="rejected">已排除</option>
               </select>
             </label>
           </div>
@@ -570,7 +600,7 @@ export function RubricReviewStage({
                     ref={selectAllRef}
                     type="checkbox"
                   />
-                  选择当前筛选下待审核项
+                  选择当前筛选下待处理规则
                 </label>
                 <strong aria-live="polite">
                   {selectedVisibleIds.length} / {selectableVisibleIds.size} 已选择
@@ -582,13 +612,13 @@ export function RubricReviewStage({
                   id="rubric-dirty-selection-guidance"
                   role="status"
                 >
-                  当前筛选有 {dirtyVisibleCriteria.length} 条未保存修改，已从批量审核和 AI 操作中排除。
-                  请逐条保存并接受，或放弃未保存修改后再批量处理。
+                  当前筛选有 {dirtyVisibleCriteria.length} 条未保存修改，已从批量操作中排除。
+                  请逐条保存并保留，或放弃修改后再批量处理。
                 </small>
               )}
               {selectionOverflowCount > 0 && (
                 <small className="rubric-selection-guidance" id="rubric-selection-limit">
-                  当前筛选有 {batchEligibleVisibleCriteria.length} 条可批量处理的待审核项；单次最多处理{" "}
+                  当前筛选有 {batchEligibleVisibleCriteria.length} 条可批量处理的规则；单次最多处理{" "}
                   {BATCH_CRITERIA_LIMIT} 条，仅前 {BATCH_CRITERIA_LIMIT} 条可选。完成本批后再处理其余{" "}
                   {selectionOverflowCount} 条。
                 </small>
@@ -612,7 +642,7 @@ export function RubricReviewStage({
                   {busy === "ai-review"
                     ? <LoaderCircle className="spin" size={15} />
                     : <Sparkles size={15} />}
-                  {selectedVisibleIds.length > 0 ? "AI 审核已选项" : "AI 审核当前待审核项"}
+                  {selectedVisibleIds.length > 0 ? "AI 检查已选规则" : "AI 检查待处理规则"}
                 </button>
                 <button
                   aria-busy={batchAcceptPending || undefined}
@@ -625,7 +655,7 @@ export function RubricReviewStage({
                   {batchAcceptPending
                     ? <LoaderCircle className="spin" size={15} />
                     : <CheckCircle2 size={15} />}
-                  {batchAcceptPending ? "正在批量接受…" : "批量接受"}
+                  {batchAcceptPending ? "正在批量保留…" : "保留所选"}
                 </button>
                 <button
                   className="secondary danger"
@@ -633,7 +663,7 @@ export function RubricReviewStage({
                   onClick={requestBatchReject}
                   type="button"
                 >
-                  <XCircle size={15} />批量拒绝
+                  <XCircle size={15} />排除所选
                 </button>
                 <button
                   className="secondary"
@@ -641,7 +671,7 @@ export function RubricReviewStage({
                   onClick={requestApplyAi}
                   type="button"
                 >
-                  <Sparkles size={15} />应用 AI 建议
+                  <Sparkles size={15} />应用 AI 检查
                 </button>
               </div>
               {error && (
@@ -663,13 +693,13 @@ export function RubricReviewStage({
             >
               <div>
                 <strong id="rubric-confirmation-title">
-                  {confirmation.kind === "reject" ? "确认批量拒绝" : "确认应用 AI 接受／拒绝建议"}
+                  {confirmation.kind === "reject" ? "确认排除所选规则" : "确认应用 AI 检查结果"}
                 </strong>
                 <p>
-                  将由 {confirmation.reviewer} 接受 {confirmation.acceptedCount} 条、拒绝{" "}
+                  将由 {confirmation.reviewer} 保留 {confirmation.acceptedCount} 条、排除{" "}
                   {confirmation.rejectedCount} 条，并为每条创建独立审计记录。
                   {confirmation.kind === "ai" && confirmation.reviseCount > 0
-                    ? `另有 ${confirmation.reviseCount} 条“建议修改”保持待审核，需逐条编辑。`
+                    ? `另有 ${confirmation.reviseCount} 条“建议修改”保持待处理，需逐条编辑。`
                     : ""}
                 </p>
               </div>
@@ -694,9 +724,9 @@ export function RubricReviewStage({
                   {confirmSubmitting && <LoaderCircle className="spin" size={15} />}
                   {confirmSubmitting
                     ? confirmation.kind === "reject"
-                      ? "正在批量拒绝…"
+                      ? "正在排除…"
                       : "正在应用 AI 建议…"
-                    : "确认并写入审核"}
+                    : "确认并保存"}
                 </button>
               </div>
             </section>
@@ -709,7 +739,7 @@ export function RubricReviewStage({
               <div className="panel-title">
                 <div>
                   <span>题目索引</span>
-                  <h2>按题核对</h2>
+                  <h2>按题查看规则</h2>
                 </div>
               </div>
               <div className="grading-question-picker">
@@ -724,18 +754,18 @@ export function RubricReviewStage({
                   <span>
                     <b>全部题目</b>
                     <small>
-                      {rubric.criteria.length - pendingCriteria}/{rubric.criteria.length} 条已核对
+                      {rubric.criteria.length - pendingCriteria}/{rubric.criteria.length} 条已处理
                     </small>
                   </span>
-                  <em>{acceptedRubricMarks}/{totalRubricMarks} 分</em>
+                  <em>{acceptedRubricMarks}/{totalRubricMarks} 分保留</em>
                 </button>
                 {questionSummaries.map((summary) => {
                   const reviewedCount = summary.criteria.length - summary.pendingCount;
                   const reviewState = summary.pendingCount > 0
-                    ? `待核对 ${summary.pendingCount} 条`
+                    ? `待处理 ${summary.pendingCount} 条`
                     : summary.rejectedCount > 0
-                      ? `已核对 · 拒绝 ${summary.rejectedCount} 条`
-                      : "全部接受";
+                      ? `已处理 · 排除 ${summary.rejectedCount} 条`
+                      : "全部保留";
                   return (
                     <button
                       aria-controls="rubric-question-review"
@@ -793,22 +823,22 @@ export function RubricReviewStage({
                           Q{group.number} 得分点
                         </h3>
                         <p>
-                          已核对 {reviewedCount}/{group.criteria.length} 条
-                          {group.pendingCount > 0 ? ` · 还有 ${group.pendingCount} 条待核对` : " · 本题已核对完成"}
+                          已处理 {reviewedCount}/{group.criteria.length} 条
+                          {group.pendingCount > 0 ? ` · 还有 ${group.pendingCount} 条` : " · 本题规则已完成"}
                         </p>
                       </div>
                       <div
-                        aria-label={`Q${group.number} 已接受 ${group.acceptedMarks} 分，共 ${group.totalMarks} 分`}
+                        aria-label={`Q${group.number} 已保留 ${group.acceptedMarks} 分，共 ${group.totalMarks} 分`}
                         className="rubric-question-mark-ledger"
                       >
                         <strong>{group.acceptedMarks}<span> / {group.totalMarks} 分</span></strong>
-                        <small>已接受分值</small>
+                        <small>已保留分值</small>
                       </div>
                     </header>
                     <div className="rubric-question-status-row">
-                      <span className="accepted">{group.acceptedCount} 条已接受</span>
-                      <span className="rejected">{group.rejectedCount} 条已拒绝</span>
-                      <span className="pending">{group.pendingCount} 条待审核</span>
+                      <span className="accepted">{group.acceptedCount} 条已保留</span>
+                      <span className="rejected">{group.rejectedCount} 条已排除</span>
+                      <span className="pending">{group.pendingCount} 条待处理</span>
                     </div>
                     <div className="rubric-criterion-list">
                       {group.visibleCriteria.map((item) => (
@@ -864,15 +894,15 @@ export function RubricReviewStage({
       {rubric?.status === "draft" && dirtyCriterionIds.size > 0 && (
         <div className="criterion-dirty-notice" id="rubric-final-confirm-guidance" role="status">
           <span>
-            仍有 {dirtyCriterionIds.size} 条未保存修改。请逐条保存并接受，或确认放弃修改后，
+            仍有 {dirtyCriterionIds.size} 条未保存修改。请逐条保存并保留，或确认放弃修改后，
             才能确认整套评分规则。
           </span>
         </div>
       )}
       <footer className="grading-stage-actions">
         <button className="secondary" disabled={controlsLocked} onClick={onBack} type="button">
-          <ArrowLeft size={16} />
-          上一步
+          <X size={16} />
+          关闭
         </button>
         {rubric?.status === "draft" ? (
           <button
@@ -892,7 +922,7 @@ export function RubricReviewStage({
             {busy === "confirm-rubric"
               ? <LoaderCircle className="spin" size={17} />
               : <CheckCircle2 size={17} />}
-            确认评分标准并开始判分
+            确认规则并开始评分
           </button>
         ) : (
           <button className="primary grading-primary-action" disabled={!rubric} onClick={onNext} type="button">

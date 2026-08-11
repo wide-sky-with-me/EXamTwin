@@ -47,6 +47,8 @@ class SubjectPackResponse(SerializedResponse):
     subject_code: str
     title: str
     board_name: str
+    icon: str = "book-open"
+    color: str = "#2F6FED"
     capability_profile_id: str | None = None
     generic_qa_enabled: bool = True
     answering_enabled: bool

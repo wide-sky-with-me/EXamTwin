@@ -1,18 +1,22 @@
 import {
+  ArrowLeft,
+  BookOpen,
   ChevronDown,
   Eye,
   FileText,
   LoaderCircle,
-  MessageSquareText,
+  Plus,
   RefreshCw,
   SearchCheck,
   TriangleAlert,
   UploadCloud,
+  X,
 } from "lucide-react";
 import {
   type DragEvent as ReactDragEvent,
   type FormEvent,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -21,6 +25,7 @@ import { createPortal } from "react-dom";
 import { AnswerDiagramView } from "../components/AnswerDiagramView";
 import { AnswerImageView } from "../components/AnswerImageView";
 import { PaperJobHistory } from "../components/PaperJobHistory";
+import { AppDialog } from "../components/ui/AppDialog";
 import {
   CitationMarkdown,
   CitationReferenceList,
@@ -36,6 +41,7 @@ import {
   apiClient,
   backendResourceUrl,
   replacePaperJob,
+  setApiSubject,
   unwrapApi,
   uploadPaper,
 } from "../lib/api";
@@ -60,12 +66,24 @@ function isSupportedPaper(file: File) {
 
 export function PaperAnswering({
   enabled,
-  subject,
+  subjects: providedSubjects,
+  subject: legacySubject,
 }: {
   enabled: boolean;
-  subject: SubjectPack | null;
+  subjects?: SubjectPack[];
+  subject?: SubjectPack | null;
 }) {
-  const jobStorageKey = `examtwin.paperJobId.${subject?.id ?? "unselected"}`;
+  const subjects = useMemo(
+    () => providedSubjects ?? (legacySubject ? [legacySubject] : []),
+    [legacySubject, providedSubjects],
+  );
+  const [subjectId, setSubjectId] = useState(legacySubject?.id ?? subjects[0]?.id ?? "");
+  const [draftSubjectId, setDraftSubjectId] = useState("");
+  const subject = subjects.find((item) => item.id === subjectId) ?? null;
+  const canAnswer = enabled && Boolean(subject?.answering_enabled);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createStep, setCreateStep] = useState<1 | 2>(1);
+  const jobStorageKey = `examtwin.paperJobId.${subjectId || "unselected"}`;
   const [file, setFile] = useState<File | null>(null);
   const [unit, setUnit] = useState("");
   const [jobId, setJobId] = useState<string | null>(() =>
@@ -87,6 +105,18 @@ export function PaperAnswering({
   const sourcePreviewDialogRef = useRef<HTMLDivElement>(null);
   const terminalNoticeRef = useRef<string | null>(null);
   const { notify } = useToast();
+  useEffect(() => {
+    if (!subjectId && subjects[0]) setSubjectId(subjects[0].id);
+  }, [subjectId, subjects]);
+
+  useEffect(() => {
+    setApiSubject(subjectId || null);
+    setJobId(window.localStorage.getItem(jobStorageKey));
+    setJob(null);
+    setSelectedIndex(0);
+    setError(null);
+  }, [jobStorageKey, subjectId]);
+
 
   useEffect(() => {
     if (!jobId || !enabled) return;
@@ -204,7 +234,7 @@ export function PaperAnswering({
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!file || !enabled) return;
+    if (!file || !canAnswer) return;
     setUploading(true);
     setError(null);
     try {
@@ -216,6 +246,7 @@ export function PaperAnswering({
       setSelectedIndex(0);
       setHistoryVersion((version) => version + 1);
       notify("试卷已保存，后台开始解析与逐题作答。");
+      setCreateOpen(false);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "试卷任务创建失败");
     } finally {
@@ -301,6 +332,33 @@ export function PaperAnswering({
     setError(null);
   }
 
+  function openCreateWorkflow() {
+    setDraftSubjectId("");
+    setCreateStep(1);
+    setFile(null);
+    setUnit("");
+    setError(null);
+    setCreateOpen(true);
+  }
+
+  function continueToPaper() {
+    if (!draftSubjectId) return;
+    setApiSubject(draftSubjectId);
+    setSubjectId(draftSubjectId);
+    setCreateStep(2);
+    setError(null);
+  }
+
+  function changeRecordSubject(nextSubjectId: string) {
+    setApiSubject(nextSubjectId || null);
+    setSubjectId(nextSubjectId);
+  }
+
+  function startAnotherPaper() {
+    resetPaper();
+    openCreateWorkflow();
+  }
+
   function handleHistoryDeleted(deletedJobId: string) {
     if (jobId === deletedJobId || job?.job_id === deletedJobId) resetPaper();
   }
@@ -313,78 +371,127 @@ export function PaperAnswering({
   const overallProgress = job ? paperProgress(job) : 0;
   const selectedCanRetry = selected ? terminal && canRetryQuestion(selected) : false;
   const failedChunks = job?.chunks.filter((chunk) => chunk.status === "failed") ?? [];
+  const failedBeforeQuestionDetection = Boolean(
+    job?.status === "failed" && job.total_questions === 0,
+  );
 
   return (
-    <section>
-      <div className="page-heading compact">
+    <section className="paper-page">
+      <header className="page-heading">
         <div>
-          <h1>{job ? "逐题查看证据化解答" : "上传试卷，逐题给出证据化解答"}</h1>
-          <p>
-            {job
-              ? "优先核对原题与答案；作答过程、知识点和引用可按需展开。"
-              : "自动识别顶层题目；每题独立检索、作答，并展示知识点难度和参考证据。"}
-          </p>
+          <h1>试卷作答</h1>
+          <p>查看整卷作答记录，或按步骤创建新任务。</p>
         </div>
-      </div>
-      <PaperJobHistory
-        currentJobId={job?.job_id ?? jobId}
-        onDeleted={handleHistoryDeleted}
-        onOpen={openHistoryJob}
-        refreshKey={historyVersion}
-        subject={subject}
-      />
-      {(!job || !terminal) && (
-      <form className="panel paper-upload" onSubmit={submit}>
-        <label
-          className={`drop-zone ${file ? "has-file" : ""}${dragging ? " is-dragging" : ""}`}
-          onDragEnter={(event) => {
-            event.preventDefault();
-            setDragging(true);
-          }}
-          onDragLeave={(event) => {
-            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-              setDragging(false);
-            }
-          }}
-          onDragOver={(event) => {
-            event.preventDefault();
-            event.dataTransfer.dropEffect = "copy";
-          }}
-          onDrop={dropPaper}
-        >
-          <input
-            type="file"
-            accept=".md,.markdown,.pdf,text/markdown,application/pdf"
-            onChange={(event) => selectPaper(event.target.files?.[0] ?? null)}
+        <button className="primary" disabled={!subjects.length} onClick={openCreateWorkflow} type="button">
+          <Plus size={17} />新建作答
+        </button>
+      </header>
+
+      {!job && (
+        <>
+          <div className="records-toolbar">
+            <label>科目
+              <select onChange={(event) => changeRecordSubject(event.target.value)} value={subjectId}>
+                {subjects.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
+              </select>
+            </label>
+          </div>
+          <PaperJobHistory
+            currentJobId={jobId}
+            onDeleted={handleHistoryDeleted}
+            onOpen={openHistoryJob}
+            refreshKey={historyVersion}
+            subject={subject}
           />
-          <UploadCloud size={30} />
-          <strong>{file ? file.name : `选择或拖入一份${subject?.subject_code ? ` ${subject.subject_code}` : ""}试卷`}</strong>
-          <span>{file ? `${(file.size / 1024 / 1024).toFixed(2)} MB` : "Markdown 或 PDF，最大 25 MB"}</span>
-        </label>
-        <div className="paper-options">
-          <label>限定单元（可选）
-            <select value={unit} onChange={(e) => setUnit(e.target.value)}>
-              <option value="">全部单元</option>
-              {subject?.units.map((item) => (
-                <option key={item.code} value={item.code}>
-                  {item.code} · {item.title}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button className="primary" disabled={uploading || !file || !enabled}>
-            {uploading ? <LoaderCircle className="spin" size={18} /> : <SearchCheck size={18} />}
-            {uploading ? "正在创建任务…" : "开始整卷作答"}
+        </>
+      )}
+
+      {job && (
+        <div className="selected-context-bar paper-current-context">
+          <div>
+            <span>
+              当前任务 · {subject?.title ?? job.subject_code} · {PAPER_JOB_STAGE_LABELS[job.stage]}
+            </span>
+            <strong title={job.display_name || job.filename}>{job.display_name || job.filename}</strong>
+          </div>
+          <button className="secondary" onClick={resetPaper} type="button">
+            <ArrowLeft size={15} />返回作答记录
           </button>
         </div>
-        <ErrorBanner
-          message={
-            enabled
-              ? error
-              : "当前作答服务尚未就绪，已暂停上传。请等待系统恢复后重试。"
-          }
-        />
-      </form>
+      )}
+
+      {job && (
+        <div className="workflow-stepper compact-stepper" aria-label="作答流程">
+          <span className="complete"><b>1</b>选择科目</span>
+          <span className="complete"><b>2</b>试卷与参考范围</span>
+          <span className={job.status === "failed" ? "failed" : "active"}>
+            <b>3</b>{job.status === "failed" ? "处理失败，可继续" : "作答进度与结果"}
+          </span>
+        </div>
+      )}
+
+      {createOpen && (
+        <AppDialog
+          contentClassName="modal-card workflow-modal"
+          dismissible={!uploading}
+          initialFocusSelector="#paper-workflow-title"
+          onOpenChange={setCreateOpen}
+          open
+          title={createStep === 1 ? "选择科目" : "上传试卷并设置参考范围"}
+        >
+            <header className="modal-header">
+              <div><span>新建作答</span><h2 id="paper-workflow-title">{createStep === 1 ? "选择科目" : "上传试卷并设置参考范围"}</h2></div>
+              <button aria-label="关闭" className="icon-button" data-modal-close onClick={() => setCreateOpen(false)} type="button"><X size={19} /></button>
+            </header>
+            <div className="workflow-stepper">
+              <span className={createStep >= 1 ? "active" : ""}><b>1</b>选择科目</span>
+              <span className={createStep >= 2 ? "active" : ""}><b>2</b>试卷与参考范围</span>
+              <span><b>3</b>作答进度与结果</span>
+            </div>
+            <div className="workflow-modal-body">
+              {createStep === 1 ? (
+                <>
+                  <div className="workflow-subject-list">
+                    {subjects.map((item) => (
+                      <button aria-pressed={draftSubjectId === item.id} className={draftSubjectId === item.id ? "active" : ""} disabled={!item.answering_enabled} key={item.id} onClick={() => setDraftSubjectId(item.id)} type="button">
+                        <BookOpen size={20} /><span><strong>{item.title}</strong><small>{item.subject_code} · {item.board_name}</small></span>
+                      </button>
+                    ))}
+                  </div>
+                  <footer className="modal-actions"><button className="primary" disabled={!draftSubjectId} onClick={continueToPaper} type="button">下一步</button></footer>
+                </>
+              ) : (
+                <form className="paper-upload" onSubmit={submit}>
+                  <label
+                    className={`drop-zone ${file ? "has-file" : ""}${dragging ? " is-dragging" : ""}`}
+                    onDragEnter={(event) => { event.preventDefault(); setDragging(true); }}
+                    onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false); }}
+                    onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; }}
+                    onDrop={dropPaper}
+                  >
+                    <input accept=".md,.markdown,.pdf,text/markdown,application/pdf" onChange={(event) => selectPaper(event.target.files?.[0] ?? null)} type="file" />
+                    <UploadCloud size={30} />
+                    <strong>{file ? file.name : `选择或拖入一份 ${subject?.subject_code ?? ""} 试卷`}</strong>
+                    <span>{file ? `${(file.size / 1024 / 1024).toFixed(2)} MB` : "Markdown 或 PDF，最大 25 MB"}</span>
+                  </label>
+                  <label>参考单元（可选）
+                    <select onChange={(event) => setUnit(event.target.value)} value={unit}>
+                      <option value="">全部单元与当前知识库版本</option>
+                      {subject?.units.map((item) => <option key={item.code} value={item.code}>{item.code} · {item.title}</option>)}
+                    </select>
+                  </label>
+                  <ErrorBanner message={canAnswer ? error : "该科目尚未配置可用的试卷作答能力。"} />
+                  <footer className="modal-actions">
+                    <button className="secondary" onClick={() => setCreateStep(1)} type="button">上一步</button>
+                    <button className="primary" disabled={uploading || !file || !canAnswer} type="submit">
+                      {uploading ? <LoaderCircle className="spin" size={18} /> : <SearchCheck size={18} />}
+                      {uploading ? "正在创建任务…" : "开始整卷作答"}
+                    </button>
+                  </footer>
+                </form>
+              )}
+            </div>
+        </AppDialog>
       )}
       {job && (
         job.source_integrity_status === "legacy_unverified"
@@ -422,7 +529,9 @@ export function PaperAnswering({
                 : job.status === "partial_failed"
                   ? `${job.completed_questions} 题已处理 · ${job.failed_questions} 题处理失败`
                   : job.status === "failed"
-                    ? "整卷处理失败"
+                    ? job.stage === "parsing" && job.total_pages
+                      ? `解析中断 · 已完成 ${job.parsed_pages} / ${job.total_pages} 页`
+                      : "整卷处理失败"
                     : job.stage === "parsing" && job.total_pages
                       ? `${job.parsed_pages} / ${job.total_pages} 页`
                       : job.stage === "vision_review"
@@ -464,9 +573,13 @@ export function PaperAnswering({
             </button>
           )}
           {(job.status === "failed" || job.status === "partial_failed") && (
-            <button className="secondary" onClick={() => void retry()} disabled={retrying}>
+            <button
+              className={failedBeforeQuestionDetection ? "primary" : "secondary"}
+              onClick={() => void retry()}
+              disabled={retrying}
+            >
               {retrying ? <LoaderCircle className="spin" size={15} /> : <RefreshCw size={15} />}
-              仅重试失败步骤
+              {failedBeforeQuestionDetection ? "从失败步骤继续" : "仅重试失败步骤"}
             </button>
           )}
           <ErrorBanner message={job.error ?? null} />
@@ -480,22 +593,39 @@ export function PaperAnswering({
               ))}
             </div>
           )}
+          {failedBeforeQuestionDetection && (
+            <p className="paper-recovery-note">
+              已完成的页段会保留；继续后只重新处理失败页段，无需重新上传试卷。
+            </p>
+          )}
         </article>
       )}
-      {!job ? (
-        <article className="panel empty paper-empty">
-          <MessageSquareText size={36} />
-          <p>{uploading ? "正在保存试卷任务。" : "逐题答案、知识点与证据会显示在这里"}</p>
+      {job && failedBeforeQuestionDetection && (
+        <article className="panel paper-terminal-empty" role="status">
+          <div className="paper-terminal-empty-icon"><TriangleAlert size={22} /></div>
+          <div>
+            <span>暂无逐题结果</span>
+            <h2>任务在题目识别前中断</h2>
+            <p>
+              前 {job.parsed_pages} / {job.total_pages} 页解析结果已经保存。
+              修复后可从失败页段继续，不会重复处理已完成页段。
+            </p>
+            <small>{job.display_name || job.filename}</small>
+          </div>
+          <button className="secondary" onClick={startAnotherPaper} type="button">
+            <UploadCloud size={15} />上传另一份试卷
+          </button>
         </article>
-      ) : (
+      )}
+      {job && !failedBeforeQuestionDetection && (
         <>
           <div className="paper-summary">
             <strong>{job.total_questions}</strong><span>题目</span>
             <strong>{job.completed_questions}</strong><span>已处理</span>
             <strong className={job.failed_questions ? "failed" : ""}>{job.failed_questions}</strong><span>处理失败</span>
-            <em>{job.filename}</em>
+            <em>{job.display_name || job.filename}</em>
             {terminal && (
-              <button className="secondary" onClick={resetPaper} type="button">
+              <button className="secondary" onClick={startAnotherPaper} type="button">
                 <UploadCloud size={15} />
                 {job.status === "failed" ? "上传另一份试卷" : "作答另一份试卷"}
               </button>

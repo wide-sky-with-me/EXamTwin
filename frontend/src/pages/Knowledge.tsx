@@ -19,6 +19,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ErrorBanner } from "../components/Feedback";
 import { GraphNodeFormula, KnowledgeGraphCanvas } from "../components/KnowledgeGraphCanvas";
 import { InlineMarkdown } from "../components/Markdown";
+import { AppConfirmDialog } from "../components/ui/AppConfirmDialog";
 import { apiClient, unwrapApi, uploadWorkspaceDocument } from "../lib/api";
 import { difficultyOf, relationLabels, sourceLabels } from "../lib/evidence";
 import { useModalFocus } from "../lib/use-modal-focus";
@@ -543,6 +544,7 @@ function GraphWorkbench({
 }) {
   const [versions, setVersions] = useState<GraphVersionSummary[]>([]);
   const [graph, setGraph] = useState<GraphVersion | null>(null);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [versionId, setVersionId] = useState(subject.active_graph_version_id ?? "");
   const [baseVersionId, setBaseVersionId] = useState(
     subject.knowledge_bases.find((base) => base.active_version_id)?.active_version_id ?? "",
@@ -752,9 +754,6 @@ function GraphWorkbench({
 
   async function deleteGraph() {
     if (!graph) return;
-    if (!window.confirm(`删除图谱 v${graph.version_number}？该版本的全部节点与关系将永久删除。`)) {
-      return;
-    }
     setBusy("delete");
     setError(null);
     try {
@@ -770,6 +769,7 @@ function GraphWorkbench({
       graphRequestRef.current += 1;
       setFullscreen(false);
       setGraph(null);
+      setDeleteConfirmOpen(false);
       setSelectedNodeId(null);
       setSelectedEdgeId(null);
       await loadVersions();
@@ -824,7 +824,7 @@ function GraphWorkbench({
         </div>
         {graph?.status === "draft" && <button className="secondary" disabled={busy !== null} onClick={() => void reviewAll()} type="button"><CheckCircle2 size={16} />接受全部</button>}
         {graph?.status === "draft" && <button className="primary" disabled={busy !== null} onClick={() => void publishGraph()} type="button"><UploadCloud size={16} />发布图谱</button>}
-        {graph && <button className="secondary danger" disabled={busy !== null} onClick={() => void deleteGraph()} type="button"><Trash2 size={16} />删除当前图谱</button>}
+        {graph && <button className="secondary danger" disabled={busy !== null} onClick={() => setDeleteConfirmOpen(true)} type="button"><Trash2 size={16} />删除当前图谱</button>}
         {graph?.status === "published" && <span className="graph-published"><CheckCircle2 size={15} />已发布并参与检索</span>}
       </article>
       <ErrorBanner message={error} />
@@ -908,6 +908,18 @@ function GraphWorkbench({
           </aside>
         </div>
       )}
+      <AppConfirmDialog
+        busy={busy === "delete"}
+        confirmLabel="永久删除图谱"
+        danger
+        description={graph
+          ? `将永久删除图谱 v${graph.version_number} 的全部节点与关系。此操作不可恢复。`
+          : ""}
+        onConfirm={deleteGraph}
+        onOpenChange={setDeleteConfirmOpen}
+        open={deleteConfirmOpen}
+        title="确认删除图谱"
+      />
     </>
   );
 }

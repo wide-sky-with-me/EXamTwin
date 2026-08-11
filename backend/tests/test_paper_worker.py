@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import pymupdf
 import pytest
 from examtwin.assessment.paper_classification import PaperDocumentClassification
 from examtwin.assessment.paper_parsing import (
@@ -12,7 +13,7 @@ from examtwin.assessment.paper_parsing import (
     ParsedPaperChunk,
     extract_paper_chunk,
 )
-from examtwin.assessment.paper_worker import PaperWorker
+from examtwin.assessment.paper_worker import PaperWorker, _split_uploaded_answers
 from examtwin.contracts import (
     PaperQuestionAnswer,
 )
@@ -22,6 +23,13 @@ from examtwin.subjects.public import subject_context
 from backend.tests.paper_job_support import (
     FakeAnswerService,
 )
+
+
+def test_uploaded_answers_accept_compact_q1_markdown_headings() -> None:
+    assert _split_uploaded_answers("# Q1\nFirst answer\n\n## Question 2\nSecond answer") == {
+        "1": "First answer",
+        "2": "Second answer",
+    }
 
 
 def test_split_checkpoint_requires_matching_input_digest(tmp_path: Path) -> None:
@@ -99,6 +107,78 @@ def test_worker_persists_mineru_images_and_keeps_their_markdown_position(
                     ),
                 ),
             ),
+        )
+
+
+def test_worker_maps_unpositioned_mineru_images_when_only_one_pdf_page_has_images(
+    tmp_path: Path,
+) -> None:
+    class AssetFiles:
+        def write_file(self, relative_path: str, content: bytes | str) -> None:
+            path = tmp_path / relative_path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(content if isinstance(content, bytes) else content.encode())
+
+    source_path = tmp_path / "paper.pdf"
+    document = pymupdf.open()
+    document.new_page()
+    image_page = document.new_page()
+    pixmap = pymupdf.Pixmap(pymupdf.csGRAY, pymupdf.IRect(0, 0, 2, 2), 0)
+    pixmap.clear_with(255)
+    image_page.insert_image(
+        pymupdf.Rect(20, 20, 80, 80),
+        stream=pixmap.tobytes("png"),
+    )
+    document.new_page()
+    document.save(source_path)
+    document.close()
+
+    content = b"unpositioned-figure"
+    parsed = ParsedPaperChunk(
+        markdown="Question\n\n![Figure](images/figure.png)",
+        images=(
+            ExtractedPaperImage(
+                name="figure.png",
+                path="images/figure.png",
+                content=content,
+            ),
+        ),
+    )
+    worker = PaperWorker(
+        Settings(object_store_local_root=tmp_path),
+        subject_context(Settings(object_store_local_root=tmp_path)),
+        jobs=AssetFiles(),  # type: ignore[arg-type]
+        answer_service=FakeAnswerService(),  # type: ignore[arg-type]
+    )
+
+    markdown = worker._persist_chunk_images(
+        "job-1",
+        1,
+        3,
+        parsed,
+        source_path=source_path,
+    )
+
+    digest = hashlib.sha256(content).hexdigest()
+    asset_name = f"p0002-{digest}.png"
+    assert markdown == (
+        f"Question\n\n![Figure](/api/v1/papers/jobs/job-1/question-images/{asset_name})"
+    )
+    assert (tmp_path / "job-1" / "question-images" / asset_name).read_bytes() == content
+
+    with pytest.raises(ValueError, match="缺少物理页位置"):
+        worker._persist_chunk_images(
+            "job-2",
+            1,
+            3,
+            ParsedPaperChunk(
+                markdown=("![Figure A](images/a.png)\n\n![Figure B](images/b.png)"),
+                images=(
+                    ExtractedPaperImage("a.png", "images/a.png", b"a"),
+                    ExtractedPaperImage("b.png", "images/b.png", b"b"),
+                ),
+            ),
+            source_path=source_path,
         )
 
 

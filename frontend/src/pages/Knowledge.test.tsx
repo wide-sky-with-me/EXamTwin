@@ -233,6 +233,7 @@ describe("Knowledge graph workbench", () => {
     await user.click(screen.getByRole("button", { name: "退出图谱全屏" }));
 
     await user.click(screen.getByRole("button", { name: "删除当前图谱" }));
+    await user.click(screen.getByRole("button", { name: "永久删除图谱" }));
     await waitFor(() => expect(deletedVersion).toBe("graph-b"));
     expect(screen.queryByRole("button", { name: "选择图谱 v2 · draft" }))
       .not.toBeInTheDocument();

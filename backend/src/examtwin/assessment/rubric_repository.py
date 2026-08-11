@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import uuid
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -37,6 +38,32 @@ _ALLOWED_UPDATE_FIELDS = _REQUIRED_UPDATE_FIELDS | {
     "follow_through_policy",
     "source_page",
 }
+
+_MARK_SEQUENCE = {"M": 0, "A": 1, "B": 2}
+
+
+def _natural_key(value: object) -> tuple[str, ...]:
+    return tuple(
+        f"0{int(part):012d}" if part.isdigit() else f"1{part.casefold()}"
+        for part in re.split(r"(\d+)", str(value))
+        if part
+    )
+
+
+def _rubric_criterion_sort_key(
+    criterion: RubricCriterionModel,
+) -> tuple[tuple[str, ...], tuple[str, ...], tuple[int, int], tuple[str, ...]]:
+    criterion_id = str(criterion.criterion_id)
+    mark = re.search(r"(?:^|[_-])([MAB])(\d+)$", criterion_id, re.IGNORECASE)
+    mark_order = (
+        (int(mark.group(2)), _MARK_SEQUENCE[mark.group(1).upper()]) if mark else (10**9, 10**9)
+    )
+    return (
+        _natural_key(criterion.question_number),
+        _natural_key(criterion.subpart),
+        mark_order,
+        _natural_key(criterion_id),
+    )
 
 
 def _is_criterion_fingerprint(value: object) -> bool:
@@ -342,6 +369,7 @@ class RubricRepository:
                     )
                 )
             )
+            criteria.sort(key=_rubric_criterion_sort_key)
             latest_ai_reviews: dict[str, RubricCriterionAiReviewModel] = {}
             if criteria:
                 ai_reviews = session.scalars(
@@ -666,4 +694,6 @@ class RubricRepository:
             .order_by(RubricCriterionModel.subpart, RubricCriterionModel.criterion_id)
         )
         with self.sessions() as session:
-            return [_criterion_dict(row) for row in session.scalars(statement)]
+            criteria = list(session.scalars(statement))
+        criteria.sort(key=_rubric_criterion_sort_key)
+        return [_criterion_dict(row) for row in criteria]

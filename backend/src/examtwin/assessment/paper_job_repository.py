@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -44,6 +44,19 @@ class PaperJobRepository:
         with self.sessions() as session:
             row = session.get(PaperJobModel, job_id)
         return None if row is None else _row_dict(row)
+
+    def rename(self, job_id: str, *, subject_code: str, display_name: str) -> None:
+        with self.sessions.begin() as session:
+            result = session.execute(
+                update(PaperJobModel)
+                .where(
+                    PaperJobModel.id == job_id,
+                    PaperJobModel.subject_code == subject_code,
+                )
+                .values(display_name=display_name, updated_at=utcnow())
+            )
+            if affected_rows(result) != 1:
+                raise LookupError("试卷任务不存在")
 
     def replacement_ids(self, job_ids: Sequence[str]) -> dict[str, str]:
         if not job_ids:
@@ -96,7 +109,13 @@ class PaperJobRepository:
         if unit_code:
             conditions.append(PaperJobModel.unit_code == unit_code)
         if query:
-            conditions.append(PaperJobModel.filename.ilike(f"%{query.strip()}%"))
+            pattern = f"%{query.strip()}%"
+            conditions.append(
+                or_(
+                    PaperJobModel.filename.ilike(pattern),
+                    PaperJobModel.display_name.ilike(pattern),
+                )
+            )
         if created_after:
             conditions.append(PaperJobModel.created_at >= created_after)
         statement = (

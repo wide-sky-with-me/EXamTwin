@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from collections import Counter
@@ -8,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from html import unescape
 from pathlib import Path
 from typing import Literal
+from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -28,7 +30,11 @@ from examtwin.platform.agent_runtime import (
     StructuredTask,
     StructuredTaskRunner,
 )
-from examtwin.platform.cache_paths import MarkdownCacheMissing, resolve_markdown_cache_path
+from examtwin.platform.cache_paths import (
+    MarkdownCacheMissing,
+    MarkdownCacheStore,
+    resolve_markdown_cache_path,
+)
 from examtwin.platform.config import Settings
 from examtwin.platform.prompts import load_prompt_template
 from examtwin.platform.structured_model import LiteLLMStructuredModel
@@ -139,6 +145,17 @@ def _criterion_scoring_payload(
     }
 
 
+def _actionable_review_updates(
+    criterion: Mapping[str, object],
+    updates: RubricCriterionPatch | None,
+) -> dict[str, object] | None:
+    if updates is None:
+        return None
+    proposed = updates.model_dump(exclude_unset=True)
+    actionable = {key: value for key, value in proposed.items() if criterion.get(key) != value}
+    return actionable or None
+
+
 def _review_question_criteria(
     model: StructuredModelPort,
     settings: Settings,
@@ -181,10 +198,19 @@ def _review_question_criteria(
         )
         output_ids = [item.review_id for item in payload.reviews]
         id_mismatch = Counter(output_ids) != Counter(expected_ids)
+        criteria_by_id = {str(item["id"]): item for item in criteria}
         empty_revise_ids = [
             item.review_id
             for item in payload.reviews
-            if item.recommendation == "revise" and item.suggested_updates is None
+            if item.recommendation == "revise"
+            and (
+                item.review_id not in criteria_by_id
+                or _actionable_review_updates(
+                    criteria_by_id[item.review_id],
+                    item.suggested_updates,
+                )
+                is None
+            )
         ]
         if id_mismatch or empty_revise_ids:
             correction_reasons: list[str] = []
@@ -219,10 +245,9 @@ def _review_question_criteria(
             )
         reviews: list[dict[str, object]] = []
         for item in payload.reviews:
-            updates = (
-                item.suggested_updates.model_dump(exclude_unset=True)
-                if item.suggested_updates is not None
-                else None
+            updates = _actionable_review_updates(
+                criteria_by_id[item.review_id],
+                item.suggested_updates,
             )
             if item.recommendation == "revise" and not updates:
                 raise AiReviewModelError("AI 的 revise 建议必须包含有效修改")
@@ -530,6 +555,41 @@ _RUBRIC_SYSTEM_PROMPT = (
     "atom, or merge separate atoms."
 )
 
+_GENERATED_RUBRIC_SYSTEM_PROMPT = (
+    "You are a senior teacher drafting a provisional mark scheme because no official mark "
+    "scheme is available. Return an auditable typed rubric for exactly the supplied question. "
+    "Use one criterion per indivisible mark. Base every criterion only on the question, its "
+    "stated mark budget, and the supplied course context. Preserve valid alternative methods, "
+    "accuracy, units, dependencies, and follow-through rules. The sum of max_marks must equal "
+    "the question mark budget when one is supplied. Set source_page to null and source_excerpt "
+    "to a short statement that this criterion was AI-generated from the question. Never claim "
+    "that a criterion came from an official source."
+)
+
+
+def _generate_question_rubric(
+    model: StructuredModelPort,
+    settings: Settings,
+    question: Mapping[str, object],
+    course_context: str,
+) -> RubricExtractionDraft:
+    number = str(question["number"])
+    requirements = str(question.get("requirements_json") or "{}")
+    user_content = (
+        f"COURSE CONTEXT:\n{course_context[:12000]}\n\n"
+        f"TARGET QUESTION: {number}\n\n"
+        f"QUESTION {number}:\n{str(question['question_markdown'])[:10000]}\n\n"
+        f"MARK AND ANSWER REQUIREMENTS:\n{requirements[:8000]}"
+    )
+    return StructuredTaskRunner(model).run(
+        StructuredTask(
+            system_prompt=_GENERATED_RUBRIC_SYSTEM_PROMPT,
+            user_content=user_content,
+        ),
+        RubricExtractionDraft,
+        timeout=settings.grading_timeout,
+    )
+
 
 def _question_label(value: str) -> tuple[str, str | None] | None:
     match = _QUESTION_LABEL.fullmatch(value)
@@ -651,6 +711,7 @@ class RubricService:
         grading: GradingService,
         *,
         structured_model: StructuredModelPort | None = None,
+        markdown_cache: MarkdownCacheStore | None = None,
     ) -> None:
         self.settings = settings
         self.subject = subject
@@ -660,6 +721,7 @@ class RubricService:
         self.assessments = assessments
         self.grading = grading
         self.structured_model = structured_model
+        self.markdown_cache = markdown_cache or MarkdownCacheStore(settings.markdown_dir)
 
     def _document_markdown(
         self,
@@ -696,18 +758,17 @@ class RubricService:
     ) -> dict[str, object]:
         identity = rubric.get("identity")
         expected_pair = str(identity.get("pair_key") or "") if isinstance(identity, Mapping) else ""
+        source_kind = (
+            str(identity.get("source_kind") or "official")
+            if isinstance(identity, Mapping)
+            else "official"
+        )
         expected_document_id = str(rubric.get("source_document_id") or "")
         expected_checksum = str(rubric.get("source_document_checksum") or "")
         if document is None:
             raise RubricConflictError("评分规则来源 Mark Scheme 已发生变化，请重新创建评分规则")
-        parsed_identity = parse_exam_identity(
-            Path(str(document.get("filename") or "")),
-            "mark_scheme",
-            self.subject.pack,
-        )
         current_pair = str(document.get("pair_key") or "")
-        parsed_pair = str(parsed_identity.get("pair_key") or "")
-        if (
+        invalid = (
             str(document.get("id") or "") != expected_document_id
             or document.get("subject_code") != self.subject.subject_code
             or document.get("source_type") != "mark_scheme"
@@ -715,8 +776,15 @@ class RubricService:
             or document.get("identity_status") != "complete"
             or not expected_pair
             or current_pair != expected_pair
-            or parsed_pair != expected_pair
-        ):
+        )
+        if source_kind != "ai_generated":
+            parsed_identity = parse_exam_identity(
+                Path(str(document.get("filename") or "")),
+                "mark_scheme",
+                self.subject.pack,
+            )
+            invalid = invalid or str(parsed_identity.get("pair_key") or "") != expected_pair
+        if invalid:
             raise RubricConflictError("评分规则来源 Mark Scheme 已发生变化，请重新创建评分规则")
         self._require_converted_source(document, expected_checksum)
         return document
@@ -728,7 +796,11 @@ class RubricService:
         if job["status"] not in {"completed", "partial_failed"}:
             raise ValueError("只能为已完成作答的试卷创建评分规则")
         document = self.documents.get(source_document_id)
-        if document is None or document.get("subject_code") != self.subject.subject_code:
+        if (
+            document is None
+            or document.get("status") == "deleted"
+            or document.get("subject_code") != self.subject.subject_code
+        ):
             raise LookupError("评分方案文档不存在")
         if document.get("source_type") != "mark_scheme":
             raise ValueError("所选文档不是 Mark Scheme")
@@ -802,11 +874,128 @@ class RubricService:
             criteria=criteria,
         )
 
+    def generate(self, *, paper_job_id: str) -> dict[str, object]:
+        job = self.papers.get(paper_job_id)
+        if job is None or job["subject_code"] != self.subject.subject_code:
+            raise LookupError("试卷作答任务不存在")
+        if job["status"] not in {"completed", "partial_failed"}:
+            raise ValueError("只能为已完成作答的试卷生成评分标准")
+        questions = self.papers.questions(paper_job_id)
+        if not questions:
+            raise ValueError("试卷任务没有可评分题目")
+
+        course_context = json.dumps(
+            {
+                "course": self.subject.pack.title,
+                "subject_code": self.subject.subject_code,
+                "units": [
+                    {"code": unit.code, "title": unit.title, "strand": unit.strand}
+                    for unit in self.subject.pack.unit_rules
+                ],
+            },
+            ensure_ascii=False,
+        )
+        model = self.structured_model or _structured_model(self.settings)
+        with ThreadPoolExecutor(max_workers=min(4, len(questions))) as executor:
+            payloads = list(
+                executor.map(
+                    lambda question: _generate_question_rubric(
+                        model,
+                        self.settings,
+                        question,
+                        course_context,
+                    ),
+                    questions,
+                )
+            )
+
+        criteria: list[dict[str, object]] = []
+        warnings = ["该评分标准由 AI 根据试卷与课程上下文生成，必须由教师逐条审核确认。"]
+        for question, payload in zip(questions, payloads, strict=True):
+            number = str(question["number"])
+            mapped = _map_criteria_to_questions(payload, {number})
+            try:
+                requirements = json.loads(str(question.get("requirements_json") or "{}"))
+            except json.JSONDecodeError:
+                requirements = {}
+            expected_marks = requirements.get("total_marks")
+            if expected_marks is not None:
+                actual_marks = sum(float(str(item["max_marks"])) for item in mapped)
+                if abs(actual_marks - float(str(expected_marks))) > 1e-9:
+                    raise ValueError(
+                        f"AI 生成的第 {number} 题评分标准合计 {actual_marks:g} 分，"
+                        f"与题面 {float(str(expected_marks)):g} 分不一致"
+                    )
+            criteria.extend(mapped)
+            warnings.extend(payload.warnings)
+        if not criteria:
+            raise ValueError("AI 未能生成可审核的评分原子")
+
+        markdown_lines = [
+            "# AI Generated Provisional Mark Scheme",
+            "",
+            "> This draft is not an official mark scheme and requires teacher confirmation.",
+            "",
+        ]
+        for item in criteria:
+            mark_label = item.get("mark_type") or f"{float(str(item['max_marks'])):g} marks"
+            markdown_lines.extend(
+                [
+                    f"## Q{item['question_number']} {item['subpart']}",
+                    f"- **{mark_label}** {item['description']}",
+                    "",
+                ]
+            )
+        markdown = "\n".join(markdown_lines)
+        checksum = hashlib.sha256(markdown.encode("utf-8")).hexdigest()
+        document_id = str(uuid4())
+        self.markdown_cache.write(
+            document_id,
+            markdown,
+            source_checksum=checksum,
+        )
+        markdown_path = self.markdown_cache.key(
+            document_id,
+            source_checksum=checksum,
+        )
+        parsed_identity = parse_exam_identity(
+            Path(str(job.get("filename") or "")),
+            "question_paper",
+            self.subject.pack,
+        )
+        pair_key = str(parsed_identity.get("pair_key") or f"generated:{paper_job_id}")
+        filename = f"AI-generated-mark-scheme-{paper_job_id[:8]}.md"
+        self.documents.register_generated_mark_scheme(
+            document_id=document_id,
+            subject_id=self.subject.id,
+            subject_code=self.subject.subject_code,
+            filename=filename,
+            checksum=checksum,
+            pair_key=pair_key,
+            markdown_path=markdown_path,
+        )
+        return self.rubrics.create(
+            subject_id=self.subject.id,
+            paper_job_id=paper_job_id,
+            source_document_id=document_id,
+            source_document_checksum=checksum,
+            identity={
+                "paper_filename": str(job["filename"]),
+                "mark_scheme_filename": filename,
+                "pair_key": pair_key,
+                "source_kind": "ai_generated",
+            },
+            parser_model=self.settings.grading_model,
+            warnings=_dedupe_warnings(warnings),
+            criteria=criteria,
+        )
+
     def papers_ready_for_grading(self) -> list[dict[str, object]]:
         return [
             {
                 "job_id": row["id"],
                 "filename": row["filename"],
+                "display_name": row.get("display_name"),
                 "unit_code": row["unit_code"],
                 "status": row["status"],
                 "total_questions": row["total_questions"],

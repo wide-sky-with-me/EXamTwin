@@ -619,6 +619,37 @@
         "title": "Body_answer_paper_api_v1_papers_answer_post",
         "type": "object"
       },
+      "Body_import_answered_paper_api_v1_papers_import_answer_post": {
+        "properties": {
+          "answer_file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "Answer File",
+            "type": "string"
+          },
+          "question_file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "Question File",
+            "type": "string"
+          },
+          "unit_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Code"
+          }
+        },
+        "required": [
+          "question_file",
+          "answer_file"
+        ],
+        "title": "Body_import_answered_paper_api_v1_papers_import_answer_post",
+        "type": "object"
+      },
       "Body_upload_workspace_document_api_v1_subject_workspaces__workspace_id__documents_post": {
         "properties": {
           "file": {
@@ -936,9 +967,31 @@
             ],
             "title": "Capability Profile Id"
           },
+          "color": {
+            "default": "#2F6FED",
+            "pattern": "^#[0-9A-Fa-f]{6}$",
+            "title": "Color",
+            "type": "string"
+          },
+          "icon": {
+            "default": "book-open",
+            "enum": [
+              "book-open",
+              "calculator",
+              "chart-no-axes-combined",
+              "flask-conical",
+              "languages",
+              "landmark",
+              "atom",
+              "graduation-cap"
+            ],
+            "title": "Icon",
+            "type": "string"
+          },
           "id": {
             "maxLength": 63,
             "minLength": 2,
+            "pattern": "^[a-z0-9][a-z0-9-]{1,62}$",
             "title": "Id",
             "type": "string"
           },
@@ -1247,6 +1300,19 @@
         "title": "DiagramLegendItem",
         "type": "object"
       },
+      "GenerateRubricRequest": {
+        "properties": {
+          "paper_job_id": {
+            "title": "Paper Job Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "paper_job_id"
+        ],
+        "title": "GenerateRubricRequest",
+        "type": "object"
+      },
       "GradePaperQuestionRequest": {
         "properties": {
           "rubric_set_id": {
@@ -1532,6 +1598,17 @@
             "title": "Completed Questions",
             "type": "integer"
           },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
           "failed_questions": {
             "title": "Failed Questions",
             "type": "integer"
@@ -1576,6 +1653,7 @@
         "required": [
           "job_id",
           "filename",
+          "display_name",
           "unit_code",
           "status",
           "total_questions",
@@ -3048,6 +3126,17 @@
             "title": "Created At",
             "type": "string"
           },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
           "error": {
             "anyOf": [
               {
@@ -3215,6 +3304,7 @@
         "required": [
           "job_id",
           "filename",
+          "display_name",
           "subject_pack_id",
           "subject_code",
           "unit_code",
@@ -3250,6 +3340,17 @@
           "created_at": {
             "title": "Created At",
             "type": "string"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
           },
           "failed_questions": {
             "title": "Failed Questions",
@@ -3355,6 +3456,7 @@
         "required": [
           "job_id",
           "filename",
+          "display_name",
           "unit_code",
           "status",
           "stage",
@@ -3484,6 +3586,37 @@
           "subjects"
         ],
         "title": "PlatformStatusResponse",
+        "type": "object"
+      },
+      "RenamePaperJobRequest": {
+        "properties": {
+          "display_name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Display Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "display_name"
+        ],
+        "title": "RenamePaperJobRequest",
+        "type": "object"
+      },
+      "RenameSourceDocumentRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "display_name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Display Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "display_name"
+        ],
+        "title": "RenameSourceDocumentRequest",
         "type": "object"
       },
       "ReviewAllRequest": {
@@ -4521,6 +4654,17 @@
             "title": "Checksum",
             "type": "string"
           },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
           "error": {
             "anyOf": [
               {
@@ -4593,6 +4737,7 @@
         "required": [
           "id",
           "filename",
+          "display_name",
           "source_type",
           "source_role",
           "authority_tier",
@@ -4779,6 +4924,11 @@
             ],
             "title": "Capability Profile Id"
           },
+          "color": {
+            "default": "#2F6FED",
+            "title": "Color",
+            "type": "string"
+          },
           "digest": {
             "title": "Digest",
             "type": "string"
@@ -4787,6 +4937,11 @@
             "default": true,
             "title": "Generic Qa Enabled",
             "type": "boolean"
+          },
+          "icon": {
+            "default": "book-open",
+            "title": "Icon",
+            "type": "string"
           },
           "id": {
             "title": "Id",
@@ -4826,6 +4981,8 @@
           "subject_code",
           "title",
           "board_name",
+          "icon",
+          "color",
           "capability_profile_id",
           "generic_qa_enabled",
           "answering_enabled",
@@ -4880,6 +5037,11 @@
             ],
             "title": "Capability Profile Id"
           },
+          "color": {
+            "default": "#2F6FED",
+            "title": "Color",
+            "type": "string"
+          },
           "digest": {
             "title": "Digest",
             "type": "string"
@@ -4888,6 +5050,11 @@
             "default": true,
             "title": "Generic Qa Enabled",
             "type": "boolean"
+          },
+          "icon": {
+            "default": "book-open",
+            "title": "Icon",
+            "type": "string"
           },
           "id": {
             "title": "Id",
@@ -4949,6 +5116,8 @@
           "subject_code",
           "title",
           "board_name",
+          "icon",
+          "color",
           "capability_profile_id",
           "generic_qa_enabled",
           "answering_enabled",
@@ -5108,6 +5277,43 @@
           "detail"
         ],
         "title": "SymbolicCheck",
+        "type": "object"
+      },
+      "UpdateSubjectRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "color": {
+            "pattern": "^#[0-9A-Fa-f]{6}$",
+            "title": "Color",
+            "type": "string"
+          },
+          "icon": {
+            "enum": [
+              "book-open",
+              "calculator",
+              "chart-no-axes-combined",
+              "flask-conical",
+              "languages",
+              "landmark",
+              "atom",
+              "graduation-cap"
+            ],
+            "title": "Icon",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "icon",
+          "color"
+        ],
+        "title": "UpdateSubjectRequest",
         "type": "object"
       },
       "ValidationError": {
@@ -5939,6 +6145,28 @@
         "summary": "Reviews"
       }
     },
+    "/api/v1/grading/reviews/all": {
+      "get": {
+        "operationId": "all_reviews_api_v1_grading_reviews_all_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ReviewQueueItem"
+                  },
+                  "title": "Response All Reviews Api V1 Grading Reviews All Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "All Reviews"
+      }
+    },
     "/api/v1/grading/reviews/{assessment_id}": {
       "post": {
         "operationId": "review_api_v1_grading_reviews__assessment_id__post",
@@ -6163,6 +6391,78 @@
           }
         },
         "summary": "Create Rubric"
+      }
+    },
+    "/api/v1/grading/rubrics/generate": {
+      "post": {
+        "operationId": "generate_rubric_api_v1_grading_rubrics_generate_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateRubricRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RubricSetResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Generate Rubric"
       }
     },
     "/api/v1/grading/rubrics/{rubric_id}": {
@@ -7509,6 +7809,78 @@
         "summary": "Answer Paper"
       }
     },
+    "/api/v1/papers/import-answer": {
+      "post": {
+        "operationId": "import_answered_paper_api_v1_papers_import_answer_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_import_answered_paper_api_v1_papers_import_answer_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaperJobCreated"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Import Answered Paper"
+      }
+    },
     "/api/v1/papers/jobs": {
       "get": {
         "operationId": "paper_jobs_api_v1_papers_jobs_get",
@@ -7875,6 +8247,85 @@
           }
         },
         "summary": "Paper Job"
+      },
+      "patch": {
+        "operationId": "rename_paper_job_api_v1_papers_jobs__job_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenamePaperJobRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaperJobResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rename Paper Job"
       }
     },
     "/api/v1/papers/jobs/{job_id}/question-images/{asset_name}": {
@@ -8680,6 +9131,55 @@
         "summary": "Batch Delete Subject Workspaces"
       }
     },
+    "/api/v1/subject-workspaces/{workspace_id}": {
+      "patch": {
+        "operationId": "update_subject_workspace_api_v1_subject_workspaces__workspace_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSubjectRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubjectPackResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Subject Workspace"
+      }
+    },
     "/api/v1/subject-workspaces/{workspace_id}/documents": {
       "get": {
         "operationId": "workspace_documents_api_v1_subject_workspaces__workspace_id__documents_get",
@@ -8832,6 +9332,167 @@
           }
         },
         "summary": "Upload Workspace Document"
+      }
+    },
+    "/api/v1/subject-workspaces/{workspace_id}/documents/{document_id}": {
+      "delete": {
+        "operationId": "delete_workspace_document_api_v1_subject_workspaces__workspace_id__documents__document_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "title": "Document Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Workspace Document"
+      },
+      "patch": {
+        "operationId": "rename_workspace_document_api_v1_subject_workspaces__workspace_id__documents__document_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "title": "Document Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenameSourceDocumentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceDocumentResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rename Workspace Document"
       }
     },
     "/api/v1/subjects": {

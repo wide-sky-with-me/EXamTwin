@@ -22,6 +22,9 @@ export function applyTheme(preference: ThemePreference): void {
   document
     .querySelector<HTMLMetaElement>('meta[name="theme-color"]')
     ?.setAttribute("content", THEME_COLORS[resolvedTheme]);
+  window.dispatchEvent(new CustomEvent("examtwin-theme-change", {
+    detail: resolvedTheme,
+  }));
 }
 
 export function saveTheme(preference: ThemePreference): void {

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -16,6 +17,8 @@ from examtwin.assessment.paper_answering import SPLIT_CONTRACT_VERSION
 from examtwin.assessment.paper_job_repository import LostLeaseError, PaperJobRepository
 from examtwin.assessment.paper_jobs import PaperJobService
 from examtwin.assessment.paper_vision import (
+    VISION_REVIEW_CONTRACT_VERSION,
+    VisionPageClassification,
     VisionReviewResult,
     format_physical_page_markdown,
 )
@@ -38,6 +41,26 @@ from backend.tests.paper_job_support import (
     _test_database,
     accept_question_paper,
 )
+
+
+def _vision_page_classifications(
+    page_start: int,
+    page_end: int,
+) -> tuple[VisionPageClassification, ...]:
+    return tuple(
+        VisionPageClassification(
+            page_number=page_number,
+            role="question" if page_number == page_start else "blank",
+            contains_question=page_number == page_start,
+            evidence=(
+                "Visible question and mark allocation."
+                if page_number == page_start
+                else "No visible content."
+            ),
+            confidence=0.99,
+        )
+        for page_number in range(page_start, page_end + 1)
+    )
 
 
 @pytest.mark.integration
@@ -608,6 +631,7 @@ def test_pdf_vision_review_is_checkpointed_across_split_retry(tmp_path: Path) ->
             repairs=("restored question 6(a)",),
             confidence=0.96,
             model="vision-test",
+            page_classifications=_vision_page_classifications(page_start, page_end),
         )
 
     created = jobs.create_job("paper.pdf", _pdf_bytes(7), unit_code="P2")
@@ -635,6 +659,85 @@ def test_pdf_vision_review_is_checkpointed_across_split_retry(tmp_path: Path) ->
         assert completed.status == "completed"
         assert calls == [(1, 5), (6, 7), (6, 7)]
         assert len(list(checkpoint_root.glob("*.vision.md"))) == 2
+    finally:
+        database.execute("DELETE FROM paper_jobs WHERE id=?", (created.job_id,))
+
+
+@pytest.mark.integration
+def test_legacy_image_fallback_checkpoint_is_rereviewed_on_retry(tmp_path: Path) -> None:
+    database = _test_database()
+    settings = Settings(
+        database_url=database.database_url,
+        object_store_local_root=tmp_path,
+        paper_chunk_pages=1,
+        paper_lease_seconds=30,
+        paper_vision_enabled=True,
+    )
+    jobs = _job_service(database, settings)
+    runtime = _job_runtime(database, settings)
+    review_calls = 0
+
+    def review_chunk(
+        _path: Path,
+        _markdown: str,
+        page_start: int,
+        _page_end: int,
+    ) -> VisionReviewResult:
+        nonlocal review_calls
+        review_calls += 1
+        return VisionReviewResult(
+            markdown=format_physical_page_markdown([(page_start, "1 Find x. [2 marks]")]),
+            repairs=(
+                ("视觉模型持续遗漏来源图片；已保留该物理页的 MinerU 原文。",)
+                if review_calls == 1
+                else ()
+            ),
+            confidence=0.96,
+            model="vision-test",
+            page_classifications=_vision_page_classifications(page_start, page_start),
+        )
+
+    class FailSplitOnce(FakeAnswerService):
+        def __init__(self) -> None:
+            self.split_calls = 0
+
+        def split_questions(
+            self,
+            markdown: str,
+            *,
+            unit_code: str | None = None,
+        ) -> list[dict[str, Any]]:
+            self.split_calls += 1
+            if self.split_calls == 1:
+                raise ValueError("simulated split failure")
+            return super().split_questions(markdown, unit_code=unit_code)
+
+    created = jobs.create_job("paper.pdf", _pdf_bytes(1), unit_code="P2")
+    worker = PaperWorker(
+        settings,
+        subject_context(settings),
+        jobs=runtime,
+        answer_service=FailSplitOnce(),  # type: ignore[arg-type]
+        document_classifier=accept_question_paper,
+        chunk_parser=lambda _path, _start, _end: "1 MinerU text. [2 marks]",
+        vision_reviewer=review_chunk,
+    )
+    try:
+        assert worker.run_once() is True
+        assert jobs.get_job(created.job_id).stage == "splitting"
+        metadata_path = tmp_path / "paper-jobs" / created.job_id / "chunks" / "0000-1-1.vision.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata.pop("contract_version")
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+        jobs.retry(created.job_id)
+        assert worker.run_once() is True
+
+        assert jobs.get_job(created.job_id).status == "completed"
+        assert review_calls == 2
+        refreshed = json.loads(metadata_path.read_text(encoding="utf-8"))
+        assert refreshed["contract_version"] == VISION_REVIEW_CONTRACT_VERSION
+        assert not any("MinerU 原文" in repair for repair in refreshed["repairs"])
     finally:
         database.execute("DELETE FROM paper_jobs WHERE id=?", (created.job_id,))
 
@@ -673,6 +776,7 @@ def test_pdf_vision_chunks_use_bounded_concurrency(tmp_path: Path) -> None:
                 repairs=(),
                 confidence=0.99,
                 model="vision-test",
+                page_classifications=_vision_page_classifications(page_start, page_end),
             )
         finally:
             with guard:
