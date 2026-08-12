@@ -6,6 +6,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
@@ -30,7 +31,9 @@ from examtwin.contracts import (
     PaperQuestionAnswer,
 )
 from examtwin.platform.config import Settings
+from examtwin.subjects.packages import subject_package_registry
 from examtwin.subjects.public import subject_context
+from examtwin.subjects.workspace_repository import WorkspaceRepository
 from llama_index.core import Document
 
 from backend.tests.paper_job_support import (
@@ -229,6 +232,41 @@ def test_legacy_job_replacement_preserves_auditable_lineage(tmp_path: Path) -> N
 
     database.execute("DELETE FROM paper_jobs WHERE id=?", (replacement.job_id,))
     database.execute("DELETE FROM paper_jobs WHERE id=?", (created.job_id,))
+
+
+@pytest.mark.integration
+def test_uploaded_answer_enters_grading_discovery_only_after_terminal_state(
+    tmp_path: Path,
+) -> None:
+    database = _test_database()
+    settings = Settings(object_store_local_root=tmp_path, database_url=database.database_url)
+    WorkspaceRepository(database.sessions).synchronize_installed_subjects(
+        subject_package_registry(settings.subject_packages_dir).all()
+    )
+    jobs = _job_service(database, settings)
+    created = jobs.create_job_from_stream(
+        "as-level-maths-unit-1-question-paper-Jan19.md",
+        BytesIO(b"# Question 1\nCalculate 2+2."),
+        unit_code="P1",
+        answer_filename="student-answer.md",
+        answer_stream=BytesIO(b"# Question 1\n4"),
+    )
+    try:
+        assert created.job_id not in {
+            str(row["id"]) for row in jobs.repository.recent_for_subject(jobs.subject.subject_code)
+        }
+
+        database.execute(
+            "UPDATE paper_jobs SET status='completed', stage='completed' WHERE id=?",
+            (created.job_id,),
+        )
+
+        discovered = jobs.repository.recent_for_subject(jobs.subject.subject_code)
+        imported = next(row for row in discovered if row["id"] == created.job_id)
+        assert imported["answer_mode"] == "uploaded"
+        assert imported["status"] == "completed"
+    finally:
+        database.execute("DELETE FROM paper_jobs WHERE id=?", (created.job_id,))
 
 
 @pytest.mark.integration

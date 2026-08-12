@@ -153,13 +153,23 @@ def materialize_final_answer(
 
     if payload.answer_markdown:
         raise ValueError("labelled questions must return structured subpart answer bodies")
-    actual = tuple(subpart.label for subpart in payload.subparts)
+
+    def canonical_label(value: str) -> str:
+        return re.sub(
+            r"^(?:q(?:uestion)?\s*)?\d+\s*(?=[.(])",
+            "",
+            value.strip(),
+            flags=re.IGNORECASE,
+        )
+
+    actual = tuple(canonical_label(subpart.label) for subpart in payload.subparts)
     if actual != expected:
         raise ValueError(
             f"final answer subpart labels must exactly match {expected}; received {actual}"
         )
     answer_markdown = "\n\n".join(
-        f"### {subpart.label}\n\n{subpart.answer_markdown}" for subpart in payload.subparts
+        f"### {label}\n\n{subpart.answer_markdown}"
+        for label, subpart in zip(expected, payload.subparts, strict=True)
     )
     if len(answer_markdown) > MAX_ANSWER_MARKDOWN_CHARS:
         raise ValueError("materialized final answer exceeds the public Markdown limit")

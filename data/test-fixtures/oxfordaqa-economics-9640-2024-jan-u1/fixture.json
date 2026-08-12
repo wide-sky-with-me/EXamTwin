@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "fixture_id": "oxfordaqa-economics-9640-2024-jan-u1-synthetic-v1",
+  "description": "Synthetic uploaded-answer fixture with deliberate economics errors and omissions.",
+  "synthetic": true,
+  "real_student_response": false,
+  "contains_personal_data": false,
+  "subject_pack_id": "oxfordaqa-economics-9640",
+  "subject_code": "9640",
+  "exam_year": 2024,
+  "exam_session": "JAN",
+  "unit_code": "U1",
+  "pair_key": "9640:2024:JAN:U1",
+  "question_paper": {
+    "relative_path": "data/牛津AQA/经济/AQA alevel经济2024年真题/1月/qp-202401-economics-u1.pdf",
+    "pages": 24,
+    "sha256": "885b445ecf932aae017e44ce02b7b775caae3f3628ac872790b58a22f2f9f558"
+  },
+  "source_booklet": {
+    "relative_path": "data/牛津AQA/经济/AQA alevel经济2024年真题/附件/IN-202401-Economics-U1A-Level-AQA经济学-9640.pdf",
+    "pages": 4,
+    "sha256": "c07ef22d8a597a99ddf8240cffadbb9344d3882efe05397add75e69e7cf3406d"
+  },
+  "mark_scheme": {
+    "relative_path": "data/牛津AQA/经济/AQA alevel经济2024年真题/1月/ms-202401-economics-u1.pdf",
+    "pages": 24,
+    "sha256": "df3385ecdc5734d6c74af283b77f66ca3959d5da215b0c347c24c326a675bce2"
+  },
+  "answer_file": "student-answer.synthetic.md",
+  "expected_top_level_questions": [
+    "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11",
+    "12", "13", "14", "15", "16", "17", "18", "19", "20", "21"
+  ],
+  "intended_error_ids": ["E01", "E02", "E03", "E04"],
+  "expected_score": {
+    "status": "not_precalibrated",
+    "note": "The fixture validates workflow and evidence alignment, not a fixed model score; teacher review remains authoritative."
+  },
+  "allowed_uses": [
+    "local external-answer import testing",
+    "question splitting regression testing",
+    "grading and human-review workflow testing"
+  ],
+  "forbidden_claims": [
+    "real student response",
+    "official OxfordAQA exemplar",
+    "evidence of population or individual student performance"
+  ]
+}

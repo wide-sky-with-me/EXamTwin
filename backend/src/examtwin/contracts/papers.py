@@ -154,6 +154,11 @@ class PaperJobSummary(SerializedResponse):
     job_id: str
     filename: str
     display_name: str | None = None
+    answer_mode: Literal["generated", "uploaded"] = "generated"
+    pair_key: str | None = None
+    source_booklet_document_id: str | None = None
+    source_booklet_checksum: str | None = None
+    source_booklet_filename: str | None = None
     unit_code: str | None
     status: PaperJobStatus
     stage: PaperJobStage
@@ -179,6 +184,11 @@ class PaperJobResponse(SerializedResponse):
     job_id: str
     filename: str
     display_name: str | None = None
+    answer_mode: Literal["generated", "uploaded"] = "generated"
+    pair_key: str | None = None
+    source_booklet_document_id: str | None = None
+    source_booklet_checksum: str | None = None
+    source_booklet_filename: str | None = None
     subject_pack_id: str
     subject_code: str
     unit_code: str | None

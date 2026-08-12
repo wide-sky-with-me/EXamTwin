@@ -71,7 +71,6 @@ export function GradingOverview({
           <h2 id="grading-stage-4-heading" ref={headingRef} tabIndex={-1}>
             沿试卷顺序检查整卷诊断
           </h2>
-          <p>总览来自当前评分规则下每题最新的持久化结果；人工确认与改分状态单独标明。</p>
         </div>
         <button
           className="secondary"

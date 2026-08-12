@@ -227,7 +227,7 @@ export function SubjectManagement({
   return (
     <div className="subject-page">
       <header className="page-heading subject-heading">
-        <div><h1>科目管理</h1><p>管理课程资料与知识库。</p></div>
+        <div><h1>科目管理</h1></div>
         <button className="primary" onClick={() => { setCreateOpen(true); setError(null); }} type="button"><Plus size={17} />新增科目</button>
       </header>
 

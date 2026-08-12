@@ -269,3 +269,30 @@ def test_same_path_source_replacement_preserves_id_and_invalidates_conversion() 
     assert sessions.document.status == "discovered"
     assert sessions.document.markdown_path is None
     assert sessions.document.converted_source_checksum == "source-checksum-v1"
+
+
+def test_rediscovered_archived_source_becomes_active_without_losing_conversion_provenance() -> None:
+    sessions = DiscoverySession()
+    sessions.document.status = "deleted"
+    sessions.document.error = "archived"
+    sessions.location.present = False
+    repository = CorpusRepository(sessions)  # type: ignore[arg-type]
+
+    document_id = repository.register_discovery(
+        {
+            "path": "/corpus/mark-scheme.pdf",
+            "filename": "mark-scheme.pdf",
+            "source_type": "mark_scheme",
+            "checksum": "source-checksum-v1",
+        },
+        relative_path="mark-scheme.pdf",
+        size_bytes=42,
+        current_paths={"/corpus/mark-scheme.pdf"},
+    )
+
+    assert document_id == "stable-document-id"
+    assert sessions.document.status == "discovered"
+    assert sessions.document.error is None
+    assert sessions.document.markdown_path == "stable-document-id.md"
+    assert sessions.document.converted_source_checksum == "source-checksum-v1"
+    assert sessions.location.present is True

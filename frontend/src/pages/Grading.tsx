@@ -24,6 +24,10 @@ import {
   unwrapApi,
   uploadWorkspaceDocument,
 } from "../lib/api";
+import {
+  subscribeTaskSnapshots,
+  type TaskStreamState,
+} from "../lib/task-events";
 import type {
   AiReviewRubricCriteriaRequest,
   BatchReviewRubricCriteriaRequest,
@@ -62,6 +66,13 @@ export function Grading({
   const [papersError, setPapersError] = useState<string | null>(null);
   const [documentsLoading, setDocumentsLoading] = useState(true);
   const [documentsError, setDocumentsError] = useState<string | null>(null);
+  const importStorageKey = `examtwin.gradingImportJobId.${subjectId || "unselected"}`;
+  const [importJobId, setImportJobId] = useState<string | null>(() =>
+    window.localStorage.getItem(importStorageKey)
+  );
+  const [importJob, setImportJob] = useState<PaperJobResult | null>(null);
+  const [importStreamState, setImportStreamState] = useState<TaskStreamState>("idle");
+  const [importStreamVersion, setImportStreamVersion] = useState(0);
   const [paperId, setPaperId] = useState("");
   const [documentId, setDocumentId] = useState("");
   const [paper, setPaper] = useState<PaperJobResult | null>(null);
@@ -174,7 +185,7 @@ export function Grading({
     }
   }, []);
 
-  const loadPapers = useCallback(async () => {
+  const loadPapers = useCallback(async (preferredPaperId?: string) => {
     const requestId = ++paperDiscoveryRequestRef.current;
     setPapersLoading(true);
     try {
@@ -182,11 +193,17 @@ export function Grading({
       if (requestId !== paperDiscoveryRequestRef.current) return;
       setPapers(rows);
       setPapersError(null);
-      if (!rows.some((item) => item.job_id === paperIdRef.current)) {
-        const firstPaperId = rows[0]?.job_id ?? "";
+      const nextPaperId = preferredPaperId && rows.some(
+        (item) => item.job_id === preferredPaperId,
+      )
+        ? preferredPaperId
+        : rows.some((item) => item.job_id === paperIdRef.current)
+          ? paperIdRef.current
+          : rows[0]?.job_id ?? "";
+      if (nextPaperId !== paperIdRef.current) {
         clearPaperContextState();
-        paperIdRef.current = firstPaperId;
-        setPaperId(firstPaperId);
+        paperIdRef.current = nextPaperId;
+        setPaperId(nextPaperId);
       }
     } catch (cause) {
       if (requestId !== paperDiscoveryRequestRef.current) return;
@@ -196,6 +213,42 @@ export function Grading({
       if (requestId === paperDiscoveryRequestRef.current) setPapersLoading(false);
     }
   }, [clearPaperContextState]);
+
+  useEffect(() => {
+    setImportJobId(window.localStorage.getItem(importStorageKey));
+    setImportJob(null);
+    setImportStreamState("idle");
+  }, [importStorageKey]);
+
+  useEffect(() => {
+    if (!importJobId || !subject) return;
+    return subscribeTaskSnapshots<PaperJobResult>({
+      path: `/papers/jobs/${importJobId}/events`,
+      onSnapshot: (next) => {
+        setImportJob(next);
+        if (["completed", "partial_failed"].includes(next.status)) {
+          window.localStorage.removeItem(importStorageKey);
+          void loadPapers(next.job_id).then(() => {
+            notify(
+              next.status === "completed"
+                ? `上传答卷解析完成：${next.completed_questions} 题已进入作答记录。`
+                : `上传答卷解析结束：${next.completed_questions} 题可评分，${next.failed_questions} 题失败。`,
+            );
+          });
+        }
+      },
+      isTerminal: (next) =>
+        ["completed", "partial_failed", "failed"].includes(next.status),
+      onState: setImportStreamState,
+      onUnavailable: (message) => {
+        window.localStorage.removeItem(importStorageKey);
+        setImportJobId(null);
+        setImportJob(null);
+        setError(message);
+      },
+      onError: setError,
+    });
+  }, [importJobId, importStorageKey, importStreamVersion, loadPapers, notify, subject]);
 
   const loadDiscoveryLists = useCallback(async () => {
     await Promise.allSettled([loadPapers(), loadSources()]);
@@ -503,15 +556,24 @@ export function Grading({
     await createRubric();
   }
 
-  async function importExternalAnswer(questionFile: File, answerFile: File) {
+  async function importExternalAnswer(
+    questionFile: File,
+    answerFile: File,
+    sourceBooklet?: File | null,
+  ) {
     const operationId = beginBusy("import-answer");
     setError(null);
     try {
-      const created = await importAnsweredPaper(questionFile, answerFile);
+      const created = await importAnsweredPaper(questionFile, answerFile, "", sourceBooklet);
+      window.localStorage.setItem(importStorageKey, created.job_id);
+      setImportJobId(created.job_id);
+      setImportJob(null);
+      setImportStreamVersion((version) => version + 1);
       notify(`答卷已导入，任务 ${created.job_id.slice(0, 8)} 正在后台解析。`);
-      await loadPapers();
+      return true;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "答卷导入失败");
+      return false;
     } finally {
       finishBusy(operationId);
     }
@@ -1216,6 +1278,10 @@ export function Grading({
           paperId={paperId}
           papers={papers}
           onImportExternal={importExternalAnswer}
+          importJob={importJob}
+          importStreamState={importStreamState}
+          onReconnectImport={() => setImportStreamVersion((version) => version + 1)}
+          sourceBookletRequired={subject.source_booklet_required}
           papersError={papersError}
           papersLoading={papersLoading}
           rubric={activeRubric}

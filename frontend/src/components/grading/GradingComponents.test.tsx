@@ -242,9 +242,11 @@ const gradingPaper: PaperJobResult = {
 function questionStageElement({
   assessments = [],
   busy = null,
+  paper = gradingPaper,
 }: {
   assessments?: PaperAssessment[];
   busy?: string | null;
+  paper?: PaperJobResult;
 } = {}) {
   const acceptedCriterion = {
     ...criterionFixture("criterion-question", "1", "B1"),
@@ -265,7 +267,7 @@ function questionStageElement({
         onViewRubric={vi.fn()}
         onOverview={vi.fn()}
         onSelectPosition={vi.fn()}
-        paper={gradingPaper}
+        paper={paper}
         rubric={rubric}
         selectedPosition={1}
       />
@@ -326,6 +328,59 @@ afterEach(() => {
 });
 
 describe("grading component final-review regressions", () => {
+  test("keeps saved-answer artifacts beside their anchored subparts", async () => {
+    const user = userEvent.setup();
+    const anchoredPaper: PaperJobResult = {
+      ...gradingPaper,
+      questions: [{
+        ...gradingPaper.questions[0],
+        answer_markdown: "### (a)\n\nFirst working.\n\n### (b)\n\nSecond working.",
+        diagrams: [{
+          artifact_id: "artifact-1",
+          answer_anchor: "(a)",
+          answer_order: 1,
+          caption: "",
+          elements: [{
+            arrow_end: false,
+            arrow_start: false,
+            cx: null,
+            cy: null,
+            d: null,
+            dashed: false,
+            emphasis: false,
+            fill: "none",
+            kind: "point",
+            points: [],
+            r: null,
+            rx: null,
+            ry: null,
+            text: null,
+            tone: "default",
+            x: 1,
+            x1: null,
+            x2: null,
+            y: 1,
+            y1: null,
+            y2: null,
+          }],
+          legend: [],
+          source: null,
+          title: "Part A graph",
+          tool_name: "math_plot",
+          view_box: [0, 0, 600, 360],
+        }],
+      }],
+    };
+    render(questionStageElement({ paper: anchoredPaper }));
+
+    await user.click(screen.getByText("已保存答案"));
+
+    const savedAnswer = screen.getByText("已保存答案").closest("details")!;
+    const text = savedAnswer.textContent ?? "";
+    expect(text.indexOf("First working.")).toBeLessThan(text.indexOf("Part A graph"));
+    expect(text.indexOf("Part A graph")).toBeLessThan(text.indexOf("Second working."));
+  });
+
   test("orders questions naturally and keeps M, A, B marks in award sequence", async () => {
     const user = userEvent.setup();
     renderReviewStage(rubricFixture([

@@ -71,6 +71,8 @@ class AskRequest(BaseModel):
     subject_code: str = Field(min_length=1)
     unit_code: str | None = None
     pair_key: str | None = None
+    source_booklet_document_id: str | None = None
+    source_booklet_checksum: str | None = None
     source_types: list[str] = Field(default_factory=list)
     authority_tiers: list[str] = Field(default_factory=lambda: ["official", "licensed_core"])
     knowledge_base_version_ids: list[str] = Field(default_factory=list)

@@ -19,8 +19,7 @@ import type {
 } from "../../types";
 import { Confidence, ErrorBanner } from "../Feedback";
 import { Markdown, QuestionMarkdown } from "../Markdown";
-import { AnswerDiagramView } from "../AnswerDiagramView";
-import { AnswerImageView } from "../AnswerImageView";
+import { AnswerArtifactFlow } from "../AnswerArtifactFlow";
 
 function GradingSubmission({
   jobId,
@@ -40,27 +39,17 @@ function GradingSubmission({
       <details className="grading-submission-section">
         <summary>已保存答案</summary>
         <div className="grading-submission-content">
-          <div className="grading-rich">
-            <Markdown>{question.answer_markdown}</Markdown>
-          </div>
-          {question.diagrams.length > 0 && (
-            <div className="answer-diagrams">
-              {question.diagrams.map((diagram, index) => (
-                <AnswerDiagramView
-                  diagram={diagram}
-                  jobId={jobId}
-                  key={`${diagram.title}-${index}`}
-                />
-              ))}
-            </div>
-          )}
-          {question.images.length > 0 && (
-            <div className="answer-diagrams">
-              {question.images.map((image, index) => (
-                <AnswerImageView image={image} key={`${image.content_url}-${index}`} />
-              ))}
-            </div>
-          )}
+          <AnswerArtifactFlow
+            answerMarkdown={question.answer_markdown}
+            diagrams={question.diagrams}
+            images={question.images}
+            jobId={jobId}
+            renderMarkdown={(markdown, key) => (
+              <div className="grading-rich" key={key}>
+                <Markdown>{markdown}</Markdown>
+              </div>
+            )}
+          />
         </div>
       </details>
     </div>
@@ -199,7 +188,6 @@ export function GradingQuestionStage({
         <div>
           <span>步骤 2 · 逐题判分</span>
           <h2 id="grading-stage-3-heading" tabIndex={-1}>核对判分结果</h2>
-          <p>先看学生证据和判分结论；原始得分点仅在需要追溯时展开。</p>
         </div>
         <div className="grading-stage-header-actions">
           <button className="secondary" disabled={busy !== null} onClick={onViewRubric} type="button">

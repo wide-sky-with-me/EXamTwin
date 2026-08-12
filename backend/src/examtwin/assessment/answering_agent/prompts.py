@@ -71,6 +71,9 @@ Use the question contract as a completion checklist: answer every listed subpart
 accuracy and units, and create every required artifact. In fallback Markdown output, start every
 labelled subpart with a heading containing its exact printed label, such as `### (a)`; never
 renumber `(a)`, `(b)`, and similar labels as `1`, `2`, or other aliases.
+For every visual tool call, set `answer_anchor` to the exact printed label of the subpart it
+answers. Use `whole` only for a question without labelled subparts. Never attach a visual to a
+nearby subpart.
 """.strip()
     text = "\n\n".join(
         (

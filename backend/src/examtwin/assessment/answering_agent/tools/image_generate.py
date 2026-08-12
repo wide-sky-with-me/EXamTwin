@@ -39,6 +39,15 @@ class ImageGenerationInput(BaseModel):
     prompt: str = Field(min_length=8, max_length=4_000)
     title: str = Field(min_length=1, max_length=160)
     caption: str = Field(default="", max_length=500)
+    answer_anchor: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=32,
+        description=(
+            "Exact printed subpart label this image answers, such as `(b)` or `.2`; use "
+            "`whole` only when the question has no labelled subparts."
+        ),
+    )
     size: ImageSize = "1024x1024"
     quality: ImageQuality = "medium"
 
@@ -256,6 +265,7 @@ class ImageGenerationTool:
             prompt: str,
             title: str,
             caption: str = "",
+            answer_anchor: str | None = None,
             size: ImageSize = "1024x1024",
             quality: ImageQuality = "medium",
         ) -> str:
@@ -265,8 +275,17 @@ class ImageGenerationTool:
                 prompt=prompt,
                 title=title,
                 caption=caption,
+                answer_anchor=answer_anchor,
                 size=size,
                 quality=quality,
+            )
+            request = request.model_copy(
+                update={
+                    "answer_anchor": context.resolve_artifact_anchor(
+                        self.name,
+                        request.answer_anchor,
+                    )
+                }
             )
             context.ensure_image_capacity()
             async with asyncio.timeout(self._timeout_seconds):
@@ -280,8 +299,9 @@ class ImageGenerationTool:
                 title=request.title,
                 caption=request.caption,
             )
+            image = image.model_copy(update={"answer_anchor": request.answer_anchor})
             try:
-                context.add_image(image)
+                image = context.add_image(image)
                 context.register_artifact_rollback(lambda: self._store.delete(image))
             except BaseException:
                 self._store.delete(image)

@@ -93,6 +93,8 @@ class AnswerTask:
     visual_request_text: str | None = None
     unit_code: str | None = None
     pair_key: str | None = None
+    source_booklet_document_id: str | None = None
+    source_booklet_checksum: str | None = None
     source_types: tuple[str, ...] = ()
     authority_tiers: tuple[str, ...] = ("official", "licensed_core")
     top_k: int = 6
@@ -218,16 +220,76 @@ class AgentRunContext:
         self.citations.append(citation)
         return len(self.citations)
 
-    def add_diagram(self, diagram: AnswerDiagram) -> None:
-        if len(self.diagrams) >= 3:
-            raise ValueError("A maximum of three answer diagrams is allowed")
-        self.diagrams.append(diagram)
+    def resolve_artifact_anchor(self, tool_name: str, answer_anchor: str | None) -> str:
+        """Validate or infer a semantic answer location before producing an artifact."""
 
-    def add_image(self, image: AnswerImage) -> None:
+        labelled_subparts = self.task.question_spec.labelled_subparts
+        required_anchors = tuple(
+            part.label
+            for part in self.task.question_spec.subparts
+            if part.required_tool == tool_name and part.label in labelled_subparts
+        )
+        anchor = answer_anchor.strip() if answer_anchor else None
+        if anchor is None:
+            if len(required_anchors) == 1:
+                anchor = required_anchors[0]
+            elif not labelled_subparts:
+                anchor = "whole"
+            else:
+                raise ValueError(
+                    f"{tool_name} answer_anchor is required; use one exact subpart label: "
+                    + ", ".join(labelled_subparts)
+                )
+        if anchor.lower() in {"whole", "all"}:
+            anchor = "whole"
+        valid_anchors = labelled_subparts or ("whole",)
+        if anchor not in set(valid_anchors):
+            raise ValueError(
+                f"{tool_name} answer_anchor must be one of: " + ", ".join(valid_anchors)
+            )
+        return anchor
+
+    def _artifact_metadata(
+        self,
+        *,
+        tool_name: str,
+        answer_anchor: str | None,
+    ) -> dict[str, str | int]:
+        anchor = self.resolve_artifact_anchor(tool_name, answer_anchor)
+
+        existing = [*self.diagrams, *self.images]
+        order = len(existing) + 1
+        return {
+            "artifact_id": f"artifact-{order}",
+            "answer_anchor": anchor,
+            "answer_order": order,
+        }
+
+    def add_diagram(self, diagram: AnswerDiagram) -> AnswerDiagram:
+        with self._lock:
+            if len(self.diagrams) >= 3:
+                raise ValueError("A maximum of three answer diagrams is allowed")
+            placed = diagram.model_copy(
+                update=self._artifact_metadata(
+                    tool_name=diagram.tool_name,
+                    answer_anchor=diagram.answer_anchor,
+                )
+            )
+            self.diagrams.append(placed)
+        return placed
+
+    def add_image(self, image: AnswerImage) -> AnswerImage:
         with self._lock:
             if len(self.images) >= 3:
                 raise ValueError("A maximum of three generated answer images is allowed")
-            self.images.append(image)
+            placed = image.model_copy(
+                update=self._artifact_metadata(
+                    tool_name=image.tool_name,
+                    answer_anchor=image.answer_anchor,
+                )
+            )
+            self.images.append(placed)
+        return placed
 
     def ensure_image_capacity(self) -> None:
         """Reject an image request before it can incur provider cost."""

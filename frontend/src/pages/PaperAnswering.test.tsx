@@ -77,8 +77,41 @@ describe("PaperAnswering", () => {
         position: 0,
         number: "1",
         question_markdown: `Solve x + 1 = 2.\n\n![Equation diagram](${imageUrl})`,
-        answer_markdown: "x = 1",
-        diagrams: [],
+        answer_markdown: "### (a)\n\nx = 1\n\n### (b)\n\nCheck by substitution.",
+        diagrams: [{
+          artifact_id: "artifact-1",
+          answer_anchor: "(a)",
+          answer_order: 1,
+          caption: "",
+          elements: [{
+            arrow_end: false,
+            arrow_start: false,
+            cx: null,
+            cy: null,
+            d: null,
+            dashed: false,
+            emphasis: false,
+            fill: "none",
+            kind: "point",
+            points: [],
+            r: null,
+            rx: null,
+            ry: null,
+            text: null,
+            tone: "default",
+            x: 1,
+            x1: null,
+            x2: null,
+            y: 1,
+            y1: null,
+            y2: null,
+          }],
+          legend: [],
+          source: null,
+          title: "Part A graph",
+          tool_name: "math_plot",
+          view_box: [0, 0, 600, 360],
+        }],
         images: [],
         citations: [],
         knowledge_points: [],
@@ -114,6 +147,12 @@ describe("PaperAnswering", () => {
     expect(screen.getByRole("img", { name: "Equation diagram" })).toHaveAttribute(
       "src",
       imageUrl,
+    );
+    const answer = screen.getByRole("heading", { name: "证据化解答" }).closest("section")!;
+    const answerText = answer.textContent ?? "";
+    expect(answerText.indexOf("x = 1")).toBeLessThan(answerText.indexOf("Part A graph"));
+    expect(answerText.indexOf("Part A graph")).toBeLessThan(
+      answerText.indexOf("Check by substitution."),
     );
   });
 

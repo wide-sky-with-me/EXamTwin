@@ -42,6 +42,12 @@ class PaperJobRuntime:
             raise LookupError("试卷任务不存在")
         return self.files.source_file(record)
 
+    def job_record(self, job_id: str) -> dict[str, Any]:
+        record = self.repository.get(job_id)
+        if record is None:
+            raise LookupError("试卷任务不存在")
+        return record
+
     def source_page(self, job_id: str, page_number: int) -> Path:
         record = self.repository.source_record(job_id)
         if not record:

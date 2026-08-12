@@ -74,6 +74,21 @@ def _non_verbatim_evidence(payload: GradingDraft, answer_markdown: str) -> list[
     ]
 
 
+def _withheld_non_verbatim_awards(
+    payload: GradingDraft,
+    answer_markdown: str,
+) -> tuple[GradingDraft, list[str]]:
+    sanitized = payload.model_copy(deep=True)
+    withheld: list[str] = []
+    for item in sanitized.rubric_awards:
+        if not item.student_evidence or item.student_evidence in answer_markdown:
+            continue
+        withheld.append(item.criterion_id)
+        item.student_evidence = None
+        item.awarded = 0
+    return sanitized, withheld
+
+
 def _grading_model(settings: Settings) -> StructuredModelPort:
     credential = settings.llm_provider_api_key
     if credential is None or not credential.get_secret_value():
@@ -252,8 +267,15 @@ RELEVANT KNOWLEDGE CODES:
                 GradingDraft,
                 timeout=self.settings.grading_timeout,
             )
-            if _non_verbatim_evidence(payload, request.answer_markdown):
-                raise ValueError("The model returned student evidence that was not verbatim")
+            payload, withheld = _withheld_non_verbatim_awards(
+                payload,
+                request.answer_markdown,
+            )
+            if withheld:
+                payload.warnings.append(
+                    "模型未能提供学生答案中的逐字证据；相关评分原子已暂缓授分并保留人工复核："
+                    + "、".join(withheld)
+                )
         awards: list[RubricAward] = []
         for number, item in enumerate(payload.rubric_awards, start=1):
             maximum = max(0.0, item.max_marks)

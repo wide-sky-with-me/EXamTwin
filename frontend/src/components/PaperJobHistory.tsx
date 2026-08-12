@@ -263,7 +263,6 @@ export function PaperJobHistory({
           <FileClock size={19} />
           <div>
             <h2>试卷作答记录</h2>
-            <p>查看历史结果，按条件筛选，或删除不再需要的记录。</p>
           </div>
         </div>
         <button

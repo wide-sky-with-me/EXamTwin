@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -182,6 +183,58 @@ def test_worker_maps_unpositioned_mineru_images_when_only_one_pdf_page_has_image
         )
 
 
+def test_worker_recovers_unreferenced_figure_but_not_tiny_print_glyph(
+    tmp_path: Path,
+) -> None:
+    class AssetFiles:
+        def write_file(self, relative_path: str, content: bytes | str) -> None:
+            path = tmp_path / relative_path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(content if isinstance(content, bytes) else content.encode())
+
+    figure = pymupdf.Pixmap(pymupdf.csGRAY, pymupdf.IRect(0, 0, 320, 180), 0)
+    figure.clear_with(255)
+    figure_bytes = figure.tobytes("png")
+    glyph = pymupdf.Pixmap(pymupdf.csGRAY, pymupdf.IRect(0, 0, 80, 48), 0)
+    glyph.clear_with(255)
+    glyph_bytes = glyph.tobytes("png")
+    parsed = ParsedPaperChunk(
+        markdown="1 Figure 1 shows the market equilibrium. [1 mark]",
+        images=(
+            ExtractedPaperImage(
+                name="figure.png",
+                path="images/figure.png",
+                content=figure_bytes,
+                page_index=0,
+            ),
+            ExtractedPaperImage(
+                name="option-marker.png",
+                path="images/option-marker.png",
+                content=glyph_bytes,
+                page_index=0,
+            ),
+        ),
+    )
+    settings = Settings(object_store_local_root=tmp_path, paper_vision_enabled=True)
+    worker = PaperWorker(
+        settings,
+        subject_context(settings),
+        jobs=AssetFiles(),  # type: ignore[arg-type]
+        answer_service=FakeAnswerService(),  # type: ignore[arg-type]
+    )
+
+    markdown = worker._persist_chunk_images("job-1", 4, 4, parsed)
+
+    figure_name = f"p0004-{hashlib.sha256(figure_bytes).hexdigest()}.png"
+    glyph_name = f"p0004-{hashlib.sha256(glyph_bytes).hexdigest()}.png"
+    assert markdown == (
+        "1 Figure 1 shows the market equilibrium. [1 mark]\n\n"
+        f"![](/api/v1/papers/jobs/job-1/question-images/{figure_name})"
+    )
+    assert (tmp_path / "job-1" / "question-images" / figure_name).read_bytes() == figure_bytes
+    assert not (tmp_path / "job-1" / "question-images" / glyph_name).exists()
+
+
 def test_paper_chunk_extraction_retains_mineru_image_bytes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -341,6 +394,44 @@ def test_worker_activates_the_subject_persisted_on_each_job(
 
     assert worker.subject.subject_code == "9640"
     assert services == ["9640"]
+
+
+def test_worker_marks_subject_activation_failure_without_crashing_loop(
+    tmp_path: Path,
+) -> None:
+    class InvalidSnapshotJobs:
+        failed: tuple[str, str, str] | None = None
+
+        def fail_job(self, job_id: str, token: str, stage: str, error: Exception) -> None:
+            self.failed = (job_id, stage, str(error))
+
+    jobs = InvalidSnapshotJobs()
+    settings = Settings(object_store_local_root=tmp_path)
+    worker = PaperWorker(
+        settings,
+        subject_context(settings),
+        jobs=jobs,  # type: ignore[arg-type]
+        answer_service=FakeAnswerService(),  # type: ignore[arg-type]
+        subject_resolver=lambda selector: subject_context(settings, selector),
+        answer_service_factory=lambda _subject: FakeAnswerService(),  # type: ignore[arg-type]
+    )
+    worker._heartbeat = lambda _job_id, _token: nullcontext()  # type: ignore[method-assign]
+
+    worker._process(
+        {
+            "id": "legacy-job",
+            "subject_pack_id": "oxfordaqa-mathematics-9660",
+            "subject_code": "9660",
+            "knowledge_base_version_ids_json": "[]",
+        },
+        "lease-token",
+    )
+
+    assert jobs.failed == (
+        "legacy-job",
+        "queued",
+        "试卷任务缺少已发布知识库版本快照",
+    )
 
 
 def test_worker_carries_source_pages_and_trusted_jpegs_into_answer_service(

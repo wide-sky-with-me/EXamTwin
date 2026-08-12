@@ -122,6 +122,11 @@ class PaperJobService:
                     job_id=row["id"],
                     filename=row["filename"],
                     display_name=row.get("display_name"),
+                    answer_mode=row.get("answer_mode") or "generated",
+                    pair_key=row.get("pair_key"),
+                    source_booklet_document_id=row.get("source_booklet_document_id"),
+                    source_booklet_checksum=row.get("source_booklet_checksum"),
+                    source_booklet_filename=row.get("source_booklet_filename"),
                     unit_code=row["unit_code"],
                     status=row["status"],
                     stage=row["stage"],
@@ -192,6 +197,7 @@ class PaperJobService:
         unit_code: str | None = None,
         answer_filename: str | None = None,
         answer_stream: BinaryIO | None = None,
+        source_booklet: Mapping[str, Any] | None = None,
     ) -> PaperJobCreated:
         self.subject.require_paper_capability()
         if not self.subject.knowledge_base_version_ids:
@@ -208,14 +214,33 @@ class PaperJobService:
             raise ValueError(
                 "上传文件被识别为 Mark Scheme（评分标准），请选择 Question Paper（试题）文件"
             )
-        resolved_unit_code = (
-            unit_code
-            or parse_exam_identity(
-                Path(filename),
-                "question_paper",
-                self.subject.pack,
-            )["unit_code"]
-        )
+        paper_identity = parse_exam_identity(Path(filename), "question_paper", self.subject.pack)
+        pair_key = str(paper_identity.get("pair_key") or "") or None
+        if (
+            self.subject.package.manifest.answering.requires_source_booklet
+            and source_booklet is None
+        ):
+            raise ValueError("该科目整卷作答必须上传与试卷完全配对的 Source Booklet")
+        if source_booklet is not None:
+            booklet_pair = str(source_booklet.get("pair_key") or "")
+            booklet_checksum = str(source_booklet.get("checksum") or "")
+            if source_booklet.get("subject_code") != self.subject.subject_code:
+                raise ValueError("Source Booklet 不属于当前科目")
+            if source_booklet.get("source_type") != "insert":
+                raise ValueError("配套材料必须识别为 Source Booklet 或 Insert")
+            if not pair_key or paper_identity.get("identity_status") != "complete":
+                raise ValueError("Question Paper 缺少完整考试身份，无法验证 Source Booklet 配对")
+            if source_booklet.get("identity_status") != "complete" or not booklet_pair:
+                raise ValueError("Source Booklet 缺少完整考试身份")
+            if pair_key != booklet_pair:
+                raise ValueError("Source Booklet 与试卷的年份、考季或 Unit 不匹配")
+            if (
+                source_booklet.get("status") != "converted"
+                or not booklet_checksum
+                or source_booklet.get("converted_source_checksum") != booklet_checksum
+            ):
+                raise ValueError("Source Booklet 尚未按当前文件版本完成转换")
+        resolved_unit_code = unit_code or paper_identity["unit_code"]
 
         job_id = str(uuid4())
         source_rel = f"{job_id}/source{suffix}"
@@ -260,6 +285,18 @@ class PaperJobService:
                     "answer_filename": Path(answer_filename).name if answer_filename else None,
                     "answer_suffix": answer_suffix,
                     "answer_source_path": answer_source_rel,
+                    "pair_key": pair_key,
+                    "source_booklet_document_id": (
+                        str(source_booklet["id"]) if source_booklet is not None else None
+                    ),
+                    "source_booklet_checksum": (
+                        str(source_booklet["checksum"]) if source_booklet is not None else None
+                    ),
+                    "source_booklet_filename": (
+                        str(source_booklet.get("filename") or "")
+                        if source_booklet is not None
+                        else None
+                    ),
                     "unit_code": resolved_unit_code,
                     "knowledge_base_version_ids_json": json.dumps(
                         self.subject.knowledge_base_version_ids, ensure_ascii=False
@@ -375,6 +412,11 @@ class PaperJobService:
             job_id=job["id"],
             filename=job["filename"],
             display_name=job.get("display_name"),
+            answer_mode=job.get("answer_mode") or "generated",
+            pair_key=job.get("pair_key"),
+            source_booklet_document_id=job.get("source_booklet_document_id"),
+            source_booklet_checksum=job.get("source_booklet_checksum"),
+            source_booklet_filename=job.get("source_booklet_filename"),
             subject_pack_id=job["subject_pack_id"],
             subject_code=job["subject_code"],
             unit_code=job["unit_code"],

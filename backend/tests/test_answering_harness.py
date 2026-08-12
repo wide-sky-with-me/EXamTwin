@@ -101,6 +101,120 @@ def test_answer_contract_requires_every_subpart_and_visual_artifact() -> None:
     verify_answer_contract(task, "(a) plotted. (b) illustrated.", [diagram], [image])
 
 
+def test_answer_contract_accepts_question_prefixed_decimal_subpart_headings() -> None:
+    task = AnswerTask(
+        subject_code="9640",
+        question="Complete both parts.",
+        question_spec=QuestionSpec(
+            subparts=(
+                SubpartRequirement(label=".1"),
+                SubpartRequirement(label=".2"),
+            )
+        ),
+    )
+
+    verify_answer_contract(
+        task,
+        "### 18.1\n\nFirst response.\n\n### Q18.2\n\nSecond response.",
+        [],
+        [],
+    )
+
+    with pytest.raises(RuntimeError, match=r"\.2"):
+        verify_answer_contract(task, "### 18.1\n\nOnly the first response.", [], [])
+
+
+def test_agent_context_assigns_exact_subpart_anchors_and_cross_type_order() -> None:
+    task = AnswerTask(
+        subject_code="9660",
+        question="Complete both parts.",
+        question_spec=QuestionSpec(
+            subparts=(
+                SubpartRequirement(label="(a)", required_tool="math_plot"),
+                SubpartRequirement(label="(b)", required_tool="image_generate"),
+            )
+        ),
+    )
+    context = AgentRunContext(task=task)
+
+    diagram = context.add_diagram(
+        AnswerDiagram(
+            title="Plot",
+            tool_name="math_plot",
+            elements=[DiagramElement(kind="point", x=1, y=1)],
+        )
+    )
+    image = context.add_image(
+        AnswerImage(
+            title="Illustration",
+            content_url="/api/v1/answer-assets/0123456789abcdef0123456789abcdef.png",
+        )
+    )
+
+    assert (diagram.artifact_id, diagram.answer_anchor, diagram.answer_order) == (
+        "artifact-1",
+        "(a)",
+        1,
+    )
+    assert (image.artifact_id, image.answer_anchor, image.answer_order) == (
+        "artifact-2",
+        "(b)",
+        2,
+    )
+    verify_answer_contract(task, "### (a)\n\nPlot.\n\n### (b)\n\nIllustrate.", [diagram], [image])
+
+
+def test_agent_context_requires_explicit_anchor_when_same_tool_serves_multiple_subparts() -> None:
+    task = AnswerTask(
+        subject_code="9660",
+        question="Sketch both parts.",
+        question_spec=QuestionSpec(
+            subparts=(
+                SubpartRequirement(label="(a)", required_tool="math_plot"),
+                SubpartRequirement(label="(b)", required_tool="math_plot"),
+            )
+        ),
+    )
+    context = AgentRunContext(task=task)
+    unplaced = AnswerDiagram(
+        title="Plot",
+        tool_name="math_plot",
+        elements=[DiagramElement(kind="point", x=1, y=1)],
+    )
+
+    with pytest.raises(ValueError, match="answer_anchor is required"):
+        context.add_diagram(unplaced)
+    with pytest.raises(ValueError, match="must be one of"):
+        context.add_diagram(unplaced.model_copy(update={"answer_anchor": "(c)"}))
+
+    first = context.add_diagram(unplaced.model_copy(update={"answer_anchor": "(a)"}))
+    second = context.add_diagram(unplaced.model_copy(update={"answer_anchor": "(b)"}))
+    verify_answer_contract(
+        task,
+        "### (a)\n\nFirst plot.\n\n### (b)\n\nSecond plot.",
+        [first, second],
+        [],
+    )
+
+
+def test_answer_contract_rejects_duplicate_artifact_identity() -> None:
+    task = AnswerTask(subject_code="9660", question="Sketch the graph.")
+    diagrams = [
+        AnswerDiagram(
+            artifact_id="artifact-1",
+            answer_anchor="whole",
+            answer_order=1,
+            title=f"Plot {index}",
+            tool_name="math_plot",
+            elements=[DiagramElement(kind="point", x=index, y=index)],
+        )
+        for index in (1, 2)
+    ]
+
+    with pytest.raises(RuntimeError, match="duplicate artifact ids"):
+        verify_answer_contract(task, "Two plots.", diagrams, [])
+
+
 def test_answer_contract_allows_blank_axes_fallback_but_not_existing_curve_fallback() -> None:
     diagram = AnswerDiagram(
         title="Plot",
@@ -231,3 +345,62 @@ async def test_paired_exam_lookup_uses_only_the_exact_pair(tmp_path: Path) -> No
     assert len(context.citations) == 1
     assert context.citations[0].source_type == "insert"
     assert context.citations[0].pair_key == "9660:2026:JUN:PSM1"
+
+
+@pytest.mark.asyncio
+async def test_paired_exam_lookup_falls_back_to_exact_pdf_text_on_context_timeout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    insert_pdf = tmp_path / "2024-jan-u1-insert.pdf"
+    pdf = pymupdf.open()
+    page = pdf.new_page()
+    page.insert_text((72, 72), "Extract A: Spain 34 kg; Australia 59 kg")
+    pdf.save(insert_pdf)
+    pdf.close()
+
+    class PairDocumentReader:
+        def exact_pair_documents(
+            self,
+            pair_key: str,
+            limit: int = 4,
+        ) -> list[dict[str, Any]]:
+            assert pair_key == "9640:2024:JAN:U1"
+            return [
+                {
+                    "id": "insert-1",
+                    "path": str(insert_pdf),
+                    "source_type": "insert",
+                    "authority_tier": "official",
+                    "pair_key": pair_key,
+                }
+            ][:limit]
+
+    def timed_out_context(*_args: Any, **_kwargs: Any) -> Any:
+        raise TimeoutError("context lookup exceeded 45 seconds")
+
+    monkeypatch.setattr(
+        "examtwin.assessment.answering_agent.tools.paired_exam.source_context",
+        timed_out_context,
+    )
+    context = AgentRunContext(
+        task=AnswerTask(
+            subject_code="9640",
+            question="Use Extract A to compare Australia with Spain.",
+            question_number="17",
+            pair_key="9640:2024:JAN:U1",
+        )
+    )
+    tool = PairedExamLookupTool(
+        PairDocumentReader(),
+        Settings(object_store_local_root=tmp_path),
+        timeout_seconds=1,
+    ).bind(context)
+
+    result = await tool.acall()
+
+    assert result.is_error is False
+    assert "Spain 34 kg; Australia 59 kg" in result.content
+    assert "exact_pair=9640:2024:JAN:U1" in result.content
+    assert len(context.citations) == 1
+    assert context.citations[0].pair_key == "9640:2024:JAN:U1"

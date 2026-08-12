@@ -73,6 +73,7 @@
     ],
     "required_tool_names": ["knowledge_search"],
     "mandatory_tool_names": ["knowledge_search"],
-    "visual_policy": "economics-answer-visual-v1"
+    "visual_policy": "economics-answer-visual-v1",
+    "requires_source_booklet": true
   }
 }

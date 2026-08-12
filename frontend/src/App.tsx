@@ -85,7 +85,7 @@ export default function App() {
         <aside className="app-sidebar">
           <div className="brand-lockup">
             <span>ET</span>
-            <div><strong>ExamTwin</strong><small>考试工作台</small></div>
+            <strong>ExamTwin</strong>
           </div>
           <nav aria-label="主导航">
             {navItems.map(({ id, label, icon: Icon }) => (

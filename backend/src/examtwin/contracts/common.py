@@ -53,6 +53,7 @@ class SubjectPackResponse(SerializedResponse):
     generic_qa_enabled: bool = True
     answering_enabled: bool
     answering_disabled_reason: str | None = None
+    source_booklet_required: bool = False
     active_graph_version_id: str | None = None
     knowledge_bases: list[SubjectKnowledgeBaseResponse] = Field(default_factory=list)
     units: list[SubjectUnitResponse]

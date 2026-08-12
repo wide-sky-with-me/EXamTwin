@@ -99,6 +99,23 @@ def test_materialize_final_answer_rejects_renumbered_subparts() -> None:
         )
 
 
+def test_materialize_final_answer_accepts_question_prefixed_decimal_subparts() -> None:
+    payload = AgentFinalPayload(
+        answer_markdown="",
+        subparts=[
+            {"label": "18.1", "answer_markdown": "First answer."},
+            {"label": "Q18.2", "answer_markdown": "Second answer."},
+        ],
+    )
+
+    result = materialize_final_answer(
+        payload,
+        required_subpart_labels=(".1", ".2"),
+    )
+
+    assert result.answer_markdown == ("### .1\n\nFirst answer.\n\n### .2\n\nSecond answer.")
+
+
 def test_build_final_answer_provider_maps_settings_and_caps_timeout() -> None:
     settings = Settings(
         llm_model="factory-model",

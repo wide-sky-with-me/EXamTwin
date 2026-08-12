@@ -59,6 +59,7 @@ class AnsweringManifest(BaseModel):
     required_tool_names: tuple[str, ...] = ()
     mandatory_tool_names: tuple[str, ...] = ()
     visual_policy: str | None = None
+    requires_source_booklet: bool = False
 
     @model_validator(mode="after")
     def validate_contract(self) -> AnsweringManifest:

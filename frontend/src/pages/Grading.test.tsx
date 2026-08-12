@@ -18,7 +18,14 @@ import { GradingQuestionStage } from "../components/grading/GradingQuestionStage
 import { RubricCriterionEditor } from "../components/grading/RubricCriterionEditor";
 import { ToastContext } from "../components/toast-context";
 import { DesignSystemProvider } from "../components/ui/DesignSystemProvider";
+import { subscribeTaskSnapshots } from "../lib/task-events";
 import { Grading } from "./Grading";
+
+vi.mock("../lib/task-events", () => ({
+  subscribeTaskSnapshots: vi.fn(),
+}));
+
+const subscribeMock = vi.mocked(subscribeTaskSnapshots);
 
 function render(ui: ReactElement) {
   return testingLibraryRender(ui, { wrapper: DesignSystemProvider });
@@ -419,10 +426,118 @@ function installReviewScenario(criteria: RubricSet["criteria"]) {
 
 afterEach(() => {
   window.localStorage.clear();
+  subscribeMock.mockReset();
   vi.unstubAllGlobals();
 });
 
 describe("Grading", () => {
+  test("tracks an imported answer job and selects it when parsing completes", async () => {
+    const importedJobId = "job-imported-answer";
+    const importedPaper = paperFixture(importedJobId);
+    let papersReady = false;
+    const fetch = vi.fn((input: RequestInfo | URL) => {
+      const request = input instanceof Request ? input : new Request(String(input));
+      const url = new URL(request.url);
+      if (url.pathname === "/api/v1/papers/import-answer") {
+        return response({ job_id: importedJobId, status: "queued", stage: "queued" });
+      }
+      if (url.pathname === "/api/v1/grading/papers") {
+        return response(papersReady ? [paperSummaryFixture(importedJobId)] : []);
+      }
+      if (url.pathname === "/api/v1/corpus/documents") return response([]);
+      if (url.pathname === `/api/v1/papers/jobs/${importedJobId}`) {
+        return response(importedPaper);
+      }
+      if (url.pathname === "/api/v1/grading/rubrics") return response([]);
+      if (url.pathname.endsWith("/assessments")) return response([]);
+      return response([]);
+    });
+    vi.stubGlobal("fetch", fetch);
+    subscribeMock.mockImplementation(() => () => undefined);
+    const user = userEvent.setup();
+    render(<Grading subject={subject} onCreated={vi.fn()} />);
+
+    await user.click(await screen.findByRole("button", { name: "上传答卷" }));
+    await user.upload(
+      screen.getByLabelText("上传待评分试卷"),
+      new File(["question"], "question.pdf", { type: "application/pdf" }),
+    );
+    await user.upload(
+      screen.getByLabelText("上传答案文件"),
+      new File(["answer"], "answer.md", { type: "text/markdown" }),
+    );
+    await user.click(screen.getByRole("button", { name: "导入并解析答卷" }));
+
+    await waitFor(() => expect(subscribeMock).toHaveBeenCalled());
+    const subscription = subscribeMock.mock.calls.at(-1)?.[0];
+    act(() => {
+      subscription?.onSnapshot({
+        ...importedPaper,
+        status: "queued",
+        stage: "queued",
+        total_questions: 0,
+        completed_questions: 0,
+      });
+    });
+    expect(await screen.findByText("等待处理")).toBeInTheDocument();
+    expect(screen.getByText("0 / — 题 · 4%")).toBeInTheDocument();
+
+    papersReady = true;
+    await act(async () => {
+      subscription?.onSnapshot(importedPaper);
+    });
+
+    await waitFor(() => expect(screen.getByLabelText("选择作答记录")).toHaveTextContent(
+      `${importedJobId}.pdf`,
+    ));
+    expect(window.localStorage.getItem(
+      `examtwin.gradingImportJobId.${subject.id}`,
+    )).toBeNull();
+  });
+
+  test("keeps a failed imported answer task visible with its persisted error", async () => {
+    const importedJobId = "job-import-failed";
+    const failedPaper: PaperJobResult = {
+      ...paperFixture(importedJobId, []),
+      status: "failed",
+      stage: "splitting",
+      completed_questions: 0,
+      total_questions: 0,
+      error: "答案题号无法与试卷题号闭合",
+    };
+    const fetch = vi.fn((input: RequestInfo | URL) => {
+      const request = input instanceof Request ? input : new Request(String(input));
+      const url = new URL(request.url);
+      if (url.pathname === "/api/v1/papers/import-answer") {
+        return response({ job_id: importedJobId, status: "queued", stage: "queued" });
+      }
+      return response([]);
+    });
+    vi.stubGlobal("fetch", fetch);
+    subscribeMock.mockImplementation(() => () => undefined);
+    const user = userEvent.setup();
+    render(<Grading subject={subject} onCreated={vi.fn()} />);
+
+    await user.click(await screen.findByRole("button", { name: "上传答卷" }));
+    await user.upload(
+      screen.getByLabelText("上传待评分试卷"),
+      new File(["question"], "question.pdf", { type: "application/pdf" }),
+    );
+    await user.upload(
+      screen.getByLabelText("上传答案文件"),
+      new File(["answer"], "answer.md", { type: "text/markdown" }),
+    );
+    await user.click(screen.getByRole("button", { name: "导入并解析答卷" }));
+    await waitFor(() => expect(subscribeMock).toHaveBeenCalled());
+
+    act(() => {
+      subscribeMock.mock.calls.at(-1)?.[0].onSnapshot(failedPaper);
+    });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("答卷解析失败");
+    expect(screen.getByRole("alert")).toHaveTextContent("答案题号无法与试卷题号闭合");
+  });
+
   test("shows pending discovery copy before rendering truly empty guidance", async () => {
     let resolvePapers: ((value: Response) => void) | undefined;
     let resolveDocuments: ((value: Response) => void) | undefined;
@@ -2025,6 +2140,9 @@ describe("Grading", () => {
       answer_markdown: String.raw`Therefore, \(x = 1\).`,
       diagrams: [],
       images: [{
+        artifact_id: null,
+        answer_anchor: null,
+        answer_order: null,
         title: "Generated working graph",
         caption: String.raw`The intercept is \(x = 1\).`,
         content_url: "/api/v1/papers/jobs/job-1/images/graph.png",

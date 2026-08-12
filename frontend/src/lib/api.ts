@@ -188,9 +188,14 @@ export async function replacePaperJob(jobId: string): Promise<PaperJobCreated> {
 }
 
 
-export async function uploadPaper(file: File, unitCode: string): Promise<PaperJobCreated> {
+export async function uploadPaper(
+  file: File,
+  unitCode: string,
+  sourceBooklet?: File | null,
+): Promise<PaperJobCreated> {
   const form = new FormData();
   form.append("file", file);
+  if (sourceBooklet) form.append("source_booklet", sourceBooklet);
   if (unitCode) form.append("unit_code", unitCode);
   const response = await checkedFetch("/papers/answer", { method: "POST", body: form });
   return response.json() as Promise<PaperJobCreated>;
@@ -200,10 +205,12 @@ export async function importAnsweredPaper(
   questionFile: File,
   answerFile: File,
   unitCode = "",
+  sourceBooklet?: File | null,
 ): Promise<PaperJobCreated> {
   const form = new FormData();
   form.append("question_file", questionFile);
   form.append("answer_file", answerFile);
+  if (sourceBooklet) form.append("source_booklet", sourceBooklet);
   if (unitCode) form.append("unit_code", unitCode);
   const response = await checkedFetch("/papers/import-answer", { method: "POST", body: form });
   return response.json() as Promise<PaperJobCreated>;

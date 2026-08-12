@@ -323,7 +323,101 @@ def test_vision_review_accepts_semantic_administrative_page_without_text_marker(
     assert result.page_classifications[0].role == "administrative"
 
 
-def test_vision_review_rejects_image_discard_from_question_page(
+def test_vision_review_accepts_empty_multi_page_discardable_chunk(tmp_path: Path) -> None:
+    source = tmp_path / "paper.pdf"
+    writer = PdfWriter()
+    writer.add_blank_page(width=595, height=842)
+    writer.add_blank_page(width=595, height=842)
+    with source.open("wb") as output:
+        writer.write(output)
+    responses = [
+        _classified_page(1, "", role="answer_space"),
+        _classified_page(2, "", role="administrative"),
+    ]
+    calls = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        page = responses[calls]
+        calls += 1
+        content = json.dumps({"pages": [page], "repairs": [], "confidence": 0.99})
+        return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
+
+    settings = Settings(
+        openai_compat_api_key="test-key",
+        paper_vision_max_attempts=1,
+        paper_vision_retry_delay_seconds=0,
+    )
+    markdown = (
+        "<!-- examtwin:physical-page=1 -->\nAdditional answer page.\n\n"
+        "<!-- examtwin:physical-page=2 -->\nCopyright information."
+    )
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        result = PaperVisionReviewer(settings, client=client).review_chunk(
+            source,
+            markdown,
+            1,
+            2,
+        )
+
+    assert calls == 2
+    assert parse_physical_page_markdown(result.markdown) == [(1, ""), (2, "")]
+    assert [item.role for item in result.page_classifications] == [
+        "answer_space",
+        "administrative",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("role", "confidence"),
+    [("question", 0.99), ("administrative", 0.85)],
+)
+def test_vision_review_rejects_empty_multi_page_chunk_without_safe_classifications(
+    tmp_path: Path,
+    role: str,
+    confidence: float,
+) -> None:
+    source = tmp_path / "paper.pdf"
+    writer = PdfWriter()
+    writer.add_blank_page(width=595, height=842)
+    writer.add_blank_page(width=595, height=842)
+    with source.open("wb") as output:
+        writer.write(output)
+    responses = [
+        _classified_page(1, "", role=role, confidence=confidence),
+        _classified_page(2, "", role="administrative"),
+    ]
+    calls = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        page = responses[calls]
+        calls += 1
+        content = json.dumps({"pages": [page], "repairs": [], "confidence": 0.99})
+        return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
+
+    settings = Settings(
+        openai_compat_api_key="test-key",
+        paper_vision_max_attempts=1,
+        paper_vision_retry_delay_seconds=0,
+    )
+    markdown = (
+        "<!-- examtwin:physical-page=1 -->\nPotentially protected content.\n\n"
+        "<!-- examtwin:physical-page=2 -->\nAdministrative content."
+    )
+    with (
+        httpx.Client(transport=httpx.MockTransport(handler)) as client,
+        pytest.raises(ValueError, match="视觉模型没有返回可用的页段 Markdown"),
+    ):
+        PaperVisionReviewer(settings, client=client).review_chunk(
+            source,
+            markdown,
+            1,
+            2,
+        )
+
+
+def test_vision_review_preserves_source_when_model_discards_question_page_image(
     tmp_path: Path,
 ) -> None:
     source = tmp_path / "paper.pdf"
@@ -332,8 +426,11 @@ def test_vision_review_rejects_image_discard_from_question_page(
     with source.open("wb") as output:
         writer.write(output)
     image_url = f"/api/v1/papers/jobs/job-1/question-images/p0001-{'d' * 64}.png"
+    calls = 0
 
     def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
         content = json.dumps(
             {
                 "pages": [_classified_page(1, "1 Use the diagram. [2 marks]")],
@@ -349,34 +446,37 @@ def test_vision_review_rejects_image_discard_from_question_page(
 
     settings = Settings(
         openai_compat_api_key="test-key",
-        paper_vision_max_attempts=1,
+        paper_vision_max_attempts=2,
         paper_vision_retry_delay_seconds=0,
     )
     markdown = f"1 Use the diagram.\n\n![]({image_url})\n\nFind x. [2 marks]"
-    with (
-        httpx.Client(transport=httpx.MockTransport(handler)) as client,
-        pytest.raises(ValueError, match="不能从题目、资料或说明页面排除来源图片"),
-    ):
-        PaperVisionReviewer(settings, client=client).review_chunk(
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        result = PaperVisionReviewer(settings, client=client).review_chunk(
             source,
             markdown,
             1,
             1,
         )
 
+    assert calls == 2
+    assert result.markdown.endswith(markdown)
+    assert image_url in result.markdown
+    assert result.confidence == settings.paper_vision_min_confidence
+    assert "图片排除声明未通过门禁" in result.repairs[-2]
+    assert result.repairs[-1] == "视觉模型持续遗漏来源图片；已保留该物理页的 MinerU 原文。"
+
 
 @pytest.mark.parametrize(
-    ("role", "confidence", "expected_error"),
+    ("role", "confidence"),
     [
-        ("source_material", 0.99, "不能从题目、资料或说明页面排除来源图片"),
-        ("administrative", 0.85, "排除非题目页的置信度过低"),
+        ("source_material", 0.99),
+        ("administrative", 0.85),
     ],
 )
-def test_vision_review_fail_closes_unsafe_non_question_discard(
+def test_vision_review_preserves_source_after_unsafe_non_question_discard(
     tmp_path: Path,
     role: str,
     confidence: float,
-    expected_error: str,
 ) -> None:
     source = tmp_path / "paper.pdf"
     writer = PdfWriter()
@@ -408,16 +508,19 @@ def test_vision_review_fail_closes_unsafe_non_question_discard(
         paper_vision_max_attempts=1,
         paper_vision_retry_delay_seconds=0,
     )
-    with (
-        httpx.Client(transport=httpx.MockTransport(handler)) as client,
-        pytest.raises(ValueError, match=expected_error),
-    ):
-        PaperVisionReviewer(settings, client=client).review_chunk(
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        result = PaperVisionReviewer(settings, client=client).review_chunk(
             source,
             f"Reference material.\n\n![]({image_url})",
             1,
             1,
         )
+
+    assert result.markdown.endswith(f"Reference material.\n\n![]({image_url})")
+    assert image_url in result.markdown
+    assert result.confidence == settings.paper_vision_min_confidence
+    assert "图片排除声明未通过门禁" in result.repairs[-2]
+    assert result.repairs[-1] == "视觉模型持续遗漏来源图片；已保留该物理页的 MinerU 原文。"
 
 
 def test_vision_review_does_not_retry_permanent_http_error(tmp_path: Path) -> None:
@@ -453,7 +556,7 @@ def test_vision_review_does_not_retry_permanent_http_error(tmp_path: Path) -> No
     assert calls == 1
 
 
-def test_vision_review_sends_multi_page_chunks_as_single_page_requests(
+def test_vision_review_scopes_multi_page_requests_and_recovers_only_current_page_image(
     tmp_path: Path,
 ) -> None:
     source = tmp_path / "three-pages.pdf"
@@ -496,8 +599,12 @@ def test_vision_review_sends_multi_page_chunks_as_single_page_requests(
             json={"choices": [{"message": {"content": content}}]},
         )
 
-    settings = Settings(openai_compat_api_key="test-key")
-    markdown = "MinerU chunk with enough content to review."
+    settings = Settings(
+        openai_compat_api_key="test-key",
+        paper_vision_max_attempts=1,
+    )
+    page_one_image = f"/api/v1/papers/jobs/job-1/question-images/p0001-{'a' * 64}.png"
+    markdown = f"MinerU multi-page chunk.\n\n![]({page_one_image})"
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
         result = PaperVisionReviewer(settings, client=client).review_chunk(
             source,
@@ -509,8 +616,10 @@ def test_vision_review_sends_multi_page_chunks_as_single_page_requests(
     assert requested_pages == [1, 2, 3]
     assert image_counts == [1, 1, 1]
     assert parse_physical_page_markdown(result.markdown) == [
-        (1, "1 (a) Find x. [2 marks]"),
+        (1, f"1 (a) Find x. [2 marks]\n\n![]({page_one_image})"),
         (2, ""),
         (3, "1 (b) Hence find y. [3 marks]"),
     ]
+    assert result.markdown.count("MinerU multi-page chunk") == 0
+    assert result.repairs[-1] == "视觉模型持续遗漏来源图片；已将当前物理页图片附回复核结果。"
     assert result.markdown.count("<!-- examtwin:physical-page=") == 3

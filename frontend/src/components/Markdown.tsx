@@ -3,6 +3,7 @@ import "katex/dist/katex.min.css";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
+import { useState, type ComponentPropsWithoutRef, type SyntheticEvent } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -128,6 +129,57 @@ const markdownComponents: Components = {
   },
 };
 
+type QuestionSourceImageLayout = "pending" | "compact" | "figure" | "error";
+
+function QuestionSourceImage({
+  alt = "",
+  className,
+  onError,
+  onLoad,
+  src,
+  ...props
+}: ComponentPropsWithoutRef<"img">) {
+  const [layout, setLayout] = useState<QuestionSourceImageLayout>("pending");
+
+  function handleLoad(event: SyntheticEvent<HTMLImageElement>) {
+    onLoad?.(event);
+    const image = event.currentTarget;
+    setLayout(
+      image.naturalWidth <= 128 && image.naturalHeight <= 96
+        ? "compact"
+        : "figure",
+    );
+  }
+
+  function handleError(event: SyntheticEvent<HTMLImageElement>) {
+    onError?.(event);
+    setLayout("error");
+  }
+
+  if (layout === "error") {
+    return (
+      <a className="question-source-image-error" href={src} rel="noreferrer" target="_blank">
+        题目图片加载失败，点击单独打开
+      </a>
+    );
+  }
+
+  return (
+    <img
+      {...props}
+      alt={alt}
+      className={["question-source-image", `is-${layout}`, className]
+        .filter(Boolean)
+        .join(" ")}
+      decoding="async"
+      loading="lazy"
+      onError={handleError}
+      onLoad={handleLoad}
+      src={src}
+    />
+  );
+}
+
 const questionMarkdownComponents: Components = {
   ...markdownComponents,
   img({ node, src, ...props }) {
@@ -135,14 +187,7 @@ const questionMarkdownComponents: Components = {
     const resolvedSrc = src?.startsWith("/api/v1/")
       ? backendResourceUrl(src)
       : src;
-    return (
-      <img
-        {...props}
-        className="question-source-image"
-        loading="lazy"
-        src={resolvedSrc}
-      />
-    );
+    return <QuestionSourceImage {...props} src={resolvedSrc} />;
   },
 };
 
