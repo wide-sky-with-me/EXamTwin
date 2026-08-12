@@ -4,6 +4,7 @@ Revision ID: 20260810_0021
 Revises: 20260810_0020
 Create Date: 2026-08-10
 """
+
 from __future__ import annotations
 
 import sqlalchemy as sa
@@ -24,8 +25,13 @@ def upgrade() -> None:
         "subjects",
         sa.Column("color", sa.Text(), nullable=False, server_default="#2F6FED"),
     )
-    op.execute("UPDATE subjects SET icon = 'chart-no-axes-combined', color = '#B45309' WHERE subject_code = '9640'")
-    op.execute("UPDATE subjects SET icon = 'calculator', color = '#2563EB' WHERE subject_code = '9660'")
+    op.execute(
+        "UPDATE subjects SET icon = 'chart-no-axes-combined', color = '#B45309' "
+        "WHERE subject_code = '9640'"
+    )
+    op.execute(
+        "UPDATE subjects SET icon = 'calculator', color = '#2563EB' WHERE subject_code = '9660'"
+    )
 
     op.add_column(
         "paper_jobs",

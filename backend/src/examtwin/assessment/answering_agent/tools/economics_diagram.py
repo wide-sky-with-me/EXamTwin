@@ -53,6 +53,15 @@ class EconomicsDiagramInput(BaseModel):
 
     template: EconomicsDiagramTemplate
     title: str = Field(min_length=1, max_length=160)
+    answer_anchor: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=32,
+        description=(
+            "Exact printed subpart label this diagram answers, such as `(b)` or `.2`; use "
+            "`whole` only when the question has no labelled subparts."
+        ),
+    )
     change: EconomicsDiagramChange = "none"
     curve: EconomicsDiagramCurve = "none"
     policy: EconomicsDiagramPolicy = "none"
@@ -612,6 +621,7 @@ _COMPILERS = {
 def compile_economics_diagram(spec: EconomicsDiagramInput) -> AnswerDiagram:
     elements, legend = _COMPILERS[spec.template](spec)
     return AnswerDiagram(
+        answer_anchor=spec.answer_anchor,
         title=spec.title,
         caption=spec.caption,
         tool_name="economics_diagram",
@@ -629,10 +639,11 @@ class EconomicsDiagramTool:
             """Create one validated standard economics diagram."""
 
             diagram = compile_economics_diagram(EconomicsDiagramInput.model_validate(kwargs))
-            context.add_diagram(diagram)
+            diagram = context.add_diagram(diagram)
             return (
                 f"Economics diagram '{diagram.title}' accepted from the "
-                f"{kwargs.get('template')} template with {len(diagram.elements)} elements."
+                f"{kwargs.get('template')} template with {len(diagram.elements)} elements. "
+                f"It is anchored to answer {diagram.answer_anchor!r} as {diagram.artifact_id}."
             )
 
         return FunctionTool.from_defaults(

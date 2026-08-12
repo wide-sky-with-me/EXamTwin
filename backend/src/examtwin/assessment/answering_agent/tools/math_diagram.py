@@ -17,6 +17,15 @@ class MathDiagramInput(BaseModel):
         max_length=160,
         description="Short reader-facing title for the completed diagram.",
     )
+    answer_anchor: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=32,
+        description=(
+            "Exact printed subpart label this diagram answers, such as `(b)` or `.2`; use "
+            "`whole` only when the question has no labelled subparts."
+        ),
+    )
     elements: list[DiagramElement] = Field(
         min_length=1,
         max_length=160,
@@ -55,6 +64,7 @@ class MathDiagramTool:
         async def create_math_diagram(
             title: str,
             elements: list[dict[str, Any]],
+            answer_anchor: str | None = None,
             caption: str = "",
             view_box: list[float] | None = None,
             legend: list[dict[str, Any]] | None = None,
@@ -67,6 +77,7 @@ class MathDiagramTool:
             diagram = AnswerDiagram.model_validate(
                 {
                     "title": title,
+                    "answer_anchor": answer_anchor,
                     "caption": caption,
                     "tool_name": self.name,
                     "view_box": view_box or [0, 0, 600, 360],
@@ -74,10 +85,11 @@ class MathDiagramTool:
                     "legend": legend or [],
                 }
             )
-            context.add_diagram(diagram)
+            diagram = context.add_diagram(diagram)
             return (
                 f"Diagram '{diagram.title}' accepted with "
-                f"{len(diagram.elements)} validated elements."
+                f"{len(diagram.elements)} validated elements. It is anchored to answer "
+                f"{diagram.answer_anchor!r} as {diagram.artifact_id}."
             )
 
         return FunctionTool.from_defaults(

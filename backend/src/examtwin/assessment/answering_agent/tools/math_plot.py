@@ -124,6 +124,15 @@ class MathPlotInput(BaseModel):
 
     title: str = Field(min_length=1, max_length=160)
     caption: str = Field(default="", max_length=500)
+    answer_anchor: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=32,
+        description=(
+            "Exact printed subpart label this plot answers, such as `(b)` or `.2`; use `whole` "
+            "only when the question has no labelled subparts."
+        ),
+    )
     x_range: tuple[float, float]
     y_range: tuple[float, float]
     x_label: str = Field(default="x", max_length=40)
@@ -576,6 +585,7 @@ def compile_math_plot(spec: MathPlotInput) -> AnswerDiagram:
             )
     elements.extend(explicit_labels)
     return AnswerDiagram(
+        answer_anchor=spec.answer_anchor,
         title=spec.title,
         caption=spec.caption,
         tool_name="math_plot",
@@ -623,7 +633,7 @@ class MathPlotTool:
                     calibration_failure = ""
             else:
                 calibration_failure = ""
-            context.add_diagram(diagram)
+            diagram = context.add_diagram(diagram)
             canvas_description = (
                 "a calibrated original-paper background"
                 if diagram.source
@@ -632,7 +642,8 @@ class MathPlotTool:
             result = (
                 f"Plot '{diagram.title}' accepted with {len(spec.curves)} curves, "
                 f"{len(diagram.elements)} rendered elements, and "
-                f"{canvas_description}."
+                f"{canvas_description}. It is anchored to answer "
+                f"{diagram.answer_anchor!r} as {diagram.artifact_id}."
             )
             if calibration_failure:
                 result += (

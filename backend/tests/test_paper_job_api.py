@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from io import BytesIO
 from pathlib import Path
 
 import pytest
@@ -80,6 +81,72 @@ def test_create_job_rejects_mark_scheme_before_persisting(tmp_path: Path) -> Non
         jobs.create_job(
             "A-Level-AQA经济学-国际卷MS-202505-Economics-U4-AQA.pdf",
             b"%PDF-1.7",
+        )
+
+    assert repository.values is None
+
+
+def test_economics_job_requires_and_freezes_exact_pair_source_booklet(tmp_path: Path) -> None:
+    repository = CapturingCreateJobRepository()
+    settings = Settings(object_store_local_root=tmp_path)
+    subject = subject_context(settings, "oxfordaqa-economics-9640").with_retrieval_snapshot(
+        version_ids=("version-1",),
+        collections=("collection-1",),
+        graph_version_id=None,
+    )
+    jobs = PaperJobService(settings, subject, repository=repository)  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="Source Booklet"):
+        jobs.create_job("qp-202401-economics-u1.pdf", b"%PDF-1.7")
+
+    booklet = {
+        "id": "insert-1",
+        "subject_code": "9640",
+        "source_type": "insert",
+        "identity_status": "complete",
+        "pair_key": "9640:2024:JAN:U1",
+        "checksum": "abc123",
+        "converted_source_checksum": "abc123",
+        "status": "converted",
+        "filename": "IN-202401-Economics-U1.pdf",
+    }
+    jobs.create_job_from_stream(
+        "qp-202401-economics-u1.pdf",
+        BytesIO(b"%PDF-1.7"),
+        source_booklet=booklet,
+    )
+
+    assert repository.values is not None
+    assert repository.values["pair_key"] == "9640:2024:JAN:U1"
+    assert repository.values["source_booklet_document_id"] == "insert-1"
+    assert repository.values["source_booklet_checksum"] == "abc123"
+
+
+def test_economics_job_rejects_nearby_source_booklet_pair(tmp_path: Path) -> None:
+    repository = CapturingCreateJobRepository()
+    settings = Settings(object_store_local_root=tmp_path)
+    subject = subject_context(settings, "oxfordaqa-economics-9640").with_retrieval_snapshot(
+        version_ids=("version-1",),
+        collections=("collection-1",),
+        graph_version_id=None,
+    )
+    jobs = PaperJobService(settings, subject, repository=repository)  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="年份、考季或 Unit 不匹配"):
+        jobs.create_job_from_stream(
+            "qp-202401-economics-u1.pdf",
+            BytesIO(b"%PDF-1.7"),
+            source_booklet={
+                "id": "insert-2",
+                "subject_code": "9640",
+                "source_type": "insert",
+                "identity_status": "complete",
+                "pair_key": "9640:2024:JUN:U1",
+                "checksum": "def456",
+                "converted_source_checksum": "def456",
+                "status": "converted",
+                "filename": "IN-202406-Economics-U1.pdf",
+            },
         )
 
     assert repository.values is None

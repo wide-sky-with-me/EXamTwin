@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
 import { InlineMarkdown, Markdown, QuestionMarkdown } from "./components/Markdown";
 
@@ -106,10 +106,42 @@ describe("Markdown math", () => {
     const image = screen.getByRole("img", { name: "Force diagram" });
     expect(image).toHaveAttribute("src", imageUrl);
     expect(image).toHaveAttribute("loading", "lazy");
+    expect(image).toHaveAttribute("decoding", "async");
     expect(image).toHaveClass("question-source-image");
     expect(
       Array.from(container.children).map((node) =>
         node.querySelector("img")?.getAttribute("alt") ?? node.textContent),
     ).toEqual(["Before diagram.", "Force diagram", "After diagram."]);
+  });
+
+  test("lays out tiny source glyphs inline and full figures as responsive blocks", () => {
+    const { rerender } = render(
+      <QuestionMarkdown>{"![Option marker](/api/v1/tiny.png)"}</QuestionMarkdown>,
+    );
+    const compact = screen.getByRole("img", { name: "Option marker" });
+    Object.defineProperties(compact, {
+      naturalWidth: { configurable: true, value: 72 },
+      naturalHeight: { configurable: true, value: 48 },
+    });
+    fireEvent.load(compact);
+    expect(compact).toHaveClass("is-compact");
+
+    rerender(<QuestionMarkdown>{"![Demand graph](/api/v1/figure.png)"}</QuestionMarkdown>);
+    const figure = screen.getByRole("img", { name: "Demand graph" });
+    Object.defineProperties(figure, {
+      naturalWidth: { configurable: true, value: 642 },
+      naturalHeight: { configurable: true, value: 604 },
+    });
+    fireEvent.load(figure);
+    expect(figure).toHaveClass("is-figure");
+  });
+
+  test("does not silently hide a failed question image", () => {
+    render(<QuestionMarkdown>{"![Demand graph](/api/v1/missing.png)"}</QuestionMarkdown>);
+    fireEvent.error(screen.getByRole("img", { name: "Demand graph" }));
+
+    expect(
+      screen.getByRole("link", { name: "题目图片加载失败，点击单独打开" }),
+    ).toHaveAttribute("href", "/api/v1/missing.png");
   });
 });

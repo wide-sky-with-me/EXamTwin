@@ -143,6 +143,92 @@ class StaticRubricModel:
         return response_model.model_validate({"criteria": self.criteria, "warnings": self.warnings})
 
 
+class CorrectingBudgetRubricModel:
+    model_name = "correcting-budget-rubric-model"
+
+    def __init__(self, *, remains_invalid: bool = False) -> None:
+        self.calls = 0
+        self.prompts: list[str] = []
+        self.remains_invalid = remains_invalid
+
+    def complete(
+        self,
+        messages: Sequence[HarnessMessage],
+        response_model: type[StructuredResultT],
+        *,
+        timeout: float,
+    ) -> StructuredResultT:
+        assert timeout > 0
+        self.calls += 1
+        user_content = next(message.content for message in messages if message.role == "user")
+        self.prompts.append(user_content)
+        criteria: list[dict[str, object]] = [
+            {
+                "question_number": "01",
+                "subpart": "whole",
+                "criterion_id": "01-B1",
+                "scoring_mode": "point_based",
+                "mark_type": "B1",
+                "max_marks": 1,
+                "description": "Select the correct option.",
+                "source_excerpt": "Answer: B",
+                "confidence": 1,
+            }
+        ]
+        if self.calls == 1 or self.remains_invalid:
+            criteria.append(
+                {
+                    "question_number": "01",
+                    "subpart": "whole",
+                    "criterion_id": "01-total-check",
+                    "scoring_mode": "point_based",
+                    "mark_type": None,
+                    "max_marks": 0.03,
+                    "description": "Question total check.",
+                    "source_excerpt": "Question total: 1",
+                    "confidence": 0.5,
+                }
+            )
+        return response_model.model_validate({"criteria": criteria, "warnings": []})
+
+
+class CorrectingControlCharacterRubricModel(CorrectingBudgetRubricModel):
+    model_name = "correcting-control-character-rubric-model"
+
+    def complete(
+        self,
+        messages: Sequence[HarnessMessage],
+        response_model: type[StructuredResultT],
+        *,
+        timeout: float,
+    ) -> StructuredResultT:
+        assert timeout > 0
+        self.calls += 1
+        user_content = next(message.content for message in messages if message.role == "user")
+        self.prompts.append(user_content)
+        invalid_description = "The vector is \x00invalid."
+        valid_description = r"The vector is \mathbf{v}."
+        description = invalid_description if self.calls == 1 else valid_description
+        return response_model.model_validate(
+            {
+                "criteria": [
+                    {
+                        "question_number": "01",
+                        "subpart": "whole",
+                        "criterion_id": "01-B1",
+                        "scoring_mode": "point_based",
+                        "mark_type": "B1",
+                        "max_marks": 1,
+                        "description": description,
+                        "source_excerpt": "B1 for the correct vector",
+                        "confidence": 1,
+                    }
+                ],
+                "warnings": [],
+            }
+        )
+
+
 class PaperRecords:
     def get(self, _paper_job_id: str) -> dict[str, object]:
         return {
@@ -250,6 +336,13 @@ class RubricServiceWithSourceMarkdown(RubricServiceWithMarkdown):
 class SingleQuestionPaperRecords(PaperRecords):
     def questions(self, paper_job_id: str) -> list[dict[str, object]]:
         return super().questions(paper_job_id)[:1]
+
+
+class SingleQuestionPaperRecordsWithBudget(SingleQuestionPaperRecords):
+    def questions(self, paper_job_id: str) -> list[dict[str, object]]:
+        questions = super().questions(paper_job_id)
+        questions[0]["requirements_json"] = '{"total_marks": 1}'
+        return questions
 
 
 class MutableMarkSchemeRecords(MarkSchemeRecords):
@@ -508,6 +601,113 @@ def test_rubric_creation_rejects_mark_budget_mismatch() -> None:
     assert rubrics.criteria == []
 
 
+def test_rubric_creation_retries_against_question_paper_mark_budget() -> None:
+    settings = Settings(subject_pack="oxfordaqa-economics-9640")
+    rubrics = CapturingRubrics()
+    model = CorrectingBudgetRubricModel()
+    service = RubricServiceWithMarkdown(
+        settings,
+        subject_context(settings),
+        cast(Any, MarkSchemeRecords()),
+        cast(Any, SingleQuestionPaperRecordsWithBudget()),
+        cast(Any, rubrics),
+        cast(Any, None),
+        cast(Any, None),
+        structured_model=model,
+    )
+
+    service.create(paper_job_id="paper-1", source_document_id="mark-scheme-1")
+
+    assert model.calls == 2
+    assert "MARK BUDGET FOR TARGET QUESTION:\n1.0" in model.prompts[0]
+    assert "CORRECTION REQUIRED" in model.prompts[1]
+    assert [item["criterion_id"] for item in rubrics.criteria] == ["01-B1"]
+
+
+def test_rubric_creation_rejects_persistent_question_paper_budget_mismatch() -> None:
+    settings = Settings(subject_pack="oxfordaqa-economics-9640")
+    rubrics = CapturingRubrics()
+    model = CorrectingBudgetRubricModel(remains_invalid=True)
+    service = RubricServiceWithMarkdown(
+        settings,
+        subject_context(settings),
+        cast(Any, MarkSchemeRecords()),
+        cast(Any, SingleQuestionPaperRecordsWithBudget()),
+        cast(Any, rubrics),
+        cast(Any, None),
+        cast(Any, None),
+        structured_model=model,
+    )
+
+    with pytest.raises(ValueError, match="评分原子校验失败"):
+        service.create(paper_job_id="paper-1", source_document_id="mark-scheme-1")
+
+    assert model.calls == 3
+    assert rubrics.criteria == []
+
+
+def test_holistic_best_fit_descriptors_are_one_non_additive_criterion() -> None:
+    from examtwin.assessment.rubrics import (
+        RubricExtractionDraft,
+        _collapse_holistic_best_fit_criteria,
+    )
+
+    mark_scheme = (
+        "<table><tr><td>20</td><td>Analyse the issue.</td><td>12</td></tr>"
+        "<tr><td></td><td>AO1, AO2 and AO3 are regarded as interdependent. "
+        "Examiners use the best-fit approach. Level 3: 9-12 marks.</td><td></td>"
+        "</tr></table>"
+    )
+    payload = RubricExtractionDraft.model_validate(
+        {
+            "criteria": [
+                {
+                    "question_number": "20",
+                    "subpart": "whole",
+                    "criterion_id": f"20-AO1-{index}",
+                    "scoring_mode": "point_based",
+                    "mark_type": "AO1",
+                    "max_marks": 1,
+                    "description": "Shows knowledge and analysis.",
+                    "source_excerpt": "Level 3 descriptor.",
+                    "confidence": 0.9,
+                }
+                for index in range(1, 4)
+            ],
+        }
+    )
+
+    collapsed = _collapse_holistic_best_fit_criteria(
+        payload,
+        mark_scheme,
+        question={"number": "20", "total_marks": 12},
+    )
+
+    assert len(collapsed.criteria) == 1
+    assert collapsed.criteria[0].scoring_mode == "levels_based"
+    assert collapsed.criteria[0].max_marks == 12
+    assert collapsed.criteria[0].description == "Shows knowledge and analysis."
+    assert "non-additive" in collapsed.warnings[0]
+
+
+def test_mark_scheme_context_keeps_level_grid_after_question_table() -> None:
+    from examtwin.assessment.rubrics import _mark_scheme_context
+
+    source = (
+        "<table><tr><td>20</td><td>Analyse.</td><td>12</td></tr></table>\n"
+        "AO1, AO2 and AO3 are interdependent; use a best-fit approach.\n"
+        "<table><tr><td>Level</td><td>Marks</td><td>Descriptor</td></tr>"
+        "<tr><td>3</td><td>9-12</td><td>Sound analysis.</td></tr></table>\n"
+        "<table><tr><td>21</td><td>Assess.</td><td>20</td></tr></table>"
+    )
+
+    context = _mark_scheme_context(source, "20")
+
+    assert "best-fit" in context
+    assert "Sound analysis" in context
+    assert "Assess." not in context
+
+
 def test_rubric_mark_budget_counts_alternative_route_once() -> None:
     settings = Settings(subject_pack="oxfordaqa-economics-9640")
     rubrics = CapturingRubrics()
@@ -623,6 +823,28 @@ def test_rubric_creation_rejects_control_characters_in_formula_text() -> None:
         service.create(paper_job_id="paper-1", source_document_id="mark-scheme-1")
 
     assert rubrics.criteria == []
+
+
+def test_rubric_creation_retries_schema_invalid_control_characters() -> None:
+    settings = Settings(subject_pack="oxfordaqa-economics-9640")
+    rubrics = CapturingRubrics()
+    model = CorrectingControlCharacterRubricModel()
+    service = RubricServiceWithMarkdown(
+        settings,
+        subject_context(settings),
+        cast(Any, MarkSchemeRecords()),
+        cast(Any, SingleQuestionPaperRecordsWithBudget()),
+        cast(Any, rubrics),
+        cast(Any, None),
+        cast(Any, None),
+        structured_model=model,
+    )
+
+    service.create(paper_job_id="paper-1", source_document_id="mark-scheme-1")
+
+    assert model.calls == 2
+    assert "failed the rubric schema" in model.prompts[1]
+    assert rubrics.criteria[0]["description"] == r"The vector is \mathbf{v}."
 
 
 def test_rubric_creation_extracts_each_question_within_its_own_timeout() -> None:

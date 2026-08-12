@@ -444,6 +444,13 @@ class PaperJobModel(Base):
     answer_filename: Mapped[str | None] = mapped_column(Text)
     answer_suffix: Mapped[str | None] = mapped_column(Text)
     answer_source_path: Mapped[str | None] = mapped_column(Text)
+    pair_key: Mapped[str | None] = mapped_column(Text)
+    source_booklet_document_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("source_documents.id", ondelete="RESTRICT"),
+    )
+    source_booklet_checksum: Mapped[str | None] = mapped_column(Text)
+    source_booklet_filename: Mapped[str | None] = mapped_column(Text)
     unit_code: Mapped[str | None] = mapped_column(Text)
     source_path: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text)

@@ -698,6 +698,8 @@ class RagService:
                 subject_code=request.subject_code,
                 unit_code=request.unit_code,
                 pair_key=request.pair_key,
+                source_booklet_document_id=request.source_booklet_document_id,
+                source_booklet_checksum=request.source_booklet_checksum,
                 source_types=tuple(request.source_types),
                 authority_tiers=tuple(request.authority_tiers),
                 top_k=request.top_k or self.settings.rerank_top_n,

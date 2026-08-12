@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from examtwin.assessment.assessment_repository import AssessmentRepository
 from examtwin.assessment.grading import GradingService
@@ -502,6 +502,8 @@ def _dedupe_warnings(warnings: list[str]) -> list[str]:
 def _validate_rubric_criteria(
     criteria: list[dict[str, object]],
     mark_scheme: str,
+    *,
+    question_numbers: set[str] | None = None,
 ) -> None:
     ids = [str(item["criterion_id"]) for item in criteria]
     duplicate_ids = sorted(item for item, count in Counter(ids).items() if count > 1)
@@ -531,7 +533,14 @@ def _validate_rubric_criteria(
         key = (label[0], _source_subpart(str(item["subpart"])))
         actual[key] = actual.get(key, 0) + _numeric_marks(item["max_marks"])
     mismatches: list[str] = []
+    target_stems = {
+        label[0]
+        for number in (question_numbers or set())
+        if (label := _question_label(number)) is not None
+    }
     for key, expected_marks in sorted(expected.items()):
+        if target_stems and key[0] not in target_stems:
+            continue
         actual_marks = actual.get(key, 0)
         if abs(actual_marks - expected_marks) <= 1e-9:
             continue
@@ -565,6 +574,133 @@ _GENERATED_RUBRIC_SYSTEM_PROMPT = (
     "to a short statement that this criterion was AI-generated from the question. Never claim "
     "that a criterion came from an official source."
 )
+
+
+def _unique_text(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    unique: list[str] = []
+    for value in values:
+        cleaned = value.strip()
+        key = _normalized_criterion_text(cleaned)
+        if not cleaned or not key or key in seen:
+            continue
+        seen.add(key)
+        unique.append(cleaned)
+    return unique
+
+
+def _collapse_holistic_best_fit_criteria(
+    payload: RubricExtractionDraft,
+    mark_scheme: str,
+    *,
+    question: Mapping[str, object],
+) -> RubricExtractionDraft:
+    """Represent each official best-fit level grid as one non-additive criterion.
+
+    Economics level descriptors and AO weightings are interdependent alternatives for
+    choosing one holistic mark.  They are not additive one-mark atoms.  Models often
+    expand every descriptor bullet and AO allocation, producing impossible totals and
+    dozens of unsaveable review rows.  Collapse only when the official excerpt itself
+    declares both interdependence and best-fit marking, and only to budgets parsed from
+    that same official source.
+    """
+
+    question_number = str(question["number"])
+    context = _mark_scheme_context(mark_scheme, question_number)
+    normalized_context = _normalized_criterion_text(context)
+    if not (
+        "interdependent" in normalized_context
+        and "best fit" in normalized_context
+        and "level" in normalized_context
+    ):
+        return payload
+
+    label = _question_label(question_number)
+    if label is None:
+        return payload
+    expected = {
+        subpart: marks
+        for (number, subpart), marks in _mark_scheme_mark_budgets(mark_scheme).items()
+        if number == label[0]
+    }
+    if not expected:
+        requirements = question.get("requirements_json")
+        if isinstance(requirements, str):
+            try:
+                requirements = json.loads(requirements or "{}")
+            except json.JSONDecodeError:
+                requirements = None
+        subparts = requirements.get("subparts") if isinstance(requirements, Mapping) else None
+        if isinstance(subparts, list):
+            expected = {
+                _source_subpart(str(item.get("label") or "whole")): float(item["marks"])
+                for item in subparts
+                if isinstance(item, Mapping)
+                and isinstance(item.get("marks"), (int, float))
+                and not isinstance(item.get("marks"), bool)
+                and float(item["marks"]) > 0
+            }
+    if not expected:
+        budget = _question_mark_budget(question)
+        if budget is not None:
+            expected = {"whole": budget}
+    if not expected:
+        return payload
+
+    mapped = _map_criteria_to_questions(payload, {question_number})
+    grouped: dict[str, list[dict[str, object]]] = {}
+    for item in mapped:
+        item_subpart = str(item["subpart"])
+        grouped.setdefault(
+            "whole" if item_subpart == "whole" else _source_subpart(item_subpart),
+            [],
+        ).append(item)
+    if set(grouped) != set(expected):
+        return payload
+
+    collapsed: list[RubricCriterionDraft] = []
+    for subpart, budget in sorted(expected.items()):
+        items = grouped[subpart]
+        descriptions = _unique_text([str(item["description"]) for item in items])
+        excerpts = _unique_text([str(item["source_excerpt"]) for item in items])
+        alternatives = _unique_text(
+            [str(value) for item in items for value in item.get("alternatives", [])]
+        )
+        source_pages = [
+            int(item["source_page"])
+            for item in items
+            if isinstance(item.get("source_page"), int)
+        ]
+        public_subpart = str(items[0]["subpart"])
+        collapsed.append(
+            RubricCriterionDraft(
+                question_number=question_number,
+                subpart=public_subpart,
+                criterion_id=(
+                    f"{question_number}-levels"
+                    if public_subpart == "whole"
+                    else f"{question_number}{public_subpart}-levels"
+                ),
+                scoring_mode="levels_based",
+                mark_type="LEVELS",
+                max_marks=budget,
+                description="\n\n".join(descriptions),
+                alternatives=alternatives,
+                source_page=min(source_pages) if source_pages else None,
+                source_excerpt="\n\n".join(excerpts),
+                confidence=min(float(item["confidence"]) for item in items),
+            )
+        )
+    return payload.model_copy(
+        update={
+            "criteria": collapsed,
+            "warnings": [
+                *payload.warnings,
+                "Official interdependent best-fit level descriptors were preserved as one "
+                "non-additive criterion per printed subpart.",
+            ],
+        }
+    )
 
 
 def _generate_question_rubric(
@@ -605,6 +741,14 @@ def _question_label(value: str) -> tuple[str, str | None] | None:
 
 
 def _table_question_stems(table: str) -> set[str]:
+    first_row = _TABLE_ROW.search(table)
+    if first_row is not None:
+        headers = {
+            _normalized_criterion_text(_plain_table_cell(cell.group("value")))
+            for cell in _TABLE_CELL.finditer(first_row.group("cells"))
+        }
+        if "level" in headers and "marks" in headers:
+            return set()
     stems: set[str] = set()
     for match in _TABLE_FIRST_CELL.finditer(table):
         label = unescape(_HTML_TAG.sub("", match.group("label"))).strip()
@@ -625,7 +769,25 @@ def _mark_scheme_context(mark_scheme: str, question_number: str) -> str:
     if not selected:
         return mark_scheme[:60000]
     preamble = mark_scheme[: tables[0].start()][-12000:]
-    return f"{preamble}\n\n" + "\n\n".join(selected)
+    expanded: list[str] = []
+    for selected_table in selected:
+        start = mark_scheme.find(selected_table)
+        if start < 0:
+            expanded.append(selected_table)
+            continue
+        end = start + len(selected_table)
+        next_question = next(
+            (
+                table.start()
+                for table in tables
+                if table.start() >= end
+                and _table_question_stems(table.group(0))
+                and label[0] not in _table_question_stems(table.group(0))
+            ),
+            min(len(mark_scheme), end + 30000),
+        )
+        expanded.append(mark_scheme[start:next_question])
+    return f"{preamble}\n\n" + "\n\n".join(expanded)
 
 
 def _extract_question_rubric(
@@ -633,19 +795,43 @@ def _extract_question_rubric(
     settings: Settings,
     question: Mapping[str, object],
     mark_scheme: str,
+    *,
+    correction: str | None = None,
 ) -> RubricExtractionDraft:
     number = str(question["number"])
+    mark_budget = _question_mark_budget(question)
     user_content = (
         f"TARGET QUESTION: {number}\n\n"
         f"QUESTION {number}:\n{str(question['question_markdown'])[:3000]}\n\n"
+        "MARK BUDGET FOR TARGET QUESTION:\n"
+        f"{mark_budget if mark_budget is not None else 'Not explicitly available.'}\n\n"
         "OFFICIAL MARK SCHEME EXCERPT:\n"
         f"{_mark_scheme_context(mark_scheme, number)[:60000]}"
     )
-    return StructuredTaskRunner(model).run(
-        StructuredTask(system_prompt=_RUBRIC_SYSTEM_PROMPT, user_content=user_content),
-        RubricExtractionDraft,
-        timeout=settings.grading_timeout,
+    if correction:
+        user_content += f"\n\nCORRECTION REQUIRED:\n{correction}"
+    runner = StructuredTaskRunner(model)
+    schema_correction = (
+        "CORRECTION REQUIRED:\nThe previous response failed the rubric schema. Return every "
+        "field in the required type and do not emit ASCII control characters. In free-text "
+        "fields use ordinary Unicode mathematical notation instead of LaTeX commands that "
+        "can be misread as JSON control escapes."
     )
+    for attempt in range(3):
+        try:
+            return runner.run(
+                StructuredTask(
+                    system_prompt=_RUBRIC_SYSTEM_PROMPT,
+                    user_content=user_content,
+                ),
+                RubricExtractionDraft,
+                timeout=settings.grading_timeout,
+            )
+        except ValidationError:
+            if attempt == 2:
+                raise
+            user_content += f"\n\n{schema_correction}"
+    raise AssertionError("unreachable rubric extraction state")
 
 
 def _map_criteria_to_questions(
@@ -682,6 +868,78 @@ def _map_criteria_to_questions(
         )
         criteria.append(values)
     return criteria
+
+
+def _question_mark_budget(question: Mapping[str, object]) -> float | None:
+    value = question.get("total_marks")
+    if value is None:
+        requirements = question.get("requirements_json")
+        if isinstance(requirements, str):
+            try:
+                requirements = json.loads(requirements or "{}")
+            except json.JSONDecodeError:
+                requirements = None
+        if isinstance(requirements, Mapping):
+            value = requirements.get("total_marks")
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    budget = float(value)
+    return budget if budget > 0 else None
+
+
+def _extract_validated_question_rubric(
+    model: StructuredModelPort,
+    settings: Settings,
+    question: Mapping[str, object],
+    mark_scheme: str,
+) -> RubricExtractionDraft:
+    number = str(question["number"])
+    budget = _question_mark_budget(question)
+    payload = _extract_question_rubric(model, settings, question, mark_scheme)
+    last_error = ""
+    for attempt in range(3):
+        payload = _collapse_holistic_best_fit_criteria(
+            payload,
+            mark_scheme,
+            question=question,
+        )
+        mapped = _map_criteria_to_questions(payload, {number})
+        violations: list[str] = []
+        actual = sum(_numeric_marks(item["max_marks"]) for item in mapped)
+        if not mapped:
+            violations.append("No scoring atoms mapped to the target question.")
+        if budget is not None and abs(actual - budget) > 1e-9:
+            violations.append(
+                f"The extracted atoms total {actual:g} marks, but the Question Paper "
+                f"requires exactly {budget:g}."
+            )
+        try:
+            _validate_rubric_criteria(
+                mapped,
+                mark_scheme,
+                question_numbers={number},
+            )
+        except ValueError as error:
+            violations.append(str(error))
+        if not violations:
+            return payload
+        last_error = " ".join(dict.fromkeys(violations))
+        if attempt == 2:
+            break
+        payload = _extract_question_rubric(
+            model,
+            settings,
+            question,
+            mark_scheme,
+            correction=(
+                f"The previous extraction failed deterministic validation: {last_error} "
+                "Re-read the official rows for this target question and return a complete, "
+                "non-duplicated set of scoring atoms. Match every official subpart budget "
+                "and the whole-question budget exactly. Do not score totals, checks, notes, "
+                "or alternative routes as extra marks."
+            ),
+        )
+    raise ValueError(f"Q{number} 评分原子校验失败：{last_error}")
 
 
 def _structured_model(settings: Settings) -> StructuredModelPort:
@@ -835,7 +1093,7 @@ class RubricService:
         with ThreadPoolExecutor(max_workers=min(4, len(questions))) as executor:
             payloads = list(
                 executor.map(
-                    lambda question: _extract_question_rubric(
+                    lambda question: _extract_validated_question_rubric(
                         model,
                         self.settings,
                         question,

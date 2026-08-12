@@ -22,8 +22,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-import { AnswerDiagramView } from "../components/AnswerDiagramView";
-import { AnswerImageView } from "../components/AnswerImageView";
+import { AnswerArtifactFlow } from "../components/AnswerArtifactFlow";
 import { PaperJobHistory } from "../components/PaperJobHistory";
 import { AppDialog } from "../components/ui/AppDialog";
 import {
@@ -85,6 +84,7 @@ export function PaperAnswering({
   const [createStep, setCreateStep] = useState<1 | 2>(1);
   const jobStorageKey = `examtwin.paperJobId.${subjectId || "unselected"}`;
   const [file, setFile] = useState<File | null>(null);
+  const [sourceBooklet, setSourceBooklet] = useState<File | null>(null);
   const [unit, setUnit] = useState("");
   const [jobId, setJobId] = useState<string | null>(() =>
     window.localStorage.getItem(jobStorageKey),
@@ -238,7 +238,7 @@ export function PaperAnswering({
     setUploading(true);
     setError(null);
     try {
-      const created = await uploadPaper(file, unit);
+      const created = await uploadPaper(file, unit, sourceBooklet);
       window.localStorage.setItem(jobStorageKey, created.job_id);
       setJob(null);
       setJobId(created.job_id);
@@ -313,6 +313,7 @@ export function PaperAnswering({
   function resetPaper() {
     window.localStorage.removeItem(jobStorageKey);
     setFile(null);
+    setSourceBooklet(null);
     setUnit("");
     setJobId(null);
     setJob(null);
@@ -336,6 +337,7 @@ export function PaperAnswering({
     setDraftSubjectId("");
     setCreateStep(1);
     setFile(null);
+    setSourceBooklet(null);
     setUnit("");
     setError(null);
     setCreateOpen(true);
@@ -380,7 +382,6 @@ export function PaperAnswering({
       <header className="page-heading">
         <div>
           <h1>试卷作答</h1>
-          <p>查看整卷作答记录，或按步骤创建新任务。</p>
         </div>
         <button className="primary" disabled={!subjects.length} onClick={openCreateWorkflow} type="button">
           <Plus size={17} />新建作答
@@ -413,6 +414,7 @@ export function PaperAnswering({
               当前任务 · {subject?.title ?? job.subject_code} · {PAPER_JOB_STAGE_LABELS[job.stage]}
             </span>
             <strong title={job.display_name || job.filename}>{job.display_name || job.filename}</strong>
+            {job.source_booklet_filename && <small>资料册 · {job.source_booklet_filename}</small>}
           </div>
           <button className="secondary" onClick={resetPaper} type="button">
             <ArrowLeft size={15} />返回作答记录
@@ -474,6 +476,20 @@ export function PaperAnswering({
                     <strong>{file ? file.name : `选择或拖入一份 ${subject?.subject_code ?? ""} 试卷`}</strong>
                     <span>{file ? `${(file.size / 1024 / 1024).toFixed(2)} MB` : "Markdown 或 PDF，最大 25 MB"}</span>
                   </label>
+                  <label className={`paper-companion-upload ${sourceBooklet ? "has-file" : ""}`}>
+                    <span>
+                      <BookOpen size={18} />
+                      <strong>配套 Source Booklet{subject?.source_booklet_required ? "（必需）" : "（可选）"}</strong>
+                      <small>上传本卷引用的 Extract、数据或案例资料；系统会核对年份、考季和 Unit。</small>
+                    </span>
+                    <input
+                      accept=".pdf,application/pdf"
+                      onChange={(event) => setSourceBooklet(event.target.files?.[0] ?? null)}
+                      required={subject?.source_booklet_required}
+                      type="file"
+                    />
+                    {sourceBooklet && <em>{sourceBooklet.name}</em>}
+                  </label>
                   <label>参考单元（可选）
                     <select onChange={(event) => setUnit(event.target.value)} value={unit}>
                       <option value="">全部单元与当前知识库版本</option>
@@ -483,7 +499,7 @@ export function PaperAnswering({
                   <ErrorBanner message={canAnswer ? error : "该科目尚未配置可用的试卷作答能力。"} />
                   <footer className="modal-actions">
                     <button className="secondary" onClick={() => setCreateStep(1)} type="button">上一步</button>
-                    <button className="primary" disabled={uploading || !file || !canAnswer} type="submit">
+                    <button className="primary" disabled={uploading || !file || !canAnswer || Boolean(subject?.source_booklet_required && !sourceBooklet)} type="submit">
                       {uploading ? <LoaderCircle className="spin" size={18} /> : <SearchCheck size={18} />}
                       {uploading ? "正在创建任务…" : "开始整卷作答"}
                     </button>
@@ -693,10 +709,7 @@ export function PaperAnswering({
                         <span>原题</span>
                         <h2 id="current-question-title">Question {selected.number}</h2>
                       </div>
-                      <small>
-                        完整题干 · 公式与图表排版
-                        {selected.total_marks != null ? ` · ${selected.total_marks} marks` : ""}
-                      </small>
+                      {selected.total_marks != null && <small>{selected.total_marks} marks</small>}
                     </div>
                     {selected.answer_requirements.length > 0 && (
                       <div className="answer-requirements" aria-label="答案交付要求">
@@ -758,36 +771,23 @@ export function PaperAnswering({
                   ) : selected.error ? <ErrorBanner message={selected.error} /> : (
                     <section className="answer-block" aria-labelledby="current-answer-title">
                       <h2 id="current-answer-title">证据化解答</h2>
-                      <div className="markdown">
-                        <CitationMarkdown
-                          citations={selected.citations}
-                          query={selected.question_markdown.slice(0, 300)}
-                        >
-                          {selected.answer_markdown}
-                        </CitationMarkdown>
-                      </div>
+                      <AnswerArtifactFlow
+                        answerMarkdown={selected.answer_markdown}
+                        diagrams={selected.diagrams ?? []}
+                        images={selected.images ?? []}
+                        jobId={job.job_id}
+                        renderMarkdown={(markdown, key) => (
+                          <div className="markdown" key={key}>
+                            <CitationMarkdown
+                              citations={selected.citations}
+                              query={selected.question_markdown.slice(0, 300)}
+                            >
+                              {markdown}
+                            </CitationMarkdown>
+                          </div>
+                        )}
+                      />
                     </section>
-                  )}
-                  {(selected.diagrams ?? []).length > 0 && (
-                    <div className="answer-diagrams">
-                      {(selected.diagrams ?? []).map((diagram, index) => (
-                        <AnswerDiagramView
-                          diagram={diagram}
-                          jobId={job.job_id}
-                          key={`${diagram.title}-${index}`}
-                        />
-                      ))}
-                    </div>
-                  )}
-                  {(selected.images ?? []).length > 0 && (
-                    <div className="answer-diagrams">
-                      {(selected.images ?? []).map((image, index) => (
-                        <AnswerImageView
-                          image={image}
-                          key={`${image.content_url}-${index}`}
-                        />
-                      ))}
-                    </div>
                   )}
                   {selectedAgentSteps.length > 0 && (
                     <details className="agent-step-panel">

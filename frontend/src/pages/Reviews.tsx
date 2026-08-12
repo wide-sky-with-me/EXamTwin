@@ -81,7 +81,7 @@ export function Reviews({ items, refresh }: { items: ReviewItem[]; refresh: () =
 
   return (
     <section>
-      <div className="page-heading compact"><div><h1>人工复核队列</h1><p>确认或改分后才成为最终评分；自动结果不直接发布。</p></div></div>
+      <div className="page-heading compact"><div><h1>人工复核队列</h1></div></div>
       <div className="panel review-toolbar">
         <label>
           复核人

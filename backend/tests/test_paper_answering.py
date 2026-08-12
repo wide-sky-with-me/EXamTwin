@@ -389,6 +389,73 @@ def test_source_structure_ignores_equation_coefficient_before_question_ten() -> 
     assert [structure.number for structure in structures] == ["2", "9", "10"]
 
 
+def test_source_structure_accepts_spaced_ocr_numbers_and_adjacent_bold_title() -> None:
+    source = format_physical_page_markdown(
+        [
+            (
+                3,
+                "0 2 Shortages of grain have increased its price. [1 mark]\n\n"
+                "0 3 Which statement describes the rationing function? [1 mark]",
+            ),
+            (
+                10,
+                "**14** In the short run, average fixed costs decrease. [1 mark]\n\n"
+                "**15** **Figure 2** shows demand and supply. [1 mark]",
+            ),
+        ]
+    )
+
+    structures = question_source_structures(source)
+
+    assert [structure.number for structure in structures] == ["2", "3", "14", "15"]
+    assert [structure.marks for structure in structures] == [(1,), (1,), (1,), (1,)]
+
+
+def test_source_structure_reads_decimal_subparts() -> None:
+    source = format_physical_page_markdown(
+        [
+            (
+                11,
+                "**16.1** Define free market economy. **[3 marks]**\n\n"
+                "**16.2** Define imperfect information. **[3 marks]**",
+            )
+        ]
+    )
+
+    [structure] = question_source_structures(source)
+
+    assert structure.number == "16"
+    assert structure.subpart_labels == (".1", ".2")
+    assert structure.marks == (3, 3)
+
+
+def test_source_structure_accepts_equivalent_letter_aliases_for_decimal_subparts() -> None:
+    source = format_physical_page_markdown(
+        [
+            (
+                12,
+                "17.1 Calculate the percentage. [2 marks]\n\n"
+                "17.2 Calculate the elasticity. [4 marks]",
+            )
+        ]
+    )
+    questions = [
+        {
+            "number": "17",
+            "question_markdown": "Model split output.",
+            "answer_requirements": [
+                {"label": "(a)", "marks": 2},
+                {"label": "(b)", "marks": 4},
+            ],
+            "total_marks": 6,
+        }
+    ]
+
+    [validated] = validate_question_source_structure(source, questions)
+
+    assert [part["label"] for part in validated["answer_requirements"]] == [".1", ".2"]
+
+
 def test_source_structure_normalizes_question_number_prefixed_model_labels() -> None:
     source = format_physical_page_markdown(
         [
@@ -1022,6 +1089,74 @@ def test_split_uses_model_selected_candidate_for_overlapping_primary_conflicts(
     assert [part["label"] for part in result[1]["answer_requirements"]] == ["(a)", "(b)"]
     assert result[1]["total_marks"] == 7
     assert not any(key.startswith("_split_") for item in result for key in item)
+
+
+def test_split_uses_model_selected_candidate_after_final_source_structure_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_markdown = format_physical_page_markdown(
+        [
+            (
+                11,
+                "**16.1** Define free market economy. **[3 marks]**\n\n"
+                "**16.2** Define imperfect information. **[3 marks]**",
+            )
+        ]
+    )
+    candidates = [
+        {
+            "number": "16",
+            "question_markdown": (
+                "16.1 Define free market economy. [3 marks]\n\n"
+                "16.2 Define imperfect information. [3 marks]"
+            ),
+            "answer_requirements": [
+                {"label": "16.1", "marks": 3, "answer_kind": "text"},
+                {"label": "16.2", "marks": 3, "answer_kind": "text"},
+            ],
+            "_split_source": "primary",
+            "_split_source_digest": "trusted-source",
+            "_split_batch_index": 4,
+        },
+        {
+            "number": "16",
+            "question_markdown": (
+                "(a) Define free market economy. [3 marks]\n\n"
+                "(b) Define imperfect information. [3 marks]"
+            ),
+            "answer_requirements": [
+                {"label": "(a)", "marks": 3, "answer_kind": "text"},
+                {"label": "(b)", "marks": 3, "answer_kind": "text"},
+            ],
+            "_split_source": "primary",
+            "_split_source_digest": "trusted-source",
+            "_split_batch_index": 5,
+        },
+    ]
+    model = FakeQuestionRepairModel(
+        [
+            {
+                "number": "16",
+                "candidate_indexes": [0, 1],
+                "preferred_candidate_index": 1,
+            }
+        ]
+    )
+    settings = Settings()
+    service = PaperAnswerService(
+        settings,
+        subject_context(settings),
+        catalog_loader=fake_catalog,
+        rag=object(),
+        structured_model=model,
+    )
+    monkeypatch.setattr(service, "_split_with_llm", lambda *_args, **_kwargs: candidates)
+
+    [result] = service.split_questions(source_markdown, unit_code="P2")
+
+    assert model.calls == 1
+    assert [part["label"] for part in result["answer_requirements"]] == [".1", ".2"]
+    assert result["total_marks"] == 6
 
 
 @pytest.mark.parametrize(

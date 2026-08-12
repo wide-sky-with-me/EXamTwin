@@ -95,6 +95,23 @@ class CorrectingEvidenceModel:
         return response_model.model_validate(payload)
 
 
+class PersistentlyNonVerbatimEvidenceModel(CorrectingEvidenceModel):
+    model_name = "persistently-non-verbatim-grading-model"
+
+    def complete(
+        self,
+        _messages: Sequence[HarnessMessage],
+        response_model: type[StructuredResultT],
+        *,
+        timeout: float,
+    ) -> StructuredResultT:
+        assert timeout > 0
+        self.calls += 1
+        payload = json.loads(FakeResponse.text)
+        payload["rubric_awards"][0]["student_evidence"] = "The student rearranged it."
+        return response_model.model_validate(payload)
+
+
 class CapturingAssessments:
     def __init__(self) -> None:
         self.created: list[dict[str, Any]] = []
@@ -126,6 +143,36 @@ def test_grading_retries_until_student_evidence_is_verbatim() -> None:
 
     assert model.calls == 2
     assert result.rubric_awards[0].student_evidence == "I rearranged the equation."
+    assert len(assessments.created) == 1
+
+
+def test_grading_withholds_marks_when_corrected_evidence_is_still_not_verbatim() -> None:
+    model = PersistentlyNonVerbatimEvidenceModel()
+    assessments = CapturingAssessments()
+    settings = get_settings()
+    service = GradingService(
+        cast(Any, SimpleNamespace()),
+        cast(Any, assessments),
+        settings,
+        subject_context(settings),
+        structured_model=model,
+    )
+
+    result = service.grade(
+        GradeRequest(
+            question_markdown="Solve x = 2.",
+            mark_scheme_markdown="M1 rearrange. A1 answer 2.",
+            answer_markdown="I rearranged the equation.",
+            max_marks=2,
+        )
+    )
+
+    assert model.calls == 2
+    assert result.total_awarded == 0
+    assert result.rubric_awards[0].awarded == 0
+    assert result.rubric_awards[0].student_evidence is None
+    assert result.manual_review_required is True
+    assert any("暂缓授分" in warning for warning in result.warnings)
     assert len(assessments.created) == 1
 
 

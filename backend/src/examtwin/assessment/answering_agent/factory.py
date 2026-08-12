@@ -132,6 +132,7 @@ def build_answering_runtime(
                     settings,
                     timeout_seconds=min(settings.answer_agent_timeout / 3, 45),
                     vision_provider=question_vision_provider,
+                    object_store=object_store,
                 ),
                 SourceReadTool(
                     documents,

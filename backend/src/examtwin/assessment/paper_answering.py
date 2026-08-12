@@ -19,6 +19,7 @@ from examtwin.assessment.answering_agent.contracts import (
 from examtwin.assessment.answering_agent.finalization import citation_ids_in_markdown
 from examtwin.assessment.paper_parsing import (
     QuestionSourcePageResolutionError,
+    QuestionSourceStructureError,
     question_has_unresolved_source_placeholder,
     question_spec_from_item,
     reconcile_question_source_pages,
@@ -143,7 +144,7 @@ def _question_number_identity(number: str) -> tuple[str, str | None, bool]:
 
 def _normalized_subpart_label(label: object) -> str:
     normalized = re.sub(r"\s+", "", str(label)).lower()
-    return re.sub(r"^\d+(?=\()", "", normalized)
+    return re.sub(r"^\d+(?=[.(])", "", normalized)
 
 
 def _candidate_sections(item: dict[str, Any]) -> tuple[str, dict[str, str]]:
@@ -434,6 +435,16 @@ def _combine_repair_group(
         if preferred_item is not None
         else items
     )
+    preferred_labels = (
+        {
+            _normalized_subpart_label(requirement.get("label", ""))
+            for requirement in preferred_item.get("answer_requirements") or []
+            if isinstance(requirement, dict)
+            and _normalized_subpart_label(requirement.get("label", ""))
+        }
+        if preferred_item is not None
+        else set()
+    )
     knowledge_codes: list[str] = []
     requirements: list[Any] = []
     requirement_keys: set[str] = set()
@@ -447,6 +458,8 @@ def _combine_repair_group(
             if preferred_item is not None and isinstance(requirement, dict):
                 label = _normalized_subpart_label(requirement.get("label", ""))
                 if not label:
+                    continue
+                if preferred_labels and label not in preferred_labels:
                     continue
                 current = requirements_by_label.get(label)
                 if current is None:
@@ -824,6 +837,8 @@ Paper Markdown:
         catalog: list[dict[str, Any]],
         unit_code: str | None,
         pair_key: str | None = None,
+        source_booklet_document_id: str | None = None,
+        source_booklet_checksum: str | None = None,
         event_sink: AgentEventSink | None = None,
         ledger: AgentRunLedger | None = None,
     ) -> PaperQuestionAnswer:
@@ -873,6 +888,8 @@ Paper Markdown:
                 subject_code=self.subject.subject_code,
                 unit_code=unit_code,
                 pair_key=pair_key,
+                source_booklet_document_id=source_booklet_document_id,
+                source_booklet_checksum=source_booklet_checksum,
                 authority_tiers=[
                     "official",
                     "licensed_core",
@@ -1019,6 +1036,7 @@ Paper Markdown:
             raise ValueError("解析后的试卷内容过短，无法识别题目")
         catalog = self._catalog(unit_code)
         trusted_source = source_markdown or markdown
+        repair_candidates: list[dict[str, Any]]
         if self.splitter is None:
             extracted = self._split_with_llm(
                 markdown,
@@ -1027,6 +1045,7 @@ Paper Markdown:
                 load_checkpoint=load_checkpoint,
                 save_checkpoint=save_checkpoint,
             )
+            repair_candidates = extracted
             try:
                 questions = _merge_split_questions(extracted)
             except _QuestionCandidateConflict as merge_error:
@@ -1042,6 +1061,7 @@ Paper Markdown:
                     ) from repair_error
         else:
             questions = self.splitter(markdown, catalog)
+            repair_candidates = questions
         normalized = [item for item in questions if str(item.get("question_markdown", "")).strip()]
         if not normalized:
             raise ValueError("没有识别到顶层题目，请检查试卷内容或 MinerU 解析结果")
@@ -1068,7 +1088,25 @@ Paper Markdown:
             except Exception as repair_error:
                 raise ValueError(f"{source_error}；结构修复失败：{repair_error}") from repair_error
             reconciled = reconcile_question_source_pages(trusted_source, repaired)
-        validated = validate_question_source_structure(trusted_source, reconciled)
+        try:
+            validated = validate_question_source_structure(trusted_source, reconciled)
+        except QuestionSourceStructureError as source_error:
+            number_match = re.search(r"第\s*(\d+)\s*题", str(source_error))
+            unresolved_numbers = (
+                (number_match.group(1),)
+                if number_match
+                else tuple(dict.fromkeys(str(item.get("number", "?")) for item in reconciled))
+            )
+            try:
+                repaired = self._repair_question_structure(
+                    trusted_source,
+                    repair_candidates,
+                    unresolved_numbers,
+                )
+                reconciled = reconcile_question_source_pages(trusted_source, repaired)
+                validated = validate_question_source_structure(trusted_source, reconciled)
+            except Exception as repair_error:
+                raise ValueError(f"{source_error}；结构修复失败：{repair_error}") from repair_error
         damaged = [
             str(item.get("number", "?"))
             for item in validated
@@ -1084,6 +1122,8 @@ Paper Markdown:
         *,
         unit_code: str | None = None,
         pair_key: str | None = None,
+        source_booklet_document_id: str | None = None,
+        source_booklet_checksum: str | None = None,
         event_sink: AgentEventSink | None = None,
         ledger: AgentRunLedger | None = None,
     ) -> PaperQuestionAnswer:
@@ -1092,6 +1132,8 @@ Paper Markdown:
             self._catalog(unit_code),
             unit_code,
             pair_key,
+            source_booklet_document_id,
+            source_booklet_checksum,
             event_sink,
             ledger,
         )

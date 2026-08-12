@@ -18,6 +18,8 @@ import type {
   RubricSet,
   SourceDocument,
 } from "../../types";
+import { PAPER_JOB_STAGE_LABELS, paperProgress } from "../../lib/paper-job";
+import type { TaskStreamState } from "../../lib/task-events";
 import { paperMaterialMeta, schemeMaterialMeta } from "../../lib/grading-materials";
 import { ErrorBanner } from "../Feedback";
 import {
@@ -47,7 +49,11 @@ export function GradingMaterialsStage({
   onRenamePaper = async () => undefined,
   onUploadScheme,
   onGenerateScheme = async () => undefined,
-  onImportExternal = async () => undefined,
+  onImportExternal = async () => false,
+  importJob = null,
+  importStreamState = "idle",
+  onReconnectImport = () => undefined,
+  sourceBookletRequired = false,
   onContinue,
 }: {
   papers: GradingPaper[];
@@ -71,7 +77,15 @@ export function GradingMaterialsStage({
   onRenamePaper?: (paperId: string, displayName: string) => Promise<void>;
   onUploadScheme: (event: ChangeEvent<HTMLInputElement>) => Promise<void>;
   onGenerateScheme?: () => Promise<void>;
-  onImportExternal?: (questionFile: File, answerFile: File) => Promise<void>;
+  onImportExternal?: (
+    questionFile: File,
+    answerFile: File,
+    sourceBooklet?: File | null,
+  ) => Promise<boolean>;
+  importJob?: PaperJobResult | null;
+  importStreamState?: TaskStreamState;
+  onReconnectImport?: () => void;
+  sourceBookletRequired?: boolean;
   onContinue: () => Promise<void>;
 }) {
   const paperSelectRef = useRef<HTMLButtonElement>(null);
@@ -85,7 +99,11 @@ export function GradingMaterialsStage({
   const [schemeManagerOpen, setSchemeManagerOpen] = useState(false);
   const [questionFile, setQuestionFile] = useState<File | null>(null);
   const [answerFile, setAnswerFile] = useState<File | null>(null);
+  const [sourceBooklet, setSourceBooklet] = useState<File | null>(null);
   const [importNotice, setImportNotice] = useState("");
+  const importRunning = Boolean(
+    importJob && !["completed", "partial_failed", "failed"].includes(importJob.status),
+  );
   const matchingRubric = rubric?.paper_job_id === paperId && rubric.source_document_id === documentId
     ? rubric
     : null;
@@ -126,8 +144,9 @@ export function GradingMaterialsStage({
   async function importExternal() {
     if (!questionFile || !answerFile) return;
     setImportNotice("");
-    await onImportExternal(questionFile, answerFile);
-    setImportNotice("文件已提交解析。任务完成后会出现在“系统作答记录”中。");
+    const created = await onImportExternal(questionFile, answerFile, sourceBooklet);
+    if (!created) return;
+    setImportNotice("后台任务已创建，本页会持续显示解析进度，完成后自动进入作答记录。");
     setQuestionFile(null);
     setAnswerFile(null);
   }
@@ -149,6 +168,16 @@ export function GradingMaterialsStage({
       firstValidControl?.focus();
     });
   }, [discoveryError, discoveryLoading, retryPhase]);
+
+  useEffect(() => {
+    if (
+      importJob
+      && ["completed", "partial_failed"].includes(importJob.status)
+      && papers.some((item) => item.job_id === importJob.job_id)
+    ) {
+      setSourceMode("system");
+    }
+  }, [importJob, papers]);
 
   return (
     <article
@@ -345,17 +374,50 @@ export function GradingMaterialsStage({
         <section className="grading-external-upload">
           <div className="grading-source-card grading-contrast-boundary">
             <div className="grading-source-heading"><span className="grading-source-icon"><FileText aria-hidden="true" size={18} /></span><div><strong>试卷文件</strong><small>PDF 或 Markdown</small></div></div>
-            <input accept=".pdf,.md,.markdown" onChange={(event) => setQuestionFile(event.target.files?.[0] ?? null)} type="file" />
+            <input aria-label="上传待评分试卷" accept=".pdf,.md,.markdown" onChange={(event) => setQuestionFile(event.target.files?.[0] ?? null)} type="file" />
           </div>
           <div className="grading-source-card grading-contrast-boundary">
             <div className="grading-source-heading"><span className="grading-source-icon"><FileCheck2 aria-hidden="true" size={18} /></span><div><strong>答案文件</strong><small>PDF 或 Markdown</small></div></div>
-            <input accept=".pdf,.md,.markdown" onChange={(event) => setAnswerFile(event.target.files?.[0] ?? null)} type="file" />
+            <input aria-label="上传答案文件" accept=".pdf,.md,.markdown" onChange={(event) => setAnswerFile(event.target.files?.[0] ?? null)} type="file" />
           </div>
-          <button className="primary" disabled={!questionFile || !answerFile || busy !== null} onClick={() => void importExternal()} type="button">
+          <div className="grading-source-card grading-contrast-boundary">
+            <div className="grading-source-heading"><span className="grading-source-icon"><BookOpenCheck aria-hidden="true" size={18} /></span><div><strong>Source Booklet{sourceBookletRequired ? "（必需）" : "（可选）"}</strong><small>Extract、数据或案例资料</small></div></div>
+            <input aria-label="上传 Source Booklet" accept=".pdf" onChange={(event) => setSourceBooklet(event.target.files?.[0] ?? null)} type="file" />
+          </div>
+          <button className="primary" disabled={!questionFile || !answerFile || busy !== null || importRunning || (sourceBookletRequired && !sourceBooklet)} onClick={() => void importExternal()} type="button">
             {busy === "import-answer" ? <LoaderCircle className="spin" size={16} /> : <UploadCloud size={16} />}
             导入并解析答卷
           </button>
           {importNotice && <div className="notice" role="status">{importNotice}</div>}
+          {importJob && (
+            <div
+              className={`grading-import-task ${importJob.status}`}
+              role={importJob.status === "failed" ? "alert" : "status"}
+            >
+              <div>
+                {importRunning && <LoaderCircle aria-hidden="true" className="spin" size={17} />}
+                <strong>
+                  {importJob.status === "completed"
+                    ? "答卷解析完成"
+                    : importJob.status === "partial_failed"
+                      ? "答卷部分解析完成"
+                      : importJob.status === "failed"
+                        ? "答卷解析失败"
+                        : PAPER_JOB_STAGE_LABELS[importJob.stage]}
+                </strong>
+                <span>
+                  {importJob.completed_questions} / {importJob.total_questions || "—"} 题
+                  {importRunning ? ` · ${paperProgress(importJob)}%` : ""}
+                </span>
+              </div>
+              {importJob.error && <p>{importJob.error}</p>}
+              {importRunning && importStreamState === "idle" && (
+                <button className="secondary" onClick={onReconnectImport} type="button">
+                  <RefreshCw size={15} />重新连接进度
+                </button>
+              )}
+            </div>
+          )}
         </section>
       )}
       {sourceMode === "system" && discoveryError && (

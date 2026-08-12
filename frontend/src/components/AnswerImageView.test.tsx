@@ -5,6 +5,9 @@ import type { AnswerImage } from "../types";
 import { AnswerImageView } from "./AnswerImageView";
 
 const image: AnswerImage = {
+  artifact_id: null,
+  answer_anchor: null,
+  answer_order: null,
   title: "Cell membrane illustration",
   caption: "A generated educational illustration.",
   tool_name: "image_generate",

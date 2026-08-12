@@ -35,13 +35,14 @@ _UNRESOLVED_SOURCE_PLACEHOLDER = re.compile(
 )
 _TOP_LEVEL_QUESTION = re.compile(
     r"(?im)^[ \t]*(?:#{1,6}[ \t]*)?(?:\*{1,2})?"
-    r"(?:question[ \t]+)?(?P<number>0*\d{1,3})(?:\*{1,2})?"
-    r"(?![ \t]*:[ \t]*\d)(?=(?:[ \t]*(?:$|[.:\)]|\([a-zivx]+\))|[ \t]+[A-Za-z]))"
+    r"(?:question[ \t]+)?(?P<number>(?:\d[ \t]+\d{1,2}|0*\d{1,3}))(?:\*{1,2})?"
+    r"(?![ \t]*:[ \t]*\d)"
+    r"(?=(?:[ \t]*(?:$|[.:\)]|\([a-zivx]+\))|[ \t]+(?:\*{1,2})?[A-Za-z]))"
 )
 _STRUCTURE_SUBPART = re.compile(
     r"(?im)^[ \t]*(?:#{1,6}[ \t]*)?(?:\*{1,2})?"
     r"(?:0*\d{1,3}[ \t]*)?"
-    r"(?P<label>\([a-zivx]+\)(?:[ \t]*\([a-zivx]+\))*)"
+    r"(?P<label>(?:\.\d+|\([a-zivx]+\)(?:[ \t]*\([a-zivx]+\))*))"
     r"(?:\*{1,2})?(?=[ \t.:]|$)"
 )
 _PRINTED_MARK = re.compile(
@@ -95,13 +96,28 @@ def question_requires_visual_context(markdown: str) -> bool:
 
 
 def _canonical_question_number(value: object) -> str:
-    match = re.fullmatch(r"\s*0*(\d+)\s*", str(value))
+    match = re.fullmatch(r"0*(\d+)", re.sub(r"\s+", "", str(value)))
     return str(int(match.group(1))) if match else ""
 
 
 def _normalized_structure_label(value: object) -> str:
     normalized = re.sub(r"\s+", "", str(value)).lower()
-    return re.sub(r"^\d+(?=\()", "", normalized)
+    return re.sub(r"^\d+(?=[.(])", "", normalized)
+
+
+def _simple_subpart_ordinals(labels: tuple[str, ...]) -> tuple[int, ...] | None:
+    ordinals: list[int] = []
+    for label in labels:
+        decimal = re.fullmatch(r"\.(\d+)", label)
+        if decimal:
+            ordinals.append(int(decimal.group(1)))
+            continue
+        alpha = re.fullmatch(r"\(([a-z])\)", label)
+        if alpha:
+            ordinals.append(ord(alpha.group(1)) - ord("a") + 1)
+            continue
+        return None
+    return tuple(ordinals)
 
 
 def question_source_structures(markdown: str) -> list[QuestionSourceStructure]:
@@ -161,9 +177,11 @@ def question_source_structures(markdown: str) -> list[QuestionSourceStructure]:
                 combined[max(span_start, page_start) : min(span_end, page_end)]
             )
         )
+        source_question = combined[span_start:span_end]
         all_labels = tuple(
             dict.fromkeys(
-                _normalized_structure_label(label) for label in _STRUCTURE_SUBPART.findall(question)
+                _normalized_structure_label(label)
+                for label in _STRUCTURE_SUBPART.findall(source_question)
             )
         )
         labels = tuple(
@@ -236,7 +254,14 @@ def validate_question_source_structure(
             if structure.marks
             else actual_labels
         )
-        if actual_labels != expected_labels:
+        actual_ordinals = _simple_subpart_ordinals(actual_labels)
+        expected_ordinals = _simple_subpart_ordinals(expected_labels)
+        labels_match = actual_labels == expected_labels or (
+            actual_ordinals is not None
+            and expected_ordinals is not None
+            and actual_ordinals == expected_ordinals
+        )
+        if not labels_match:
             raise QuestionSourceStructureError(
                 f"第 {structure.number} 题子问结构与主源不一致："
                 f"expected={expected_labels}, actual={actual_labels}"

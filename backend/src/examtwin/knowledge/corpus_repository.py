@@ -178,6 +178,12 @@ class CorpusRepository:
                     existing.status = "discovered"
                     existing.markdown_path = None
                     existing.error = None
+                elif existing.status == "deleted":
+                    # A new physical location makes the same logical source active again.
+                    # Keep the immutable conversion provenance, but require the normal
+                    # conversion step to verify that its cached artifact is still usable.
+                    existing.status = "discovered"
+                    existing.error = None
 
             location = session.get(SourceDocumentLocationModel, path)
             if location is None:

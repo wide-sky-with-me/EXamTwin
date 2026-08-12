@@ -8,7 +8,11 @@ import httpx
 import pymupdf
 import pytest
 from examtwin.app.api.papers import answer_image_asset
-from examtwin.assessment.answering_agent.contracts import AgentRunContext, AnswerTask
+from examtwin.assessment.answering_agent.contracts import (
+    AgentRunContext,
+    AnswerTask,
+    QuestionSpec,
+)
 from examtwin.assessment.answering_agent.tools.image_generate import (
     PNG_SIGNATURE,
     AnswerImageStore,
@@ -17,6 +21,7 @@ from examtwin.assessment.answering_agent.tools.image_generate import (
     OpenAICompatibleImageProvider,
     _normalize_png,
 )
+from examtwin.contracts import SubpartRequirement
 from fastapi import HTTPException
 
 
@@ -160,6 +165,46 @@ async def test_image_capacity_is_checked_before_calling_provider(tmp_path: Path)
         await tool.acall(
             prompt="A fourth educational illustration that must not be requested.",
             title="Fourth image",
+        )
+
+    assert provider.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_image_anchor_is_validated_before_calling_provider(tmp_path: Path) -> None:
+    class CountingProvider:
+        calls = 0
+
+        async def generate(
+            self,
+            _prompt: str,
+            _size: str,
+            _quality: str,
+        ) -> GeneratedImage:
+            self.calls += 1
+            return GeneratedImage(_png(), 1024, 1024)
+
+    context = AgentRunContext(
+        task=AnswerTask(
+            subject_code="9660",
+            question="Illustrate both parts.",
+            question_spec=QuestionSpec(
+                subparts=(
+                    SubpartRequirement(label="(a)", required_tool="image_generate"),
+                    SubpartRequirement(label="(b)", required_tool="image_generate"),
+                )
+            ),
+        )
+    )
+    provider = CountingProvider()
+    tool = ImageGenerationTool(provider, AnswerImageStore(tmp_path), timeout_seconds=10).bind(
+        context
+    )
+
+    with pytest.raises(ValueError, match="answer_anchor is required"):
+        await tool.acall(
+            prompt="A clear educational illustration for the answer.",
+            title="Ambiguous illustration",
         )
 
     assert provider.calls == 0

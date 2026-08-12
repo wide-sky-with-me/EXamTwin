@@ -73,6 +73,7 @@ def _subject_response(subject: SubjectContext, settings: Settings) -> SubjectPac
         generic_qa_enabled=True,
         answering_enabled=subject.paper_answering_enabled,
         answering_disabled_reason=subject.answering_disabled_reason,
+        source_booklet_required=package.manifest.answering.requires_source_booklet,
         active_graph_version_id=subject.graph_version_id,
         knowledge_bases=[
             SubjectKnowledgeBaseResponse(

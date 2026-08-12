@@ -5,6 +5,7 @@ import json
 from collections.abc import AsyncIterator
 from contextlib import suppress
 from datetime import datetime
+from typing import Annotated
 
 from fastapi import (
     APIRouter,
@@ -29,7 +30,12 @@ from examtwin.app.api.dependencies import (
     get_task_events,
 )
 from examtwin.app.api.errors import upstream_http_error
-from examtwin.app.composition import build_paper_job_service
+from examtwin.app.composition import (
+    build_corpus_ingestor,
+    build_corpus_workspace_service,
+    build_paper_job_service,
+    corpus_repository,
+)
 from examtwin.assessment.answering_agent.tools.image_generate import AnswerImageStore
 from examtwin.assessment.paper_jobs import PaperJobService
 from examtwin.assessment.task_events import PostgresTaskEvents, TaskEvent
@@ -48,6 +54,32 @@ from examtwin.subjects.public import SubjectContext
 from examtwin.subjects.workspace_repository import WorkspaceRepository
 
 router = APIRouter()
+
+
+def _upload_and_convert_source_booklet(
+    settings: Settings,
+    subject: SubjectContext,
+    source_booklet: UploadFile,
+) -> dict[str, object]:
+    uploaded = build_corpus_workspace_service(settings, subject).upload_document(
+        subject.id,
+        source_booklet.file,
+        filename=source_booklet.filename or "source-booklet.pdf",
+        content_type=source_booklet.content_type,
+        source_type="insert",
+        knowledge_base_id=None,
+        license_confirmed=False,
+    )
+    result = build_corpus_ingestor(settings, subject).convert_batch(
+        document_ids=[str(uploaded["id"])],
+        workers=1,
+    )
+    if result.failed:
+        raise ValueError("Source Booklet 转换失败：" + "；".join(result.errors[:3]))
+    converted = corpus_repository(settings).get_active(str(uploaded["id"]))
+    if converted is None:
+        raise ValueError("Source Booklet 上传后不可用")
+    return converted
 
 
 async def _wait_for_task_event_or_disconnect(
@@ -77,6 +109,7 @@ async def _wait_for_task_event_or_disconnect(
 )
 async def answer_paper(
     file: UploadFile = File(...),
+    source_booklet: Annotated[UploadFile | None, File()] = None,
     unit_code: str | None = Form(default=None),
     knowledge_base_version_ids: str | None = Form(default=None),
     include_supplementary: bool = Form(default=False),
@@ -108,12 +141,35 @@ async def answer_paper(
             collections=collections,
             graph_version_id=snapshot.get("graph_version_id"),
         )
+        if (
+            selected_subject.package.manifest.answering.requires_source_booklet
+            and source_booklet is None
+        ):
+            raise ValueError("该科目整卷作答必须上传配套 Source Booklet")
+        booklet = (
+            None
+            if source_booklet is None
+            else await run_in_threadpool(
+                _upload_and_convert_source_booklet,
+                settings,
+                selected_subject,
+                source_booklet,
+            )
+        )
         jobs = build_paper_job_service(settings, selected_subject)
+        if booklet is None:
+            return await run_in_threadpool(
+                jobs.create_job_from_stream,
+                file.filename or "uploaded-paper.md",
+                file.file,
+                unit_code=unit_code,
+            )
         return await run_in_threadpool(
             jobs.create_job_from_stream,
             file.filename or "uploaded-paper.md",
             file.file,
             unit_code=unit_code,
+            source_booklet=booklet,
         )
     except (LookupError, ValueError, json.JSONDecodeError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
@@ -133,6 +189,7 @@ async def answer_paper(
 async def import_answered_paper(
     question_file: UploadFile = File(...),
     answer_file: UploadFile = File(...),
+    source_booklet: Annotated[UploadFile | None, File()] = None,
     unit_code: str | None = Form(default=None),
     settings: Settings = Depends(get_settings),
     subject: SubjectContext = Depends(get_subject_context),
@@ -149,7 +206,31 @@ async def import_answered_paper(
             collections=collections,
             graph_version_id=snapshot.get("graph_version_id"),
         )
+        if (
+            selected_subject.package.manifest.answering.requires_source_booklet
+            and source_booklet is None
+        ):
+            raise ValueError("该科目导入答卷必须上传配套 Source Booklet")
+        booklet = (
+            None
+            if source_booklet is None
+            else await run_in_threadpool(
+                _upload_and_convert_source_booklet,
+                settings,
+                selected_subject,
+                source_booklet,
+            )
+        )
         jobs = build_paper_job_service(settings, selected_subject)
+        if booklet is None:
+            return await run_in_threadpool(
+                jobs.create_job_from_stream,
+                question_file.filename or "question-paper.pdf",
+                question_file.file,
+                unit_code=unit_code,
+                answer_filename=answer_file.filename or "answers.pdf",
+                answer_stream=answer_file.file,
+            )
         return await run_in_threadpool(
             jobs.create_job_from_stream,
             question_file.filename or "question-paper.pdf",
@@ -157,6 +238,7 @@ async def import_answered_paper(
             unit_code=unit_code,
             answer_filename=answer_file.filename or "answers.pdf",
             answer_stream=answer_file.file,
+            source_booklet=booklet,
         )
     except (LookupError, ValueError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error

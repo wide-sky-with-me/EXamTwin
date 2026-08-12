@@ -32,6 +32,9 @@ function element(overrides: Partial<DiagramElement>): DiagramElement {
 }
 
 const diagram: AnswerDiagram = {
+  artifact_id: null,
+  answer_anchor: null,
+  answer_order: null,
   title: "Two quadratic curves",
   caption: "The labelled curves meet at the origin.",
   tool_name: "math_plot",
