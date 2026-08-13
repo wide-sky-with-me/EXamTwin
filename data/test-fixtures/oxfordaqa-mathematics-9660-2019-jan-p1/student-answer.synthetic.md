@@ -191,7 +191,6 @@ $$2p+5=4p^2-4p+1
 \quad\Rightarrow\quad
 \boxed{2p^2-3p-2=0}.
 $$
-
 **(b)(i)**
 
 $$2p^2-3p-2=(2p+1)(p-2)=0.$$
@@ -201,11 +200,9 @@ Since $p>0$, $p=2$, and therefore
 $$d=\frac{p+1}{4}=\boxed{\frac34}.$$
 
 **(b)(ii)**
-
 $$
 S_k=\frac{k}{2}\left(6+(k-1)\frac34\right)=138.
 $$
-
 Thus
 
 $$3k(k+7)=1104

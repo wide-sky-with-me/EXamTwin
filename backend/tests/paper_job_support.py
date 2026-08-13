@@ -26,7 +26,8 @@ from examtwin.contracts import (
 from examtwin.platform.config import Settings
 from examtwin.platform.database.migrations import upgrade_database
 from examtwin.platform.database.session import create_session_factory
-from examtwin.subjects.public import subject_context
+from examtwin.subjects.packages import subject_package_registry
+from examtwin.subjects.public import WorkspaceRepository, subject_context
 from pypdf import PdfWriter
 from sqlalchemy import text
 
@@ -262,7 +263,12 @@ def _test_database() -> PostgresHarness:
     if not url:
         pytest.skip("EXAMTWIN_TEST_DATABASE_URL is required for PostgreSQL job tests")
     upgrade_database(url)
-    return PostgresHarness(url)
+    database = PostgresHarness(url)
+    settings = Settings(database_url=url)
+    WorkspaceRepository(database.sessions).synchronize_installed_subjects(
+        subject_package_registry(settings.subject_packages_dir).all()
+    )
+    return database
 
 
 def _job_service(database: PostgresHarness, settings: Settings) -> PaperJobService:

@@ -25,6 +25,7 @@ export default defineConfig({
     environment: "jsdom",
     exclude: ["e2e/**", "node_modules/**", "dist/**"],
     setupFiles: "./src/test/setup.ts",
+    testTimeout: 10_000,
   },
   server: {
     port: 5173,

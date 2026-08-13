@@ -663,14 +663,22 @@ def _collapse_holistic_best_fit_criteria(
         items = grouped[subpart]
         descriptions = _unique_text([str(item["description"]) for item in items])
         excerpts = _unique_text([str(item["source_excerpt"]) for item in items])
-        alternatives = _unique_text(
-            [str(value) for item in items for value in item.get("alternatives", [])]
-        )
-        source_pages = [
-            int(item["source_page"])
-            for item in items
-            if isinstance(item.get("source_page"), int)
-        ]
+        alternative_values: list[str] = []
+        source_pages: list[int] = []
+        confidences: list[float] = []
+        for item in items:
+            raw_alternatives = item.get("alternatives")
+            if isinstance(raw_alternatives, list):
+                alternative_values.extend(str(value) for value in raw_alternatives)
+            raw_source_page = item.get("source_page")
+            if isinstance(raw_source_page, int) and not isinstance(raw_source_page, bool):
+                source_pages.append(raw_source_page)
+            raw_confidence = item.get("confidence")
+            if isinstance(raw_confidence, (int, float)) and not isinstance(raw_confidence, bool):
+                confidences.append(float(raw_confidence))
+        if len(confidences) != len(items):
+            return payload
+        alternatives = _unique_text(alternative_values)
         public_subpart = str(items[0]["subpart"])
         collapsed.append(
             RubricCriterionDraft(
@@ -688,7 +696,7 @@ def _collapse_holistic_best_fit_criteria(
                 alternatives=alternatives,
                 source_page=min(source_pages) if source_pages else None,
                 source_excerpt="\n\n".join(excerpts),
-                confidence=min(float(item["confidence"]) for item in items),
+                confidence=min(confidences),
             )
         )
     return payload.model_copy(
@@ -1248,12 +1256,18 @@ class RubricService:
             criteria=criteria,
         )
 
-    def papers_ready_for_grading(self) -> list[dict[str, object]]:
+    def papers_ready_for_grading(
+        self,
+        *,
+        paper_unit_id: str | None = None,
+    ) -> list[dict[str, object]]:
         return [
             {
                 "job_id": row["id"],
                 "filename": row["filename"],
                 "display_name": row.get("display_name"),
+                "paper_unit_id": row.get("paper_unit_id"),
+                "question_paper_document_id": row.get("question_paper_document_id"),
                 "unit_code": row["unit_code"],
                 "status": row["status"],
                 "total_questions": row["total_questions"],
@@ -1262,6 +1276,7 @@ class RubricService:
                 "updated_at": row["updated_at"],
             }
             for row in self.papers.recent_for_subject(self.subject.subject_code)
+            if paper_unit_id is None or row.get("paper_unit_id") == paper_unit_id
         ]
 
     def list_for_paper(self, paper_job_id: str) -> list[dict[str, object]]:

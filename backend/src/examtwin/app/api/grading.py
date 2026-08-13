@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from examtwin.app.api.dependencies import get_grading_service, get_rubric_service
 from examtwin.app.api.errors import upstream_http_error
@@ -79,9 +79,13 @@ def generate_rubric(
 
 @router.get("/grading/papers", response_model=list[GradingPaperSummary])
 def grading_papers(
+    paper_unit_id: str | None = Query(default=None),
     service: RubricService = Depends(get_rubric_service),
 ) -> list[GradingPaperSummary]:
-    return [GradingPaperSummary.model_validate(item) for item in service.papers_ready_for_grading()]
+    return [
+        GradingPaperSummary.model_validate(item)
+        for item in service.papers_ready_for_grading(paper_unit_id=paper_unit_id)
+    ]
 
 
 @router.get("/grading/rubrics", response_model=list[RubricSetSummary])

@@ -150,11 +150,13 @@ function displayElements(diagram: AnswerDiagram): DiagramElement[] {
 function DiagramScene({
   diagram,
   jobId,
+  subjectId,
   titleId,
   descriptionId,
 }: {
   diagram: AnswerDiagram;
   jobId?: string;
+  subjectId: string;
   titleId: string;
   descriptionId: string;
 }) {
@@ -220,6 +222,7 @@ function DiagramScene({
           height={diagram.source.height}
           href={backendResourceUrl(
             `/papers/jobs/${jobId}/source/pages/${diagram.source.page_number}`,
+            subjectId,
           )}
           preserveAspectRatio="none"
           width={diagram.source.width}
@@ -316,9 +319,11 @@ const ZOOM_STEP = 0.25;
 export function AnswerDiagramView({
   diagram,
   jobId,
+  subjectId,
 }: {
   diagram: AnswerDiagram;
   jobId?: string;
+  subjectId: string;
 }) {
   const id = useId().replaceAll(":", "");
   const titleId = `answer-diagram-title-${id}`;
@@ -371,6 +376,7 @@ export function AnswerDiagramView({
               descriptionId={descriptionId}
               diagram={diagram}
               jobId={jobId}
+              subjectId={subjectId}
               titleId={titleId}
             />
           </div>

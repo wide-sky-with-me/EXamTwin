@@ -77,12 +77,10 @@ function renderFlow({
   images?: AnswerImage[];
 }) {
   return render(
-    <AnswerArtifactFlow
-      answerMarkdown={answerMarkdown}
-      diagrams={diagrams}
-      images={images}
-      renderMarkdown={(markdown, key) => <article key={key}>{markdown}</article>}
-    />,
+    <AnswerArtifactFlow answerMarkdown={answerMarkdown}
+    diagrams={diagrams}
+    images={images}
+    renderMarkdown={(markdown, key) => <article key={key}>{markdown}</article>} subjectId="test-subject" />,
   );
 }
 

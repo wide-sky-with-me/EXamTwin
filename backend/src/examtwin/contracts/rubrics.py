@@ -194,6 +194,8 @@ class GradingPaperSummary(SerializedResponse):
     job_id: str
     filename: str
     display_name: str | None = None
+    paper_unit_id: str | None = None
+    question_paper_document_id: str | None = None
     unit_code: str | None = None
     status: Literal["completed", "partial_failed"]
     total_questions: int

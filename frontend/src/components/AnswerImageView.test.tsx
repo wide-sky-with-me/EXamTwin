@@ -20,11 +20,11 @@ const image: AnswerImage = {
 
 describe("AnswerImageView", () => {
   test("renders a server asset with provenance and caption", () => {
-    render(<AnswerImageView image={image} />);
+    render(<AnswerImageView image={image} subjectId="test-subject" />);
 
     expect(screen.getByRole("img", { name: image.title })).toHaveAttribute(
       "src",
-      "/api/v1/answer-assets/0123456789abcdef0123456789abcdef.png",
+      "/api/v1/answer-assets/0123456789abcdef0123456789abcdef.png?subject=test-subject",
     );
     expect(screen.getByText(/GPT Image 生成图片/)).toBeInTheDocument();
     expect(screen.getByText(image.caption)).toBeInTheDocument();
@@ -32,7 +32,7 @@ describe("AnswerImageView", () => {
 
   test("supports fullscreen and Escape recovery", async () => {
     const user = userEvent.setup();
-    const { container } = render(<AnswerImageView image={image} />);
+    const { container } = render(<AnswerImageView image={image} subjectId="test-subject" />);
 
     await user.click(screen.getByRole("button", { name: "全屏查看图片" }));
     expect(container.querySelector(".answer-image")).toHaveClass("is-expanded");

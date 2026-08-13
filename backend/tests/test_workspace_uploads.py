@@ -714,6 +714,12 @@ def test_workspace_router_upload_returns_created_response() -> None:
         "object_key": "corpus-sources/workspace-1/textbook/document-1.md",
         "page_count": None,
         "error": None,
+        "pair_key": None,
+        "unit_code": None,
+        "exam_year": None,
+        "exam_session": None,
+        "identity_status": "not_applicable",
+        "identity_error": None,
     }
     assert service.upload_call == {
         "workspace_id": "workspace-1",

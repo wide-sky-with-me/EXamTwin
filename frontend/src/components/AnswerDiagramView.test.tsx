@@ -91,7 +91,7 @@ const diagram: AnswerDiagram = {
 
 describe("AnswerDiagramView", () => {
   test("renders provenance, semantic legend, math labels and accessible SVG text", () => {
-    const { container } = render(<AnswerDiagramView diagram={diagram} />);
+    const { container } = render(<AnswerDiagramView diagram={diagram} subjectId="test-subject" />);
 
     expect(
       (container.querySelector(".answer-diagram") as HTMLElement).style.getPropertyValue(
@@ -110,7 +110,7 @@ describe("AnswerDiagramView", () => {
 
   test("supports bounded zoom below the default, fullscreen and Escape recovery", async () => {
     const user = userEvent.setup();
-    const { container } = render(<AnswerDiagramView diagram={diagram} />);
+    const { container } = render(<AnswerDiagramView diagram={diagram} subjectId="test-subject" />);
     const stage = container.querySelector(".answer-diagram-stage") as HTMLElement;
     const viewport = container.querySelector(".answer-diagram-viewport") as HTMLElement;
     const canvas = container.querySelector(".answer-diagram-canvas") as HTMLElement;
@@ -161,7 +161,7 @@ describe("AnswerDiagramView", () => {
       },
     };
     const { container } = render(
-      <AnswerDiagramView diagram={sourceDiagram} jobId="paper-job-1" />,
+      <AnswerDiagramView diagram={sourceDiagram} jobId="paper-job-1" subjectId="test-subject" />,
     );
     expect(
       (container.querySelector(".answer-diagram") as HTMLElement).style.getPropertyValue(
@@ -173,7 +173,7 @@ describe("AnswerDiagramView", () => {
     const source = container.querySelector("image.paper-diagram-source");
     expect(source).toHaveAttribute(
       "href",
-      "/api/v1/papers/jobs/paper-job-1/source/pages/7",
+      "/api/v1/papers/jobs/paper-job-1/source/pages/7?subject=test-subject",
     );
     expect(source?.nextElementSibling?.tagName.toLowerCase()).toBe("line");
     const repairedLabel = [...container.querySelectorAll("text")].find(

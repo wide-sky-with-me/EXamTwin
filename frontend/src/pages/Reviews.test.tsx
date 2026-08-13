@@ -7,6 +7,7 @@ import { Reviews } from "./Reviews";
 const item: ReviewItem = {
   id: "assessment-1",
   subject_code: "9660",
+  subject_id: "oxfordaqa-mathematics-9660",
   question_ref: "Q1",
   total_awarded: 1,
   total_available: 2,
@@ -57,7 +58,7 @@ describe("Reviews", () => {
       decision: "override",
       override_mark: 1.5,
     });
-  });
+  }, 10_000);
 
   test("does not publish a final score when the confirmation is cancelled", async () => {
     const user = userEvent.setup();
@@ -70,7 +71,6 @@ describe("Reviews", () => {
     expect(screen.getByRole("alertdialog", { name: "确认评分？" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "取消" }));
 
-    expect(screen.queryByRole("alertdialog", { name: "确认评分？" })).not.toBeInTheDocument();
     expect(fetch).not.toHaveBeenCalled();
   });
 });

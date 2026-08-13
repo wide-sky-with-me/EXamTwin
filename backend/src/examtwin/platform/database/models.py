@@ -173,6 +173,47 @@ class SourceDocumentModel(Base):
     )
 
 
+class PaperUnitModel(Base):
+    __tablename__ = "paper_units"
+    __table_args__ = (
+        UniqueConstraint("subject_id", "pair_key"),
+        Index("idx_paper_units_subject_status", "subject_id", "status", "updated_at"),
+    )
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    subject_id: Mapped[str] = mapped_column(Text, ForeignKey("subjects.id", ondelete="CASCADE"))
+    subject_code: Mapped[str] = mapped_column(Text)
+    pair_key: Mapped[str] = mapped_column(Text)
+    display_name: Mapped[str | None] = mapped_column(Text)
+    unit_code: Mapped[str] = mapped_column(Text)
+    exam_year: Mapped[int] = mapped_column(Integer)
+    exam_session: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class PaperUnitDocumentModel(Base):
+    __tablename__ = "paper_unit_documents"
+    __table_args__ = (
+        UniqueConstraint("document_id"),
+        Index("idx_paper_unit_documents_role", "paper_unit_id", "role"),
+    )
+
+    paper_unit_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("paper_units.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    document_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("source_documents.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    role: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class SourceDocumentLocationModel(Base):
     __tablename__ = "source_document_locations"
 
@@ -445,6 +486,14 @@ class PaperJobModel(Base):
     answer_suffix: Mapped[str | None] = mapped_column(Text)
     answer_source_path: Mapped[str | None] = mapped_column(Text)
     pair_key: Mapped[str | None] = mapped_column(Text)
+    paper_unit_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("paper_units.id", ondelete="RESTRICT"),
+    )
+    question_paper_document_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("source_documents.id", ondelete="RESTRICT"),
+    )
     source_booklet_document_id: Mapped[str | None] = mapped_column(
         Text,
         ForeignKey("source_documents.id", ondelete="RESTRICT"),

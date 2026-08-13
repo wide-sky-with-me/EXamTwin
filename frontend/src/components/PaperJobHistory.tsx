@@ -1,16 +1,13 @@
 import {
-  ChevronLeft,
-  ChevronRight,
   FileClock,
   Check,
   LoaderCircle,
   Pencil,
   RefreshCw,
-  Search,
   Trash2,
   X,
 } from "lucide-react";
-import { type FormEvent, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   deletePaperJobs,
@@ -27,9 +24,15 @@ import type {
 } from "../types";
 import { ErrorBanner } from "./Feedback";
 import { useToast } from "./toast-context";
+import {
+  ListFilterBar,
+  ListFilterSelect,
+  ListPagination,
+} from "./ui/ListControls";
 import { AppConfirmDialog } from "./ui/AppConfirmDialog";
 
 const DEFAULT_PAGE_SIZE = 10;
+const PAGE_SIZES = [10, 20, 50] as const;
 const TERMINAL_STATUSES = new Set<PaperJobSummary["status"]>([
   "completed",
   "partial_failed",
@@ -56,16 +59,20 @@ function formatDate(value: string): string {
 
 export function PaperJobHistory({
   subject,
+  subjects = subject ? [subject] : [],
   currentJobId,
   refreshKey,
   onOpen,
   onDeleted,
+  onSubjectChange = () => undefined,
 }: {
   subject: SubjectPack | null;
+  subjects?: SubjectPack[];
   currentJobId: string | null;
   refreshKey: number;
   onOpen: (jobId: string) => void;
   onDeleted: (jobId: string) => void;
+  onSubjectChange?: (subjectId: string) => void;
 }) {
   const [history, setHistory] = useState<PaperJobList | null>(null);
   const [loading, setLoading] = useState(false);
@@ -97,7 +104,7 @@ export function PaperJobHistory({
     let active = true;
     setLoading(true);
     setError(null);
-    void listPaperJobs({
+    void listPaperJobs(subjectId, {
       status: status || undefined,
       unitCode: unitCode || undefined,
       query: query || undefined,
@@ -127,10 +134,18 @@ export function PaperJobHistory({
     setDeleteCandidate(null);
   }, [query, range, status, subjectId, unitCode]);
 
-  function applyQuery(event: FormEvent) {
-    event.preventDefault();
+  function applyQuery() {
     setPage(0);
     setQuery(queryDraft.trim());
+  }
+
+  function resetFilters() {
+    setQueryDraft("");
+    setQuery("");
+    setStatus("");
+    setUnitCode("");
+    setRange("all");
+    setPage(0);
   }
 
   function refreshAfterDelete(deletedCount: number) {
@@ -141,12 +156,12 @@ export function PaperJobHistory({
   }
 
   async function confirmDelete() {
-    if (!deleteCandidate) return;
+    if (!deleteCandidate || !subjectId) return;
     const deletingId = deleteCandidate.job_id;
     setDeleting(true);
     setError(null);
     try {
-      await deletePaperJobs([deletingId]);
+      await deletePaperJobs(subjectId, [deletingId]);
       setDeleteCandidate(null);
       setSelectedIds((current) => {
         const next = new Set(current);
@@ -165,11 +180,11 @@ export function PaperJobHistory({
 
   async function confirmBulkDelete() {
     const jobIds = [...selectedIds];
-    if (!jobIds.length) return;
+    if (!jobIds.length || !subjectId) return;
     setDeleting(true);
     setError(null);
     try {
-      const result = await deletePaperJobs(jobIds);
+      const result = await deletePaperJobs(subjectId, jobIds);
       setSelectedIds(new Set());
       setBulkConfirming(false);
       setDeleteCandidate(null);
@@ -184,10 +199,11 @@ export function PaperJobHistory({
   }
 
   async function repairJob(item: PaperJobSummary) {
+    if (!subjectId) return;
     setRepairingId(item.job_id);
     setError(null);
     try {
-      const replacement = await replacePaperJob(item.job_id);
+      const replacement = await replacePaperJob(subjectId, item.job_id);
       notify("已创建替代任务；旧记录将保留用于审计。");
       setLocalRefresh((value) => value + 1);
       onOpen(replacement.job_id);
@@ -199,6 +215,7 @@ export function PaperJobHistory({
   }
 
   async function confirmRename(item: PaperJobSummary) {
+    if (!subjectId) return;
     const normalized = draftName.trim();
     if (!normalized) {
       setError("显示名称不能为空");
@@ -207,7 +224,7 @@ export function PaperJobHistory({
     setRenamingId(item.job_id);
     setError(null);
     try {
-      await renamePaperJob(item.job_id, normalized);
+      await renamePaperJob(subjectId, item.job_id, normalized);
       setEditingId(null);
       setLocalRefresh((value) => value + 1);
       notify("作答记录名称已更新。");
@@ -250,11 +267,6 @@ export function PaperJobHistory({
     });
   }
 
-  const firstItem = history && history.total > 0 ? history.offset + 1 : 0;
-  const lastItem = history ? history.offset + history.items.length : 0;
-  const hasPrevious = page > 0;
-  const hasNext = history ? lastItem < history.total : false;
-  const totalPages = Math.max(1, Math.ceil((history?.total ?? 0) / pageSize));
 
   return (
     <article aria-busy={loading} className="panel paper-history">
@@ -277,71 +289,74 @@ export function PaperJobHistory({
         </button>
       </header>
 
-      <form className="paper-history-filters" onSubmit={applyQuery}>
-        <label>
-          <span>文件名</span>
-          <div className="paper-history-search">
-            <Search size={15} />
-            <input
-              aria-label="按文件名筛选"
-              onChange={(event) => setQueryDraft(event.target.value)}
-              placeholder="搜索试卷文件名"
-              type="search"
-              value={queryDraft}
-            />
-          </div>
-        </label>
-        <label>
-          <span>状态</span>
-          <select
-            aria-label="按状态筛选"
-            onChange={(event) => {
-              setPage(0);
-              setStatus(event.target.value as PaperJobHistoryStatus | "");
-            }}
-            value={status}
-          >
-            <option value="">全部状态</option>
-            <option value="active">处理中</option>
-            <option value="completed">处理完成</option>
-            <option value="partial_failed">部分题目失败</option>
-            <option value="failed">处理失败</option>
-          </select>
-        </label>
-        <label>
-          <span>单元</span>
-          <select
-            aria-label="按单元筛选"
-            onChange={(event) => {
-              setPage(0);
-              setUnitCode(event.target.value);
-            }}
-            value={unitCode}
-          >
-            <option value="">全部单元</option>
-            {subject?.units.map((item) => (
-              <option key={item.code} value={item.code}>{item.code}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <span>时间</span>
-          <select
-            aria-label="按时间筛选"
-            onChange={(event) => {
-              setPage(0);
-              setRange(event.target.value as HistoryRange);
-            }}
-            value={range}
-          >
-            <option value="all">全部时间</option>
-            <option value="7">最近 7 天</option>
-            <option value="30">最近 30 天</option>
-            <option value="90">最近 90 天</option>
-          </select>
-        </label>
-        <button className="secondary" type="submit">筛选</button>
-      </form>
+      <ListFilterBar
+        ariaLabel="作答记录搜索与筛选"
+        onQueryChange={setQueryDraft}
+        onReset={resetFilters}
+        onSearch={applyQuery}
+        query={queryDraft}
+        queryLabel="按文件名筛选"
+        queryPlaceholder="搜索试卷文件名"
+        resetDisabled={!queryDraft && !query && !status && !unitCode && range === "all"}
+      >
+        <ListFilterSelect
+          ariaLabel="按科目筛选"
+          onValueChange={(value) => {
+            setPage(0);
+            setUnitCode("");
+            onSubjectChange(value);
+          }}
+          options={subjects.map((item) => ({
+            label: `${item.title} · ${item.subject_code}`,
+            value: item.id,
+          }))}
+          value={subject?.id ?? ""}
+        />
+        <ListFilterSelect
+          ariaLabel="按状态筛选"
+          onValueChange={(value) => {
+            setPage(0);
+            setStatus(value as PaperJobHistoryStatus | "");
+          }}
+          options={[
+            { label: "全部状态", value: "" },
+            { label: "处理中", value: "active" },
+            { label: "处理完成", value: "completed" },
+            { label: "部分题目失败", value: "partial_failed" },
+            { label: "处理失败", value: "failed" },
+          ]}
+          value={status}
+        />
+        <ListFilterSelect
+          ariaLabel="按单元筛选"
+          onValueChange={(value) => {
+            setPage(0);
+            setUnitCode(value);
+          }}
+          options={[
+            { label: "全部单元", value: "" },
+            ...(subject?.units.map((item) => ({
+              label: item.code,
+              value: item.code,
+            })) ?? []),
+          ]}
+          value={unitCode}
+        />
+        <ListFilterSelect
+          ariaLabel="按时间筛选"
+          onValueChange={(value) => {
+            setPage(0);
+            setRange(value as HistoryRange);
+          }}
+          options={[
+            { label: "全部时间", value: "all" },
+            { label: "最近 7 天", value: "7" },
+            { label: "最近 30 天", value: "30" },
+            { label: "最近 90 天", value: "90" },
+          ]}
+          value={range}
+        />
+      </ListFilterBar>
 
       <ErrorBanner message={error} />
       {selectedIds.size > 0 && (
@@ -519,45 +534,24 @@ export function PaperJobHistory({
         <p className="paper-history-empty">没有符合当前条件的作答记录。</p>
       )}
 
-      {history && history.total > 0 && (
-        <footer>
-          <span>共 {history.total} 条 · 当前显示 {firstItem}–{lastItem}</span>
-          <div className="paper-history-pagination">
-            <label>
-              每页
-              <select
-                aria-label="每页显示条数"
-                disabled={loading}
-                onChange={(event) => {
-                  setPage(0);
-                  setPageSize(Number(event.target.value));
-                }}
-                value={pageSize}
-              >
-                <option value={10}>10 条</option>
-                <option value={20}>20 条</option>
-                <option value={50}>50 条</option>
-              </select>
-            </label>
-            <span>第 {page + 1} / {totalPages} 页</span>
-            <button
-              aria-label="上一页作答记录"
-              disabled={!hasPrevious || loading}
-              onClick={() => setPage((value) => value - 1)}
-              type="button"
-            >
-              <ChevronLeft size={15} />
-            </button>
-            <button
-              aria-label="下一页作答记录"
-              disabled={!hasNext || loading}
-              onClick={() => setPage((value) => value + 1)}
-              type="button"
-            >
-              <ChevronRight size={15} />
-            </button>
-          </div>
-        </footer>
+      {history && (
+        <ListPagination
+          ariaLabel="作答记录分页"
+          disabled={loading}
+          itemName="作答记录"
+          itemUnit="条"
+          onPageChange={setPage}
+          onPageSizeChange={(size) => {
+            setPage(0);
+            setPageSize(size);
+          }}
+          page={page}
+          pageSize={pageSize}
+          pageSizes={PAGE_SIZES}
+          total={history.total}
+          pageSizeLabel="每页显示条数"
+          visibleCount={history.items.length}
+        />
       )}
 
       <AppConfirmDialog

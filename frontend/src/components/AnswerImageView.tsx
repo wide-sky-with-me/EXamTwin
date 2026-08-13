@@ -5,7 +5,13 @@ import { useModalFocus } from "../lib/use-modal-focus";
 import type { AnswerImage } from "../types";
 import { InlineMarkdown } from "./Markdown";
 
-export function AnswerImageView({ image }: { image: AnswerImage }) {
+export function AnswerImageView({
+  image,
+  subjectId,
+}: {
+  image: AnswerImage;
+  subjectId: string;
+}) {
   const id = useId().replaceAll(":", "");
   const titleId = `answer-image-title-${id}`;
   const [expanded, setExpanded] = useState(false);
@@ -48,7 +54,7 @@ export function AnswerImageView({ image }: { image: AnswerImage }) {
             alt={image.title}
             height={image.height}
             loading="lazy"
-            src={backendResourceUrl(image.content_url)}
+            src={backendResourceUrl(image.content_url, subjectId)}
             width={image.width}
           />
         </div>

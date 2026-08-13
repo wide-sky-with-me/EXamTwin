@@ -156,6 +156,8 @@ class PaperJobSummary(SerializedResponse):
     display_name: str | None = None
     answer_mode: Literal["generated", "uploaded"] = "generated"
     pair_key: str | None = None
+    paper_unit_id: str | None = None
+    question_paper_document_id: str | None = None
     source_booklet_document_id: str | None = None
     source_booklet_checksum: str | None = None
     source_booklet_filename: str | None = None
@@ -186,6 +188,8 @@ class PaperJobResponse(SerializedResponse):
     display_name: str | None = None
     answer_mode: Literal["generated", "uploaded"] = "generated"
     pair_key: str | None = None
+    paper_unit_id: str | None = None
+    question_paper_document_id: str | None = None
     source_booklet_document_id: str | None = None
     source_booklet_checksum: str | None = None
     source_booklet_filename: str | None = None

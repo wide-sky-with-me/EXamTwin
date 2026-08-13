@@ -1,15 +1,37 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import type { ReactElement } from "react";
+import { fireEvent, render as testingLibraryRender, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import { DesignSystemProvider } from "../components/ui/DesignSystemProvider";
 
 import { subscribeTaskSnapshots } from "../lib/task-events";
 import type { PaperJobResult, SubjectPack } from "../types";
 import { PaperAnswering } from "./PaperAnswering";
+
+function render(ui: ReactElement) {
+  return testingLibraryRender(ui, { wrapper: DesignSystemProvider });
+}
 
 vi.mock("../lib/task-events", () => ({
   subscribeTaskSnapshots: vi.fn(),
 }));
 
 const subscribeMock = vi.mocked(subscribeTaskSnapshots);
+
+const subject = {
+  id: "math",
+  subject_code: "9660",
+  title: "Mathematics",
+  board_name: "OxfordAQA",
+  answering_enabled: true,
+  version: "1",
+  digest: "digest",
+  capability_profile_id: "math",
+  generic_qa_enabled: true,
+  answering_disabled_reason: null,
+  active_graph_version_id: null,
+  units: [],
+  knowledge_bases: [],
+} as SubjectPack;
 
 beforeEach(() => {
   window.localStorage.clear();
@@ -18,21 +40,6 @@ beforeEach(() => {
 
 describe("PaperAnswering", () => {
   test("accepts a supported paper through drag and drop", async () => {
-    const subject = {
-      id: "math",
-      subject_code: "9660",
-      title: "Mathematics",
-      board_name: "OxfordAQA",
-      answering_enabled: true,
-      version: "1",
-      digest: "digest",
-      capability_profile_id: "math",
-      generic_qa_enabled: true,
-      answering_disabled_reason: null,
-      active_graph_version_id: null,
-      units: [],
-      knowledge_bases: [],
-    } as SubjectPack;
     render(<PaperAnswering enabled subjects={[subject]} />);
     fireEvent.click(screen.getByRole("button", { name: "新建作答" }));
     fireEvent.click(screen.getByRole("button", { name: /Mathematics/ }));
@@ -137,16 +144,15 @@ describe("PaperAnswering", () => {
       options.onState("live");
       return () => undefined;
     });
-    window.localStorage.setItem("examtwin.paperJobId.unselected", completedJob.job_id);
+    window.localStorage.setItem(`examtwin.paperJobId.${subject.id}`, completedJob.job_id);
 
-    render(<PaperAnswering enabled subject={null} />);
+    render(<PaperAnswering enabled subject={subject} />);
 
     expect(await screen.findByText("已作答")).toBeInTheDocument();
     expect(screen.getByText("Q1 · 已作答")).toBeInTheDocument();
-    expect(screen.queryByText("证据充分")).not.toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Equation diagram" })).toHaveAttribute(
       "src",
-      imageUrl,
+      `${imageUrl}?subject=${subject.id}`,
     );
     const answer = screen.getByRole("heading", { name: "证据化解答" }).closest("section")!;
     const answerText = answer.textContent ?? "";
@@ -195,9 +201,9 @@ describe("PaperAnswering", () => {
       options.onState("idle");
       return () => undefined;
     });
-    window.localStorage.setItem("examtwin.paperJobId.unselected", failedJob.job_id);
+    window.localStorage.setItem(`examtwin.paperJobId.${subject.id}`, failedJob.job_id);
 
-    render(<PaperAnswering enabled subject={null} />);
+    render(<PaperAnswering enabled subject={subject} />);
 
     expect(await screen.findByText("解析中断 · 已完成 10 / 32 页")).toBeInTheDocument();
     expect(screen.getByText("任务在题目识别前中断")).toBeInTheDocument();

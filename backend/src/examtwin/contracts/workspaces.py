@@ -87,6 +87,12 @@ class SourceDocumentResponse(SerializedResponse):
     object_key: str | None = None
     page_count: int | None = None
     error: str | None = None
+    pair_key: str | None = None
+    unit_code: str | None = None
+    exam_year: int | None = None
+    exam_session: str | None = None
+    identity_status: str = "not_applicable"
+    identity_error: str | None = None
 
 
 class RenameSourceDocumentRequest(BaseModel):

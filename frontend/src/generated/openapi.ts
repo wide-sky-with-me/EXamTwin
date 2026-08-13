@@ -894,6 +894,60 @@ export interface paths {
         patch: operations["rename_workspace_document_api_v1_subject_workspaces__workspace_id__documents__document_id__patch"];
         trace?: never;
     };
+    "/api/v1/subject-workspaces/{workspace_id}/paper-units": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Paper Units */
+        get: operations["list_paper_units_api_v1_subject_workspaces__workspace_id__paper_units_get"];
+        put?: never;
+        /** Create Paper Unit */
+        post: operations["create_paper_unit_api_v1_subject_workspaces__workspace_id__paper_units_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/subject-workspaces/{workspace_id}/paper-units/{paper_unit_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Paper Unit */
+        get: operations["get_paper_unit_api_v1_subject_workspaces__workspace_id__paper_units__paper_unit_id__get"];
+        put?: never;
+        post?: never;
+        /** Archive Paper Unit */
+        delete: operations["archive_paper_unit_api_v1_subject_workspaces__workspace_id__paper_units__paper_unit_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Paper Unit */
+        patch: operations["update_paper_unit_api_v1_subject_workspaces__workspace_id__paper_units__paper_unit_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/subject-workspaces/{workspace_id}/paper-units/{paper_unit_id}/answer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Answer Paper Unit */
+        post: operations["answer_paper_unit_api_v1_subject_workspaces__workspace_id__paper_units__paper_unit_id__answer_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/subjects": {
         parameters: {
             query?: never;
@@ -1277,6 +1331,27 @@ export interface components {
              */
             workers: number;
         };
+        /** CreatePaperUnitAnswerRequest */
+        CreatePaperUnitAnswerRequest: {
+            /**
+             * Include Supplementary
+             * @default false
+             */
+            include_supplementary: boolean;
+            /** Knowledge Base Version Ids */
+            knowledge_base_version_ids?: string[];
+            /** Question Paper Document Id */
+            question_paper_document_id: string;
+            /** Source Booklet Document Id */
+            source_booklet_document_id?: string | null;
+        };
+        /** CreatePaperUnitRequest */
+        CreatePaperUnitRequest: {
+            /** Display Name */
+            display_name?: string | null;
+            /** Document Ids */
+            document_ids: string[];
+        };
         /** CreateRubricRequest */
         CreateRubricRequest: {
             /** Paper Job Id */
@@ -1505,6 +1580,10 @@ export interface components {
             filename: string;
             /** Job Id */
             job_id: string;
+            /** Paper Unit Id */
+            paper_unit_id: string | null;
+            /** Question Paper Document Id */
+            question_paper_document_id: string | null;
             /**
              * Status
              * @enum {string}
@@ -2086,8 +2165,12 @@ export interface components {
             knowledge_base_version_ids: string[];
             /** Pair Key */
             pair_key: string | null;
+            /** Paper Unit Id */
+            paper_unit_id: string | null;
             /** Parsed Pages */
             parsed_pages: number;
+            /** Question Paper Document Id */
+            question_paper_document_id: string | null;
             /** Questions */
             questions: components["schemas"]["PaperJobQuestion"][];
             /** Replaced By Job Id */
@@ -2154,6 +2237,10 @@ export interface components {
             job_id: string;
             /** Pair Key */
             pair_key: string | null;
+            /** Paper Unit Id */
+            paper_unit_id: string | null;
+            /** Question Paper Document Id */
+            question_paper_document_id: string | null;
             /** Replaced By Job Id */
             replaced_by_job_id: string | null;
             /** Replacement For Job Id */
@@ -2223,6 +2310,99 @@ export interface components {
             source_ref: string;
             /** Title */
             title: string;
+        };
+        /** PaperUnitAnswerCreated */
+        PaperUnitAnswerCreated: {
+            /** Job Id */
+            job_id: string;
+            /** Paper Unit Id */
+            paper_unit_id: string;
+            /** Question Paper Document Id */
+            question_paper_document_id: string;
+            /**
+             * Stage
+             * @constant
+             */
+            stage: "queued";
+            /**
+             * Status
+             * @constant
+             */
+            status: "queued";
+        };
+        /** PaperUnitDocument */
+        PaperUnitDocument: {
+            /** Checksum */
+            checksum: string;
+            /** Display Name */
+            display_name: string | null;
+            /** Filename */
+            filename: string;
+            /** Id */
+            id: string;
+            /** Page Count */
+            page_count: number | null;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "question_paper" | "mark_scheme" | "source_booklet";
+            /**
+             * Source Type
+             * @enum {string}
+             */
+            source_type: "question_paper" | "mark_scheme" | "insert";
+            /** Status */
+            status: string;
+        };
+        /** PaperUnitListResponse */
+        PaperUnitListResponse: {
+            /** Available Sessions */
+            available_sessions: string[];
+            /** Available Units */
+            available_units: string[];
+            /** Available Years */
+            available_years: number[];
+            /** Items */
+            items: components["schemas"]["PaperUnitSummary"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
+        };
+        /** PaperUnitSummary */
+        PaperUnitSummary: {
+            /** Created At */
+            created_at: string;
+            /** Display Name */
+            display_name: string | null;
+            /** Documents */
+            documents: components["schemas"]["PaperUnitDocument"][];
+            /** Exam Session */
+            exam_session: string;
+            /** Exam Year */
+            exam_year: number;
+            /** Id */
+            id: string;
+            /** Pair Key */
+            pair_key: string;
+            /** Paper Job Count */
+            paper_job_count: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "active" | "archived";
+            /** Subject Code */
+            subject_code: string;
+            /** Subject Id */
+            subject_id: string;
+            /** Unit Code */
+            unit_code: string;
+            /** Updated At */
+            updated_at: string;
         };
         /** PlatformStatusResponse */
         PlatformStatusResponse: {
@@ -2311,6 +2491,8 @@ export interface components {
             status: "pending_review";
             /** Subject Code */
             subject_code: string;
+            /** Subject Id */
+            subject_id: string;
             /** Total Available */
             total_available: number;
             /** Total Awarded */
@@ -2555,10 +2737,21 @@ export interface components {
             display_name: string | null;
             /** Error */
             error: string | null;
+            /** Exam Session */
+            exam_session: string | null;
+            /** Exam Year */
+            exam_year: number | null;
             /** Filename */
             filename: string;
             /** Id */
             id: string;
+            /** Identity Error */
+            identity_error: string | null;
+            /**
+             * Identity Status
+             * @default not_applicable
+             */
+            identity_status: string;
             /** Knowledge Base Id */
             knowledge_base_id: string | null;
             /** License Confirmed */
@@ -2567,12 +2760,16 @@ export interface components {
             object_key: string | null;
             /** Page Count */
             page_count: number | null;
+            /** Pair Key */
+            pair_key: string | null;
             /** Source Role */
             source_role: string;
             /** Source Type */
             source_type: string;
             /** Status */
             status: string;
+            /** Unit Code */
+            unit_code: string | null;
         };
         /** StatsResponse */
         StatsResponse: {
@@ -2777,6 +2974,13 @@ export interface components {
             expected: string;
             /** Student */
             student: string;
+        };
+        /** UpdatePaperUnitRequest */
+        UpdatePaperUnitRequest: {
+            /** Display Name */
+            display_name: string | null;
+            /** Document Ids */
+            document_ids: string[] | null;
         };
         /** UpdateSubjectRequest */
         UpdateSubjectRequest: {
@@ -3037,6 +3241,7 @@ export interface operations {
     grading_papers_api_v1_grading_papers_get: {
         parameters: {
             query?: {
+                paper_unit_id?: string | null;
                 subject?: string | null;
             };
             header?: {
@@ -4092,6 +4297,7 @@ export interface operations {
             query?: {
                 status?: ("active" | "queued" | "parsing" | "vision_review" | "splitting" | "answering" | "completed" | "partial_failed" | "failed") | null;
                 unit_code?: string | null;
+                paper_unit_id?: string | null;
                 q?: string | null;
                 created_after?: string | null;
                 limit?: number;
@@ -4853,6 +5059,236 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SourceDocumentResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_paper_units_api_v1_subject_workspaces__workspace_id__paper_units_get: {
+        parameters: {
+            query?: {
+                q?: string | null;
+                unit_code?: string | null;
+                exam_year?: number | null;
+                exam_session?: string | null;
+                limit?: number;
+                offset?: number;
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaperUnitListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_paper_unit_api_v1_subject_workspaces__workspace_id__paper_units_post: {
+        parameters: {
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePaperUnitRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaperUnitSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_paper_unit_api_v1_subject_workspaces__workspace_id__paper_units__paper_unit_id__get: {
+        parameters: {
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path: {
+                workspace_id: string;
+                paper_unit_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaperUnitSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    archive_paper_unit_api_v1_subject_workspaces__workspace_id__paper_units__paper_unit_id__delete: {
+        parameters: {
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path: {
+                workspace_id: string;
+                paper_unit_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_paper_unit_api_v1_subject_workspaces__workspace_id__paper_units__paper_unit_id__patch: {
+        parameters: {
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path: {
+                workspace_id: string;
+                paper_unit_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdatePaperUnitRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaperUnitSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    answer_paper_unit_api_v1_subject_workspaces__workspace_id__paper_units__paper_unit_id__answer_post: {
+        parameters: {
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path: {
+                workspace_id: string;
+                paper_unit_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePaperUnitAnswerRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaperUnitAnswerCreated"];
                 };
             };
             /** @description Validation Error */

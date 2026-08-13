@@ -99,6 +99,7 @@ class PaperJobService:
         status: PaperJobFilterStatus | None = None,
         unit_code: str | None = None,
         query: str | None = None,
+        paper_unit_id: str | None = None,
         created_after: datetime | None = None,
         limit: int = 50,
         offset: int = 0,
@@ -111,6 +112,7 @@ class PaperJobService:
             statuses=statuses,
             unit_code=unit_code,
             query=query,
+            paper_unit_id=paper_unit_id,
             created_after=created_after,
             limit=limit,
             offset=offset,
@@ -124,6 +126,8 @@ class PaperJobService:
                     display_name=row.get("display_name"),
                     answer_mode=row.get("answer_mode") or "generated",
                     pair_key=row.get("pair_key"),
+                    paper_unit_id=row.get("paper_unit_id"),
+                    question_paper_document_id=row.get("question_paper_document_id"),
                     source_booklet_document_id=row.get("source_booklet_document_id"),
                     source_booklet_checksum=row.get("source_booklet_checksum"),
                     source_booklet_filename=row.get("source_booklet_filename"),
@@ -198,6 +202,8 @@ class PaperJobService:
         answer_filename: str | None = None,
         answer_stream: BinaryIO | None = None,
         source_booklet: Mapping[str, Any] | None = None,
+        paper_unit_id: str | None = None,
+        question_paper_document_id: str | None = None,
     ) -> PaperJobCreated:
         self.subject.require_paper_capability()
         if not self.subject.knowledge_base_version_ids:
@@ -207,6 +213,8 @@ class PaperJobService:
             raise ValueError("仅支持 Markdown（.md/.markdown）或 PDF 试卷")
         if (answer_filename is None) != (answer_stream is None):
             raise ValueError("上传外部答案时必须同时提供答案文件名和内容")
+        if (paper_unit_id is None) != (question_paper_document_id is None):
+            raise ValueError("受管试卷作答必须同时提供试卷单元和 Question Paper 文档")
         answer_suffix = Path(answer_filename).suffix.lower() if answer_filename else None
         if answer_suffix is not None and answer_suffix not in SUPPORTED_SUFFIXES:
             raise ValueError("答案文件仅支持 Markdown（.md/.markdown）或 PDF")
@@ -286,6 +294,8 @@ class PaperJobService:
                     "answer_suffix": answer_suffix,
                     "answer_source_path": answer_source_rel,
                     "pair_key": pair_key,
+                    "paper_unit_id": paper_unit_id,
+                    "question_paper_document_id": question_paper_document_id,
                     "source_booklet_document_id": (
                         str(source_booklet["id"]) if source_booklet is not None else None
                     ),
@@ -414,6 +424,8 @@ class PaperJobService:
             display_name=job.get("display_name"),
             answer_mode=job.get("answer_mode") or "generated",
             pair_key=job.get("pair_key"),
+            paper_unit_id=job.get("paper_unit_id"),
+            question_paper_document_id=job.get("question_paper_document_id"),
             source_booklet_document_id=job.get("source_booklet_document_id"),
             source_booklet_checksum=job.get("source_booklet_checksum"),
             source_booklet_filename=job.get("source_booklet_filename"),

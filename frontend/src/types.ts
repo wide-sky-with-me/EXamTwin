@@ -33,11 +33,17 @@ export type KnowledgeDifficulty = Schemas["KnowledgeDifficultySummary"];
 export type PaperJobCreated = Schemas["PaperJobCreated"];
 export type PaperJobQuestion = Schemas["PaperJobQuestion"];
 export type SourceContextResult = Schemas["SourceContextResponse"];
+export type PaperUnitDocument = Schemas["PaperUnitDocument"];
+export type PaperUnitSummary = Schemas["PaperUnitSummary"];
+export type PaperUnitList = Schemas["PaperUnitListResponse"];
+export type PaperUnitAnswerCreated = Schemas["PaperUnitAnswerCreated"];
 export type PaperJobResult = Omit<
   Schemas["PaperJobResponse"],
   | "display_name"
   | "answer_mode"
   | "pair_key"
+  | "paper_unit_id"
+  | "question_paper_document_id"
   | "source_booklet_document_id"
   | "source_booklet_checksum"
   | "source_booklet_filename"
@@ -45,6 +51,8 @@ export type PaperJobResult = Omit<
   display_name?: string | null;
   answer_mode?: "generated" | "uploaded";
   pair_key?: string | null;
+  paper_unit_id?: string | null;
+  question_paper_document_id?: string | null;
   source_booklet_document_id?: string | null;
   source_booklet_checksum?: string | null;
   source_booklet_filename?: string | null;
@@ -58,6 +66,8 @@ export type PaperJobSummary = Omit<
   | "display_name"
   | "answer_mode"
   | "pair_key"
+  | "paper_unit_id"
+  | "question_paper_document_id"
   | "source_booklet_document_id"
   | "source_booklet_checksum"
   | "source_booklet_filename"
@@ -65,6 +75,8 @@ export type PaperJobSummary = Omit<
   display_name?: string | null;
   answer_mode?: "generated" | "uploaded";
   pair_key?: string | null;
+  paper_unit_id?: string | null;
+  question_paper_document_id?: string | null;
   source_booklet_document_id?: string | null;
   source_booklet_checksum?: string | null;
   source_booklet_filename?: string | null;
@@ -72,11 +84,31 @@ export type PaperJobSummary = Omit<
 export type PaperJobHistoryStatus = PaperJobSummary["status"] | "active";
 export type GradeResult = Schemas["GradeResponse"];
 export type ReviewItem = Schemas["ReviewQueueItem"];
-export type SourceDocument = Omit<Schemas["SourceDocumentResponse"], "display_name"> & {
+export type SourceDocument = Omit<
+  Schemas["SourceDocumentResponse"],
+  | "display_name"
+  | "pair_key"
+  | "unit_code"
+  | "exam_year"
+  | "exam_session"
+  | "identity_status"
+  | "identity_error"
+> & {
   display_name?: string | null;
+  pair_key?: string | null;
+  unit_code?: string | null;
+  exam_year?: number | null;
+  exam_session?: string | null;
+  identity_status?: string;
+  identity_error?: string | null;
 };
-export type GradingPaper = Omit<Schemas["GradingPaperSummary"], "display_name"> & {
+export type GradingPaper = Omit<
+  Schemas["GradingPaperSummary"],
+  "display_name" | "paper_unit_id" | "question_paper_document_id"
+> & {
   display_name?: string | null;
+  paper_unit_id?: string | null;
+  question_paper_document_id?: string | null;
 };
 export type RubricSetSummary = Schemas["RubricSetSummary"];
 export type RubricSet = Schemas["RubricSetResponse"];

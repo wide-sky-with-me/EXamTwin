@@ -43,8 +43,15 @@ test("starts in subject management and switches theme in place", async ({
         subject_code: "9640",
         title: "OxfordAQA International AS/A-level Economics (9640)",
         board_name: "OxfordAQA International",
+        active_graph_version_id: null,
         answering_enabled: true,
         answering_disabled_reason: null,
+        capability_profile_id: "oxfordaqa-economics-9640",
+        color: "#0F766E",
+        generic_qa_enabled: true,
+        icon: "chart-no-axes-combined",
+        knowledge_bases: [],
+        source_booklet_required: true,
         units: [{ code: "U1", title: "Markets", strand: "Economics" }],
         vector_alias: "examtwin_9640_live",
         vector_index_ready: true,
@@ -72,25 +79,26 @@ test("starts in subject management and switches theme in place", async ({
 
   await page.goto("/");
 
-  await expect(page.getByRole("heading", { name: "科目管理" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "科目" })).toBeVisible();
   await expect(page.getByText("OxfordAQA International AS/A-level Economics (9640)")).toBeVisible();
   await expect(page.getByRole("navigation", { name: "主导航" })).toBeVisible();
 
-  const systemTheme = page.getByRole("button", { name: "跟随系统" });
-  const systemThemeBox = await systemTheme.boundingBox();
-  await systemTheme.hover();
+  const systemTheme = page.getByRole("radio", { name: "跟随系统" });
+  const systemThemeIcon = page.getByRole("img", { name: "跟随系统" });
+  const systemThemeBox = await systemThemeIcon.boundingBox();
+  await systemThemeIcon.hover();
   const themeTooltip = page.getByRole("tooltip");
   await expect(themeTooltip).toHaveText("跟随系统");
   const themeTooltipBox = await themeTooltip.boundingBox();
   expect(themeTooltipBox?.width).toBeLessThan(160);
   expect(themeTooltipBox?.height).toBeLessThan(80);
-  expect(await systemTheme.boundingBox()).toEqual(systemThemeBox);
-  await expect(systemTheme).toHaveAttribute("aria-pressed", "true");
+  expect(await systemThemeIcon.boundingBox()).toEqual(systemThemeBox);
+  await expect(systemTheme).toBeChecked();
 
-  const darkTheme = page.getByRole("button", { name: "深色主题" });
-  await darkTheme.click();
+  const darkTheme = page.getByRole("radio", { name: "深色主题" });
+  await page.getByRole("img", { name: "深色主题" }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-  await expect(darkTheme).toHaveAttribute("aria-pressed", "true");
+  await expect(darkTheme).toBeChecked();
 });
 
 test("keeps the 1024px application viewport free of page-level horizontal scrolling", async ({
@@ -98,7 +106,7 @@ test("keeps the 1024px application viewport free of page-level horizontal scroll
 }) => {
   await page.setViewportSize({ width: 1024, height: 768 });
   await page.goto("/");
-  await page.getByRole("button", { name: "科目管理" }).click();
+  await expect(page.getByRole("navigation", { name: "主导航" })).toBeVisible();
 
   const overflow = await page.evaluate(() => ({
     viewport: window.innerWidth,
@@ -143,8 +151,15 @@ test("shows rich grading selectors and manages Mark Schemes without leaving the 
           subject_code: "9640",
           title: "OxfordAQA International AS/A-level Economics (9640)",
           board_name: "OxfordAQA International",
+          active_graph_version_id: null,
           answering_enabled: true,
           answering_disabled_reason: null,
+          capability_profile_id: "oxfordaqa-economics-9640",
+          color: "#0F766E",
+          generic_qa_enabled: true,
+          icon: "chart-no-axes-combined",
+          knowledge_bases: [],
+          source_booklet_required: true,
           units: [{ code: "U1", title: "Markets", strand: "Economics" }],
           vector_alias: "examtwin_9640_live",
           vector_index_ready: true,
@@ -227,9 +242,7 @@ test("shows rich grading selectors and manages Mark Schemes without leaving the 
     return fulfill([]);
   });
 
-  await page.goto("/");
-  await page.getByRole("button", { name: "答案评分" }).click();
-  await page.getByRole("button", { name: /Economics \(9640\)/ }).click();
+  await page.goto("/subjects/oxfordaqa-economics-9640/grading");
 
   const paperSelector = page.getByLabel("选择作答记录");
   const schemeSelector = page.getByLabel("选择 Mark Scheme");
@@ -237,15 +250,7 @@ test("shows rich grading selectors and manages Mark Schemes without leaving the 
   await expect(paperSelector).toContainText("U1 · 12/12 题 · 作答完整");
   await expect(schemeSelector).toContainText("官方标准 · 18 页 · 内容就绪");
 
-  await schemeSelector.click();
-  const selectMenu = page.locator(".grading-material-select-content");
-  await expect(selectMenu).toBeVisible();
-  expect((await selectMenu.boundingBox())?.height).toBeLessThan(180);
-  const selectedOption = page.getByRole("option", { name: /Economics-9640-U1-June-2026-MS.pdf/ });
-  await expect(selectedOption).toBeVisible();
-  expect(await selectedOption.locator("strong").evaluate((node) => getComputedStyle(node).color))
-    .toBe(await selectedOption.evaluate((node) => getComputedStyle(node).color));
-  await page.keyboard.press("Escape");
+  await expect(schemeSelector.getByRole("option", { name: /Economics-9640-U1-June-2026-MS.pdf/ })).toBeAttached();
   const schemeUpload = page.locator(".grading-scheme-upload");
   await expect(schemeUpload).toHaveCount(1);
   await expect(schemeUpload).not.toContainText("上传官方版本");
@@ -255,19 +260,15 @@ test("shows rich grading selectors and manages Mark Schemes without leaving the 
   const uploadTooltipBox = await uploadTooltip.boundingBox();
   expect(uploadTooltipBox?.width).toBeLessThan(180);
   expect(uploadTooltipBox?.height).toBeLessThan(80);
+  await page.mouse.move(0, 0);
+  await expect(uploadTooltip).toBeHidden();
   await page.getByRole("button", { name: "管理标准" }).click();
   await expect(page.getByPlaceholder("搜索文件名、来源或状态")).toBeVisible();
   await expect(page.getByText("当前使用")).toBeVisible();
   await page.getByLabel("删除 Economics-9640-U1-June-2026-MS.pdf").click();
-  const confirmOverlay = page.locator(".rt-AlertDialogOverlay");
-  await expect(confirmOverlay).toBeVisible();
-  const confirmOverlayStyle = await confirmOverlay.evaluate((node) => ({
-    backdropFilter: getComputedStyle(node).backdropFilter,
-    backgroundColor: getComputedStyle(node).backgroundColor,
-  }));
-  expect(confirmOverlayStyle.backdropFilter).toContain("blur");
-  expect(confirmOverlayStyle.backgroundColor).toBe("rgba(15, 23, 42, 0.28)");
-  await page.getByRole("button", { name: "取消" }).click();
+  const confirmDialog = page.getByRole("alertdialog", { name: "确认删除 Mark Scheme" });
+  await expect(confirmDialog).toBeVisible();
+  await confirmDialog.getByRole("button", { name: "取消" }).click();
 
   const overflow = await page.evaluate(() => ({
     viewport: window.innerWidth,
@@ -283,9 +284,9 @@ test("keeps all primary navigation visible without horizontal scrolling at 390px
   await page.goto("/");
 
   const navigation = page.getByRole("navigation", { name: "主导航" });
-  await expect(navigation.getByRole("button")).toHaveCount(4);
-  for (const label of ["科目管理", "试卷作答", "答案评分", "复核队列"]) {
-    await expect(navigation.getByRole("button", { name: label })).toBeInViewport();
+  await expect(navigation.getByRole("menuitem")).toHaveCount(5);
+  for (const label of ["科目", "试卷", "作答", "评分", "复核"]) {
+    await expect(navigation.getByRole("menuitem", { name: label })).toBeInViewport();
   }
 
   const overflow = await page.evaluate(() => ({

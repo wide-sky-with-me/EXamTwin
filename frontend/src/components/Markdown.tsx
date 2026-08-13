@@ -180,16 +180,18 @@ function QuestionSourceImage({
   );
 }
 
-const questionMarkdownComponents: Components = {
-  ...markdownComponents,
-  img({ node, src, ...props }) {
-    void node;
-    const resolvedSrc = src?.startsWith("/api/v1/")
-      ? backendResourceUrl(src)
-      : src;
-    return <QuestionSourceImage {...props} src={resolvedSrc} />;
-  },
-};
+function questionMarkdownComponents(subjectId?: string): Components {
+  return {
+    ...markdownComponents,
+    img({ node, src, ...props }) {
+      void node;
+      const resolvedSrc = src?.startsWith("/api/v1/") && subjectId
+        ? backendResourceUrl(src, subjectId)
+        : src;
+      return <QuestionSourceImage {...props} src={resolvedSrc} />;
+    },
+  };
+}
 
 const inlineMarkdownComponents: Components = {
   ...markdownComponents,
@@ -237,7 +239,7 @@ function normalizeQuestionMath(markdown: string) {
   );
 }
 
-export function QuestionMarkdown({ children }: { children: string }) {
+export function QuestionMarkdown({ children, subjectId }: { children: string; subjectId?: string }) {
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm, remarkMath]}
@@ -248,7 +250,7 @@ export function QuestionMarkdown({ children }: { children: string }) {
         rehypeTableMath,
         rehypeKatex,
       ]}
-      components={questionMarkdownComponents}
+      components={questionMarkdownComponents(subjectId)}
     >
       {normalizeQuestionMath(children)}
     </ReactMarkdown>

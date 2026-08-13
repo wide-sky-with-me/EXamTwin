@@ -220,6 +220,7 @@ def test_paper_history_api_lists_filters_and_deletes_terminal_jobs() -> None:
         query="paper",
         created_after=None,
         limit=20,
+        paper_unit_id=None,
         offset=0,
         jobs=jobs,  # type: ignore[arg-type]
     )
@@ -231,6 +232,7 @@ def test_paper_history_api_lists_filters_and_deletes_terminal_jobs() -> None:
         "unit_code": "P2",
         "query": "paper",
         "created_after": None,
+        "paper_unit_id": None,
         "limit": 20,
         "offset": 0,
     }

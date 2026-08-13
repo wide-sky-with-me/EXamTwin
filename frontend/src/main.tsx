@@ -1,6 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import "@radix-ui/themes/styles.css";
+
+import { BrowserRouter } from "react-router";
 
 import App from "./App";
 import { ToastProvider } from "./components/Toast";
@@ -14,7 +15,9 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <DesignSystemProvider>
       <ToastProvider>
-        <App />
+        <BrowserRouter>
+          <App />
+        </BrowserRouter>
       </ToastProvider>
     </DesignSystemProvider>
   </StrictMode>,
