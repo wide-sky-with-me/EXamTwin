@@ -14,9 +14,9 @@ import {
   Select,
   Skeleton,
   Space,
-  Statistic,
   Tabs,
   Tag,
+  Tooltip,
   Typography,
 } from "antd";
 import {
@@ -32,19 +32,22 @@ import {
   Languages,
   Landmark,
   Plus,
+  RotateCcw,
+  Search,
   Settings2,
   Trash2,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import type { CSSProperties } from "react";
 
 import { ErrorBanner } from "../components/Feedback";
 import { SubjectWorkspace } from "../components/SubjectWorkspace";
 import { AppConfirmDialog } from "../components/ui/AppConfirmDialog";
-import { ListFilterBar, ListFilterSelect, ListPagination } from "../components/ui/ListControls";
+import { ListPagination } from "../components/ui/ListControls";
 import { apiClient, subjectHeaders, unwrapApi } from "../lib/api";
 import type { SubjectStatus } from "../types";
 
-const { Paragraph, Text, Title } = Typography;
+const { Text } = Typography;
 const ICONS = {
   "book-open": BookOpen,
   calculator: Calculator,
@@ -268,74 +271,105 @@ export function SubjectManagement({
   }
 
   return (
-    <Space orientation="vertical" size="large" style={{ width: "100%" }}>
-      <Flex align="flex-end" justify="space-between" wrap gap="middle">
-        <div>
-          <Title level={1} style={{ marginBottom: 4 }}>科目</Title>
-          <Paragraph type="secondary" style={{ margin: 0 }}>课程资料、知识版本和考试任务的长期工作空间。</Paragraph>
-        </div>
-        <Button icon={<Plus size={17} />} onClick={() => { setCreateOpen(true); setError(null); }} size="large" type="primary">新增科目</Button>
-      </Flex>
-
-      <ListFilterBar
-        ariaLabel="科目搜索与筛选"
-        onQueryChange={setQueryDraft}
-        onReset={resetFilters}
-        onSearch={() => { setPage(0); setQuery(queryDraft.trim()); }}
-        query={queryDraft}
-        queryLabel="搜索科目"
-        queryPlaceholder="搜索科目名称、代码或考试局"
-        resetDisabled={!queryDraft && !query && !availability && !board}
+    <div aria-label="科目管理" className="subject-management-page">
+      <form
+        aria-label="科目搜索与筛选"
+        className="subject-management-toolbar"
+        onSubmit={(event) => {
+          event.preventDefault();
+          setPage(0);
+          setQuery(queryDraft.trim());
+        }}
       >
-        <ListFilterSelect
-          ariaLabel="按科目状态筛选"
-          onValueChange={(value) => { setPage(0); setAvailability(value as SubjectAvailability); }}
+        <Input
+          allowClear
+          aria-label="搜索科目"
+          autoComplete="off"
+          onChange={(event) => setQueryDraft(event.target.value)}
+          placeholder="搜索名称、代码或考试局"
+          prefix={<Search aria-hidden="true" size={16} />}
+          value={queryDraft}
+        />
+        <Select
+          aria-label="按科目状态筛选"
+          className="subject-status-filter"
+          onChange={(value) => { setPage(0); setAvailability(value as SubjectAvailability); }}
           options={[{ label: "全部状态", value: "" }, { label: "可用", value: "enabled" }, { label: "需配置", value: "disabled" }]}
           value={availability}
         />
-        <ListFilterSelect
-          ariaLabel="按考试局筛选"
-          onValueChange={(value) => { setPage(0); setBoard(value); }}
+        <Select
+          aria-label="按考试局筛选"
+          className="subject-board-filter"
+          onChange={(value) => { setPage(0); setBoard(value); }}
           options={[{ label: "全部考试局", value: "" }, ...boards.map((item) => ({ label: item, value: item }))]}
           value={board}
         />
-      </ListFilterBar>
+        <Tooltip title="搜索">
+          <Button aria-label="搜索" htmlType="submit" icon={<Search size={16} />} type="primary" />
+        </Tooltip>
+        <Tooltip title="重置筛选">
+          <Button
+            aria-label="重置"
+            disabled={!queryDraft && !query && !availability && !board}
+            icon={<RotateCcw size={16} />}
+            onClick={resetFilters}
+          />
+        </Tooltip>
+        <Tooltip title="新增科目">
+          <Button
+            aria-label="新增科目"
+            icon={<Plus size={17} />}
+            onClick={() => { setCreateOpen(true); setError(null); }}
+            type="primary"
+          />
+        </Tooltip>
+      </form>
 
       <ErrorBanner message={!createOpen && !manageOpen ? error : null} />
       {loading && subjects.length === 0 ? (
-        <Row gutter={[16, 16]}>{Array.from({ length: 6 }, (_, index) => <Col key={index} lg={8} md={12} xs={24}><Card><Skeleton active /></Card></Col>)}</Row>
+        <div className="subject-management-grid">{Array.from({ length: 6 }, (_, index) => <Card key={index}><Skeleton active /></Card>)}</div>
       ) : pageSubjects.length === 0 ? (
-        <Card><Empty description={query || availability || board ? "没有符合当前条件的科目" : "还没有科目，先创建一个"} image={<BookOpenText size={48} />} /></Card>
+        <Card className="subject-management-empty"><Empty description={query || availability || board ? "没有符合当前条件的科目" : "还没有科目，先创建一个"} image={<BookOpenText size={48} />} /></Card>
       ) : (
-        <Row gutter={[16, 16]}>
+        <div className="subject-management-grid">
           {pageSubjects.map((subject) => {
             const Icon = ICONS[subjectIcon(subject)];
+            const color = subject.color ?? "#2F6FED";
             return (
-              <Col key={subject.id} lg={8} md={12} xs={24}>
-                <Card
-                  actions={[
-                    <Button key="documents" onClick={() => openManager(subject, "documents")} type="link">管理资料</Button>,
-                    <Button aria-label={`管理 ${subject.title}`} icon={<Settings2 size={16} />} key="manage" onClick={() => openManager(subject)} type="link">设置</Button>,
-                  ]}
-                  hoverable
-                  style={{ borderTop: `3px solid ${subject.color ?? "#2F6FED"}` }}
-                  title={<Space><span style={{ color: subject.color ?? "#2F6FED" }}><Icon size={22} /></span><Text strong>{subject.title}</Text></Space>}
-                >
-                  <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
-                    <Flex justify="space-between" wrap gap="small">
-                      <Space><Tag color="blue">{subject.subject_code}</Tag><Text type="secondary">{subject.board_name}</Text></Space>
+              <article className="subject-management-card" key={subject.id} style={{ "--subject-color": color } as CSSProperties}>
+                <header>
+                  <span className="subject-management-card-icon" style={{ color }}><Icon size={22} /></span>
+                  <span className="subject-management-card-title">
+                    <Tooltip placement="topLeft" title={subject.title}>
+                      <strong>{subject.title}</strong>
+                    </Tooltip>
+                    <small>
+                      <b>{subject.subject_code}</b>
+                      <span aria-hidden="true">·</span>
+                      <Tooltip placement="bottomLeft" title={subject.board_name}>
+                        <span className="subject-management-card-board">{subject.board_name}</span>
+                      </Tooltip>
                       <Tag color={subject.answering_enabled ? "success" : "warning"}>{subject.answering_enabled ? "可用" : "需配置"}</Tag>
-                    </Flex>
-                    <Row gutter={12}>
-                      <Col span={12}><Statistic prefix={<FileText size={15} />} title="资料" value={subject.stats?.documents_total ?? 0} /></Col>
-                      <Col span={12}><Statistic prefix={<Database size={15} />} title="向量" value={subject.vector_points} /></Col>
-                    </Row>
-                  </Space>
-                </Card>
-              </Col>
+                    </small>
+                  </span>
+                </header>
+                <dl className="subject-management-card-overview">
+                  <div><dt><FileText size={14} />资料</dt><dd>{subject.stats?.documents_total ?? 0}</dd></div>
+                  <div><dt><Database size={14} />向量</dt><dd>{subject.vector_points.toLocaleString()}</dd></div>
+                  <div><dt><BookOpenText size={14} />版本</dt><dd>{subject.knowledge_bases.length}</dd></div>
+                </dl>
+                <footer>
+                  <Tooltip title="科目设置">
+                    <Button aria-label={`设置 ${subject.title}`} icon={<Settings2 size={16} />} onClick={() => openManager(subject)} type="text">设置</Button>
+                  </Tooltip>
+                  <Tooltip title="删除科目">
+                    <Button aria-label={`删除 ${subject.title}`} danger icon={<Trash2 size={16} />} onClick={() => setPendingDelete(subject)} type="text">删除</Button>
+                  </Tooltip>
+                </footer>
+              </article>
             );
           })}
-        </Row>
+        </div>
       )}
 
       <ListPagination
@@ -398,8 +432,7 @@ export function SubjectManagement({
                         <Descriptions.Item label="科目代码">{managedSubject.subject_code}</Descriptions.Item>
                         <Descriptions.Item label="课程体系">{managedSubject.board_name}</Descriptions.Item>
                       </Descriptions>
-                      <Flex gap="small" justify="space-between" style={{ marginTop: 24 }}>
-                        <Button danger icon={<Trash2 size={16} />} onClick={() => setPendingDelete(managedSubject)}>删除科目</Button>
+                      <Flex gap="small" justify="flex-end" style={{ marginTop: 24 }}>
                         <Button disabled={!editForm.title.trim()} loading={busy === "save"} onClick={() => void saveSubject()} type="primary">保存修改</Button>
                       </Flex>
                     </Form>
@@ -424,6 +457,6 @@ export function SubjectManagement({
         open={pendingDelete !== null}
         title="确认删除科目"
       />
-    </Space>
+    </div>
   );
 }

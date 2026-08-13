@@ -894,6 +894,23 @@ export interface paths {
         patch: operations["rename_workspace_document_api_v1_subject_workspaces__workspace_id__documents__document_id__patch"];
         trace?: never;
     };
+    "/api/v1/subject-workspaces/{workspace_id}/documents/{document_id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Workspace Document Content */
+        get: operations["workspace_document_content_api_v1_subject_workspaces__workspace_id__documents__document_id__content_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/subject-workspaces/{workspace_id}/paper-units": {
         parameters: {
             query?: never;
@@ -5059,6 +5076,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SourceDocumentResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    workspace_document_content_api_v1_subject_workspaces__workspace_id__documents__document_id__content_get: {
+        parameters: {
+            query?: {
+                download?: boolean;
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path: {
+                workspace_id: string;
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

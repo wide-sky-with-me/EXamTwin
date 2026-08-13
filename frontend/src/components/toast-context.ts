@@ -1,6 +1,8 @@
 import { createContext, useContext } from "react";
 
-type ToastContextValue = { notify: (message: string) => void };
+export type ToastTone = "success" | "warning" | "error" | "info";
+
+type ToastContextValue = { notify: (message: string, tone?: ToastTone) => void };
 
 export const ToastContext = createContext<ToastContextValue>({
   notify: () => undefined,

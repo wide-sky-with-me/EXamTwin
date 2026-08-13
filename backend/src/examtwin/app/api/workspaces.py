@@ -1,13 +1,17 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+import mimetypes
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi.responses import FileResponse
 
 from examtwin.app.api.dependencies import (
     get_corpus_workspace_service,
     get_subject_context,
 )
 from examtwin.app.api.system import _subject_response
-from examtwin.app.composition import corpus_repository
+from examtwin.app.composition import build_object_store, corpus_repository
 from examtwin.contracts.common import SubjectPackResponse
 from examtwin.contracts.workspaces import (
     BatchDeleteSubjectsRequest,
@@ -145,6 +149,47 @@ def workspace_documents(
         subject_code=subject.subject_code,
     )
     return [SourceDocumentResponse.model_validate(row) for row in rows]
+
+
+@router.get("/subject-workspaces/{workspace_id}/documents/{document_id}/content")
+def workspace_document_content(
+    workspace_id: str,
+    document_id: str,
+    download: bool = Query(default=False),
+    settings: Settings = Depends(get_settings),
+    subject: SubjectContext = Depends(get_subject_context),
+) -> FileResponse:
+    if workspace_id != subject.id:
+        raise HTTPException(status_code=404, detail="科目工作区不存在")
+    row = corpus_repository(settings).get_active(document_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="资料不存在")
+    document_subject_id = str(row.get("subject_id") or "")
+    if document_subject_id and document_subject_id != workspace_id:
+        raise HTTPException(status_code=404, detail="资料不存在")
+    if str(row.get("subject_code") or "") != subject.subject_code:
+        raise HTTPException(status_code=404, detail="资料不存在")
+
+    object_key = str(row.get("object_key") or "")
+    try:
+        source = (
+            build_object_store(settings).materialize(object_key)
+            if object_key
+            else Path(str(row.get("path") or ""))
+        )
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail="原文件不可用") from error
+    if not source.is_file():
+        raise HTTPException(status_code=404, detail="原文件不可用")
+
+    filename = str(row.get("filename") or source.name)
+    media_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    return FileResponse(
+        source,
+        filename=filename,
+        media_type=media_type,
+        content_disposition_type="attachment" if download else "inline",
+    )
 
 
 @router.delete(

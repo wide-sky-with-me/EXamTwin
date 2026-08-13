@@ -10288,6 +10288,94 @@
         "summary": "Rename Workspace Document"
       }
     },
+    "/api/v1/subject-workspaces/{workspace_id}/documents/{document_id}/content": {
+      "get": {
+        "operationId": "workspace_document_content_api_v1_subject_workspaces__workspace_id__documents__document_id__content_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "title": "Document Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "download",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Download",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Workspace Document Content"
+      }
+    },
     "/api/v1/subject-workspaces/{workspace_id}/paper-units": {
       "get": {
         "operationId": "list_paper_units_api_v1_subject_workspaces__workspace_id__paper_units_get",
