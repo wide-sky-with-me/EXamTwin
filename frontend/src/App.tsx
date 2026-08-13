@@ -155,8 +155,8 @@ function SubjectOverview({ subjects }: { subjects: SubjectStatus[] }) {
           </Card>
         </Col>
         <Col lg={8} md={12} xs={24}>
-          <Card actions={[<Button key="answering" onClick={() => navigate(`${base}/answering`)} type="link">进入作答</Button>]}>
-            <Card.Meta avatar={<GraduationCap size={24} />} title="作答任务" description="上传试卷或继续该科目已有的作答任务。" />
+          <Card actions={[<Button key="answering" onClick={() => navigate(`${base}/papers/answers`)} type="link">查看记录</Button>]}>
+            <Card.Meta avatar={<GraduationCap size={24} />} title="作答记录" description="在试卷体系内统一管理 AI 作答与外部答卷。" />
           </Card>
         </Col>
         <Col lg={8} md={12} xs={24}>
@@ -201,7 +201,8 @@ function PaperRoute({ subjects }: { subjects: SubjectStatus[] }) {
     onBackDocument={(subjectId, paperUnitId) => navigate(paperUnitId ? `/subjects/${encoded(subjectId)}/papers/${encoded(paperUnitId)}` : `/subjects/${encoded(subjectId)}/papers`)}
     onCloseDetail={(subjectId) => navigate(detail?.kind === "document" && detail.parentPaperId ? `/subjects/${encoded(subjectId)}/papers/${encoded(detail.parentPaperId)}` : `/subjects/${encoded(subjectId)}/papers`)}
     onOpenDocument={(subjectId, documentId, paperUnitId) => navigate(paperUnitId ? `/subjects/${encoded(subjectId)}/papers/${encoded(paperUnitId)}/documents/${encoded(documentId)}` : `/subjects/${encoded(subjectId)}/documents/${encoded(documentId)}`)}
-    onOpenJob={(subjectId, paperUnitId, nextJobId) => navigate(`/subjects/${encoded(subjectId)}/papers/${encoded(paperUnitId)}/jobs/${encoded(nextJobId)}`)}
+    onOpenAnswerCatalog={(subjectId) => navigate(`/subjects/${encoded(subjectId)}/papers/answers`)}
+    onOpenJob={(subjectId, paperUnitId, nextJobId) => navigate(`/subjects/${encoded(subjectId)}/papers/${encoded(paperUnitId)}/jobs/${encoded(nextJobId)}/answering`)}
     onOpenPaper={(subjectId, paperUnitId) => navigate(`/subjects/${encoded(subjectId)}/papers/${encoded(paperUnitId)}`)}
     onStartAnswering={(subjectId, paperUnitId, nextJobId) => navigate(`/subjects/${encoded(subjectId)}/papers/${encoded(paperUnitId)}/jobs/${encoded(nextJobId)}/answering`)}
     onStartGrading={(subjectId, paperUnitId) => navigate(`/subjects/${encoded(subjectId)}/papers/${encoded(paperUnitId)}/grading`)}
@@ -212,11 +213,31 @@ function PaperRoute({ subjects }: { subjects: SubjectStatus[] }) {
 }
 
 function AnsweringRoute({ subjects }: { subjects: SubjectStatus[] }) {
+  const navigate = useNavigate();
   const params = useParams();
   const subjectId = subjectOrFirst(subjects, params.subjectId);
   const subject = subjects.find((item) => item.id === subjectId);
   if (!subject) return <Result status="404" title="科目不存在" />;
-  return <PaperAnswering enabled={subject.answering_enabled} initialJobId={params.jobId} initialSubjectId={subject.id} subjects={subjects} />;
+  return <PaperAnswering
+    enabled={subject.answering_enabled}
+    initialJobId={params.jobId}
+    initialPaperUnitId={params.paperUnitId}
+    initialSubjectId={subject.id}
+    onBack={(paperUnitId) => navigate(paperUnitId
+      ? `/subjects/${encoded(subject.id)}/papers/${encoded(paperUnitId)}`
+      : `/subjects/${encoded(subject.id)}/papers/answers`)}
+    onOpenJob={(jobId, paperUnitId) => navigate(paperUnitId
+      ? `/subjects/${encoded(subject.id)}/papers/${encoded(paperUnitId)}/jobs/${encoded(jobId)}/answering`
+      : `/subjects/${encoded(subject.id)}/papers/answers/${encoded(jobId)}`)}
+    subjects={subjects}
+  />;
+}
+
+function LegacyAnsweringRedirect({ subjects }: { subjects: SubjectStatus[] }) {
+  const { subjectId } = useParams();
+  const resolved = subjectOrFirst(subjects, subjectId);
+  if (!resolved) return <Navigate replace to="/subjects" />;
+  return <Navigate replace to={`/subjects/${encoded(resolved)}/papers/answers`} />;
 }
 
 function GradingRoute({ subjects, onCreated }: { subjects: SubjectStatus[]; onCreated: () => Promise<void> }) {
@@ -236,7 +257,6 @@ function ReviewRoute({ items, refresh }: { items: ReviewItem[]; refresh: () => P
 function selectedMenuKey(pathname: string) {
   if (pathname.startsWith("/reviews")) return "reviews";
   if (pathname.includes("/grading")) return "grading";
-  if (pathname.includes("/answering")) return "answering";
   if (pathname.includes("/papers") || pathname.includes("/documents/")) return "papers";
   return "subjects";
 }
@@ -271,7 +291,6 @@ export default function App() {
   const menuItems: AppMenuItem[] = [
     { key: "subjects", icon: <GraduationCap size={17} />, label: "科目", path: "/subjects" },
     { key: "papers", icon: <Files size={17} />, label: "试卷", path: `${subjectBase}/papers` },
-    { key: "answering", icon: <FileText size={17} />, label: "作答", path: `${subjectBase}/answering` },
     { key: "grading", icon: <BookOpenCheck size={17} />, label: "评分", path: `${subjectBase}/grading` },
     { key: "reviews", icon: <ShieldCheck size={17} />, label: <Badge count={reviews.length} offset={[10, -3]} size="small">复核</Badge>, path: "/reviews" },
   ];
@@ -323,8 +342,10 @@ export default function App() {
             <Route element={<PaperRoute subjects={subjects} />} path="/subjects/:subjectId/papers/:paperUnitId" />
             <Route element={<PaperRoute subjects={subjects} />} path="/subjects/:subjectId/papers/:paperUnitId/documents/:documentId" />
             <Route element={<PaperRoute subjects={subjects} />} path="/subjects/:subjectId/documents/:documentId" />
-            <Route element={<SubjectRedirect subjects={subjects} task="answering" />} path="/answering" />
-            <Route element={<AnsweringRoute subjects={subjects} />} path="/subjects/:subjectId/answering" />
+            <Route element={<SubjectRedirect subjects={subjects} task="papers" />} path="/answering" />
+            <Route element={<LegacyAnsweringRedirect subjects={subjects} />} path="/subjects/:subjectId/answering" />
+            <Route element={<AnsweringRoute subjects={subjects} />} path="/subjects/:subjectId/papers/answers" />
+            <Route element={<AnsweringRoute subjects={subjects} />} path="/subjects/:subjectId/papers/answers/:jobId" />
             <Route element={<PaperRoute subjects={subjects} />} path="/subjects/:subjectId/papers/:paperUnitId/jobs/:jobId" />
             <Route element={<AnsweringRoute subjects={subjects} />} path="/subjects/:subjectId/papers/:paperUnitId/jobs/:jobId/answering" />
             <Route element={<SubjectRedirect subjects={subjects} task="grading" />} path="/grading" />

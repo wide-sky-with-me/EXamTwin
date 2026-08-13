@@ -965,6 +965,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/subject-workspaces/{workspace_id}/paper-units/{paper_unit_id}/import-answer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Paper Unit Answer
+         * @description Import a human/external answer against the exact managed paper unit.
+         */
+        post: operations["import_paper_unit_answer_api_v1_subject_workspaces__workspace_id__paper_units__paper_unit_id__import_answer_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/subjects": {
         parameters: {
             query?: never;
@@ -1271,6 +1291,13 @@ export interface components {
             source_booklet?: string | null;
             /** Unit Code */
             unit_code?: string | null;
+        };
+        /** Body_import_paper_unit_answer_api_v1_subject_workspaces__workspace_id__paper_units__paper_unit_id__import_answer_post */
+        Body_import_paper_unit_answer_api_v1_subject_workspaces__workspace_id__paper_units__paper_unit_id__import_answer_post: {
+            /** Answer File */
+            answer_file: string;
+            /** Question Paper Document Id */
+            question_paper_document_id: string;
         };
         /** Body_upload_workspace_document_api_v1_subject_workspaces__workspace_id__documents_post */
         Body_upload_workspace_document_api_v1_subject_workspaces__workspace_id__documents_post: {
@@ -4313,6 +4340,7 @@ export interface operations {
         parameters: {
             query?: {
                 status?: ("active" | "queued" | "parsing" | "vision_review" | "splitting" | "answering" | "completed" | "partial_failed" | "failed") | null;
+                answer_mode?: ("generated" | "uploaded") | null;
                 unit_code?: string | null;
                 paper_unit_id?: string | null;
                 q?: string | null;
@@ -5333,6 +5361,46 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["CreatePaperUnitAnswerRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaperUnitAnswerCreated"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_paper_unit_answer_api_v1_subject_workspaces__workspace_id__paper_units__paper_unit_id__import_answer_post: {
+        parameters: {
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path: {
+                workspace_id: string;
+                paper_unit_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_import_paper_unit_answer_api_v1_subject_workspaces__workspace_id__paper_units__paper_unit_id__import_answer_post"];
             };
         };
         responses: {

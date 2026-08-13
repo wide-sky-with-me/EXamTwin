@@ -216,6 +216,7 @@ def test_paper_history_api_lists_filters_and_deletes_terminal_jobs() -> None:
 
     listed = paper_jobs(
         status_filter="completed",
+        answer_mode="uploaded",
         unit_code="P2",
         query="paper",
         created_after=None,
@@ -229,6 +230,7 @@ def test_paper_history_api_lists_filters_and_deletes_terminal_jobs() -> None:
     assert listed.items[0].filename == "paper.md"
     assert jobs.list_filters == {
         "status": "completed",
+        "answer_mode": "uploaded",
         "unit_code": "P2",
         "query": "paper",
         "created_after": None,
