@@ -245,7 +245,7 @@ export async function createPaperUnit(
 export async function updatePaperUnit(
   workspaceId: string,
   paperUnitId: string,
-  documentIds: string[],
+  documentIds: string[] | null,
   displayName: string | null,
 ): Promise<PaperUnitSummary> {
   return unwrapApi(

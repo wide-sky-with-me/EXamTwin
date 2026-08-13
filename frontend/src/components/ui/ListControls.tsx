@@ -164,13 +164,14 @@ export function ListPagination({
   const resolvedPageSizeLabel = pageSizeLabel ?? `每页显示${itemName}数`;
 
   return (
-    <Flex align="center" aria-label={ariaLabel} justify="space-between" role="navigation" wrap="wrap" gap="small">
-      <Typography.Text>
+    <Flex align="center" aria-label={ariaLabel} className="list-pagination" justify="space-between" role="navigation" wrap="wrap" gap="small">
+      <Typography.Text className="list-pagination-summary">
         <strong>{firstItem}–{lastItem}</strong>/<span> {total} {itemUnit}</span>
       </Typography.Text>
-      <Space>
+      <Space className="list-pagination-controls">
         <select
           aria-label={resolvedPageSizeLabel}
+          className="list-page-size-trigger"
           disabled={disabled}
           onChange={(event) => onPageSizeChange(Number(event.target.value))}
           value={String(pageSize)}
@@ -179,7 +180,7 @@ export function ListPagination({
             <option key={size} value={String(size)}>{size} {itemUnit}/页</option>
           ))}
         </select>
-        <Typography.Text aria-live="polite">{currentPage + 1} / {totalPages}</Typography.Text>
+        <Typography.Text aria-live="polite" className="list-pagination-page">{currentPage + 1} / {totalPages}</Typography.Text>
         <Button
           aria-label={`上一页${itemName}`}
           disabled={currentPage === 0 || disabled}

@@ -6,6 +6,7 @@ import {
   Button,
   Card,
   Col,
+  Drawer,
   Flex,
   Layout,
   Menu,
@@ -22,9 +23,11 @@ import {
   Files,
   GraduationCap,
   LibraryBig,
+  PanelLeftOpen,
   ShieldCheck,
+  X,
 } from "lucide-react";
-import { lazy, Suspense } from "react";
+import { lazy, type ReactNode, Suspense, useState } from "react";
 import {
   Navigate,
   Route,
@@ -45,8 +48,59 @@ const PaperAnswering = lazy(() => import("./pages/PaperAnswering").then(({ Paper
 const Grading = lazy(() => import("./pages/Grading").then(({ Grading: Page }) => ({ default: Page })));
 const Reviews = lazy(() => import("./pages/Reviews").then(({ Reviews: Page }) => ({ default: Page })));
 
-const { Content, Header } = Layout;
+const { Content } = Layout;
 const { Paragraph, Text, Title } = Typography;
+
+type AppMenuItem = {
+  key: string;
+  icon: ReactNode;
+  label: ReactNode;
+  path: string;
+};
+
+function SidebarNavigation({
+  items,
+  onClose,
+  onNavigate,
+  selectedKey,
+}: {
+  items: AppMenuItem[];
+  onClose?: () => void;
+  onNavigate: (path: string) => void;
+  selectedKey: string;
+}) {
+  return (
+    <div className="flex h-full min-h-0 flex-col px-4 py-5">
+      <div className="mb-6 flex items-center justify-between gap-3 px-1">
+        <Button
+          className="!h-auto !px-2 !py-1.5"
+          icon={<span className="flex size-9 items-center justify-center rounded-xl bg-blue-600 text-white shadow-lg shadow-blue-600/20"><LibraryBig size={19} /></span>}
+          onClick={() => onNavigate("/subjects")}
+          type="text"
+        >
+          <span className="flex flex-col items-start leading-tight">
+            <Text className="!text-[15px]" strong>ExamTwin</Text>
+            <Text className="!text-[10px] !tracking-[0.12em]" type="secondary">ASSESSMENT</Text>
+          </span>
+        </Button>
+        {onClose && <Button aria-label="关闭主导航" icon={<X size={18} />} onClick={onClose} shape="circle" type="text" />}
+      </div>
+      <nav aria-label="主导航" className="min-h-0 flex-1">
+        <Menu
+          className="app-side-menu"
+          items={items.map(({ key, icon, label }) => ({ key, icon, label }))}
+          mode="inline"
+          onClick={({ key }) => onNavigate(items.find((item) => item.key === key)?.path ?? "/subjects")}
+          selectedKeys={[selectedKey]}
+        />
+      </nav>
+      <div className="mt-5 rounded-2xl border border-[var(--app-glass-border)] bg-[var(--app-content-glass)] p-2.5 shadow-sm backdrop-blur-xl">
+        <Text className="mb-2 block px-1 !text-[10px] !font-semibold !tracking-[0.12em]" type="secondary">外观</Text>
+        <ThemeSwitch />
+      </div>
+    </div>
+  );
+}
 
 function subjectOrFirst(subjects: SubjectStatus[], requested?: string) {
   return subjects.find((item) => item.id === requested)?.id ?? subjects[0]?.id ?? "";
@@ -135,17 +189,18 @@ function PaperRoute({ subjects }: { subjects: SubjectStatus[] }) {
   const selectedSubjectId = subjectOrFirst(subjects, params.subjectId);
   if (!selectedSubjectId) return <Result title="尚未创建科目" subTitle="创建科目后才能管理试卷。" />;
   const jobId = params.jobId ?? "";
-  const detail = params.paperUnitId && jobId
-    ? { kind: "job" as const, id: jobId }
-    : params.paperUnitId
-      ? { kind: "paper" as const, id: params.paperUnitId }
-      : params.documentId
-        ? { kind: "document" as const, id: params.documentId }
+  const detail = params.documentId
+    ? { kind: "document" as const, id: params.documentId, parentPaperId: params.paperUnitId }
+    : params.paperUnitId && jobId
+      ? { kind: "job" as const, id: jobId }
+      : params.paperUnitId
+        ? { kind: "paper" as const, id: params.paperUnitId }
         : null;
   return <PaperManagement
     detail={detail}
-    onCloseDetail={(subjectId) => navigate(`/subjects/${encoded(subjectId)}/papers`)}
-    onOpenDocument={(subjectId, documentId) => navigate(`/subjects/${encoded(subjectId)}/documents/${encoded(documentId)}`)}
+    onBackDocument={(subjectId, paperUnitId) => navigate(paperUnitId ? `/subjects/${encoded(subjectId)}/papers/${encoded(paperUnitId)}` : `/subjects/${encoded(subjectId)}/papers`)}
+    onCloseDetail={(subjectId) => navigate(detail?.kind === "document" && detail.parentPaperId ? `/subjects/${encoded(subjectId)}/papers/${encoded(detail.parentPaperId)}` : `/subjects/${encoded(subjectId)}/papers`)}
+    onOpenDocument={(subjectId, documentId, paperUnitId) => navigate(paperUnitId ? `/subjects/${encoded(subjectId)}/papers/${encoded(paperUnitId)}/documents/${encoded(documentId)}` : `/subjects/${encoded(subjectId)}/documents/${encoded(documentId)}`)}
     onOpenJob={(subjectId, paperUnitId, nextJobId) => navigate(`/subjects/${encoded(subjectId)}/papers/${encoded(paperUnitId)}/jobs/${encoded(nextJobId)}`)}
     onOpenPaper={(subjectId, paperUnitId) => navigate(`/subjects/${encoded(subjectId)}/papers/${encoded(paperUnitId)}`)}
     onStartAnswering={(subjectId, paperUnitId, nextJobId) => navigate(`/subjects/${encoded(subjectId)}/papers/${encoded(paperUnitId)}/jobs/${encoded(nextJobId)}/answering`)}
@@ -190,6 +245,7 @@ export default function App() {
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
+  const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
   const platformQuery = useQuery({
     queryKey: ["platform", "subjects"],
     queryFn: () => unwrapApi(apiClient.GET("/api/v1/subjects/status")),
@@ -212,35 +268,51 @@ export default function App() {
   };
   const loading = platformQuery.isPending;
   const loadError = platformQuery.error ?? reviewsQuery.error;
-  const menuItems = [
+  const menuItems: AppMenuItem[] = [
     { key: "subjects", icon: <GraduationCap size={17} />, label: "科目", path: "/subjects" },
     { key: "papers", icon: <Files size={17} />, label: "试卷", path: `${subjectBase}/papers` },
     { key: "answering", icon: <FileText size={17} />, label: "作答", path: `${subjectBase}/answering` },
     { key: "grading", icon: <BookOpenCheck size={17} />, label: "评分", path: `${subjectBase}/grading` },
     { key: "reviews", icon: <ShieldCheck size={17} />, label: <Badge count={reviews.length} offset={[10, -3]} size="small">复核</Badge>, path: "/reviews" },
   ];
+  const navigateFromSidebar = (path: string) => {
+    navigate(path);
+    setMobileNavigationOpen(false);
+  };
+  const selectedKey = selectedMenuKey(location.pathname);
 
   return (
-    <Layout style={{ minHeight: "100vh" }}>
-      <Header className="app-topbar" style={{ alignItems: "center", background: "#fff", borderBottom: "1px solid #f0f0f0", display: "flex", gap: 24, height: "auto", minHeight: 64, paddingInline: 24 }}>
-        <Button icon={<LibraryBig size={20} />} onClick={() => navigate("/subjects")} size="large" type="text">
+    <Layout hasSider className="relative min-h-screen overflow-x-clip !bg-[var(--surface-muted)]">
+      <div aria-hidden="true" className="pointer-events-none fixed -left-28 -top-32 size-[28rem] rounded-full bg-[var(--app-ambient-one)] blur-3xl" />
+      <div aria-hidden="true" className="pointer-events-none fixed -bottom-40 right-[-8rem] size-[32rem] rounded-full bg-[var(--app-ambient-two)] blur-3xl" />
+      <aside aria-label="应用侧边栏" className="sticky top-0 z-20 hidden h-screen w-64 shrink-0 border-r border-[var(--app-glass-border)] bg-[var(--app-glass)] shadow-[var(--app-glass-shadow)] backdrop-blur-2xl lg:block">
+        <SidebarNavigation items={menuItems} onNavigate={navigateFromSidebar} selectedKey={selectedKey} />
+      </aside>
+      <Drawer
+        className="app-mobile-drawer"
+        closable={false}
+        onClose={() => setMobileNavigationOpen(false)}
+        open={mobileNavigationOpen}
+        placement="left"
+        rootClassName="lg:!hidden"
+        size={272}
+        styles={{ body: { padding: 0 } }}
+      >
+        <div className="h-full border-r border-[var(--app-glass-border)] bg-[var(--app-glass-strong)] shadow-[var(--app-glass-shadow)] backdrop-blur-2xl">
+          <SidebarNavigation items={menuItems} onClose={() => setMobileNavigationOpen(false)} onNavigate={navigateFromSidebar} selectedKey={selectedKey} />
+        </div>
+      </Drawer>
+      <Layout className="relative min-w-0 !bg-transparent">
+        <header className="sticky top-0 z-10 flex h-16 items-center gap-3 border-b border-[var(--app-glass-border)] bg-[var(--app-glass)] px-4 shadow-sm backdrop-blur-xl lg:hidden">
+          <Button aria-label="打开主导航" icon={<PanelLeftOpen size={19} />} onClick={() => setMobileNavigationOpen(true)} shape="circle" size="large" type="text" />
+          <span className="flex size-8 items-center justify-center rounded-xl bg-blue-600 text-white shadow-md shadow-blue-600/20"><LibraryBig size={17} /></span>
           <Text strong>ExamTwin</Text>
-        </Button>
-        <nav aria-label="主导航" className="app-topbar-nav">
-          <Menu
-            items={menuItems.map(({ key, icon, label }) => ({ key, icon, label }))}
-            mode="horizontal"
-            onClick={({ key }) => navigate(menuItems.find((item) => item.key === key)?.path ?? "/subjects")}
-            selectedKeys={[selectedMenuKey(location.pathname)]}
-            style={{ minWidth: 0 }}
-          />
-        </nav>
-        <ThemeSwitch />
-      </Header>
-      <Content style={{ marginInline: "auto", maxWidth: 1440, padding: "24px clamp(16px, 3vw, 40px) 48px", width: "100%" }}>
-        {loadError && <Alert closable message={loadError instanceof Error ? loadError.message : "数据加载失败"} showIcon type="error" />}
-        <Suspense fallback={<Flex align="center" justify="center" style={{ minHeight: 320 }}><Spin size="large" tip="正在加载" /></Flex>}>
-          <Routes>
+        </header>
+        <Content className="app-page-content w-full p-3 sm:p-4 lg:p-5">
+          <div className="app-page-shell min-h-[calc(100vh-2.5rem)]">
+            {loadError && <Alert closable message={loadError instanceof Error ? loadError.message : "数据加载失败"} showIcon type="error" />}
+            <Suspense fallback={<Flex align="center" justify="center" style={{ minHeight: 320 }}><Spin description="正在加载" size="large" /></Flex>}>
+              <Routes>
             <Route element={<Navigate replace to="/subjects" />} path="/" />
             <Route element={<SubjectManagement loading={loading} refresh={refreshSubjects} subjects={subjects} />} path="/subjects" />
             <Route element={<SubjectOverview subjects={subjects} />} path="/subjects/:subjectId" />
@@ -249,6 +321,7 @@ export default function App() {
             <Route element={<SubjectRedirect subjects={subjects} task="papers" />} path="/papers" />
             <Route element={<PaperRoute subjects={subjects} />} path="/subjects/:subjectId/papers" />
             <Route element={<PaperRoute subjects={subjects} />} path="/subjects/:subjectId/papers/:paperUnitId" />
+            <Route element={<PaperRoute subjects={subjects} />} path="/subjects/:subjectId/papers/:paperUnitId/documents/:documentId" />
             <Route element={<PaperRoute subjects={subjects} />} path="/subjects/:subjectId/documents/:documentId" />
             <Route element={<SubjectRedirect subjects={subjects} task="answering" />} path="/answering" />
             <Route element={<AnsweringRoute subjects={subjects} />} path="/subjects/:subjectId/answering" />
@@ -260,9 +333,11 @@ export default function App() {
             <Route element={<ReviewRoute items={reviews} refresh={refreshReviews} />} path="/reviews" />
             <Route element={<ReviewRoute items={reviews} refresh={refreshReviews} />} path="/reviews/:assessmentId" />
             <Route element={<Navigate replace to="/subjects" />} path="*" />
-          </Routes>
-        </Suspense>
-      </Content>
+              </Routes>
+            </Suspense>
+          </div>
+        </Content>
+      </Layout>
     </Layout>
   );
 }

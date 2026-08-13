@@ -1,4 +1,4 @@
-import { CheckCircle2, X } from "lucide-react";
+import { CheckCircle2, CircleAlert, Info, TriangleAlert, X } from "lucide-react";
 import {
   type ReactNode,
   useCallback,
@@ -7,9 +7,16 @@ import {
   useRef,
   useState,
 } from "react";
-import { ToastContext } from "./toast-context";
+import { ToastContext, type ToastTone } from "./toast-context";
 
-type Toast = { id: number; message: string };
+type Toast = { id: number; message: string; tone: ToastTone };
+
+const toastIcons = {
+  success: CheckCircle2,
+  warning: TriangleAlert,
+  error: CircleAlert,
+  info: Info,
+} as const;
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -23,9 +30,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     timers.current.delete(id);
   }, []);
 
-  const notify = useCallback((message: string) => {
+  const notify = useCallback((message: string, tone: ToastTone = "success") => {
     const id = nextId.current++;
-    setToasts((current) => [...current, { id, message }]);
+    setToasts((current) => [...current, { id, message, tone }]);
     timers.current.set(id, window.setTimeout(() => dismiss(id), 5000));
   }, [dismiss]);
 
@@ -41,15 +48,18 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     <ToastContext.Provider value={value}>
       {children}
       <div aria-atomic="true" aria-live="polite" className="toast-region">
-        {toasts.map((toast) => (
-          <div className="toast" key={toast.id} role="status">
-            <CheckCircle2 size={18} />
-            <span>{toast.message}</span>
-            <button aria-label="关闭通知" onClick={() => dismiss(toast.id)} type="button">
-              <X size={16} />
-            </button>
-          </div>
-        ))}
+        {toasts.map((toast) => {
+          const Icon = toastIcons[toast.tone];
+          return (
+            <div className={`toast toast-${toast.tone}`} key={toast.id} role={toast.tone === "error" ? "alert" : "status"}>
+              <Icon size={18} />
+              <span>{toast.message}</span>
+              <button aria-label="关闭通知" onClick={() => dismiss(toast.id)} type="button">
+                <X size={16} />
+              </button>
+            </div>
+          );
+        })}
       </div>
     </ToastContext.Provider>
   );

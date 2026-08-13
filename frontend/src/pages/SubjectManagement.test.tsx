@@ -49,12 +49,14 @@ describe("SubjectManagement", () => {
     await user.click(screen.getByRole("button", { name: "下一页科目" }));
     expect(screen.getByText("Subject 11")).toBeVisible();
 
-    await user.selectOptions(screen.getByRole("combobox", { name: "按科目状态筛选" }), "enabled");
+    await user.click(screen.getByRole("combobox", { name: "按科目状态筛选" }));
+    await user.click(await screen.findByText("可用", { selector: ".ant-select-item-option-content" }));
     expect(screen.getByText("Subject 1")).toBeVisible();
     expect(screen.queryByText("Subject 2")).not.toBeInTheDocument();
     expect(screen.getByLabelText("科目分页")).toHaveTextContent("1–6/ 6 个");
 
-    await user.selectOptions(screen.getByRole("combobox", { name: "按考试局筛选" }), "Cambridge");
+    await user.click(screen.getByRole("combobox", { name: "按考试局筛选" }));
+    await user.click(await screen.findByText("Cambridge", { selector: ".ant-select-item-option-content" }));
     expect(screen.getByText("Subject 3")).toBeVisible();
     expect(screen.queryByText("Subject 1")).not.toBeInTheDocument();
 
@@ -70,4 +72,20 @@ describe("SubjectManagement", () => {
     expect(screen.getByLabelText("搜索科目")).toHaveValue("");
     expect(screen.getByLabelText("科目分页")).toHaveTextContent("1–10/ 12 个");
   }, 10_000);
+
+  test("keeps management actions on each course card and confirms deletion", async () => {
+    const user = userEvent.setup();
+    const subject = subjectFixture(1);
+    render(<SubjectManagement loading={false} refresh={vi.fn()} subjects={[subject]} />);
+
+    expect(screen.queryByRole("heading", { name: "科目" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: `设置 ${subject.title}` })).toBeVisible();
+    await user.hover(screen.getByText(subject.title));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(subject.title);
+    await user.click(screen.getByRole("button", { name: `删除 ${subject.title}` }));
+
+    const dialog = screen.getByRole("alertdialog", { name: "确认删除科目" });
+    expect(dialog).toBeInTheDocument();
+    expect(dialog).toHaveTextContent(`将删除“${subject.title}”`);
+  });
 });

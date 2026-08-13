@@ -79,24 +79,46 @@ test("starts in subject management and switches theme in place", async ({
 
   await page.goto("/");
 
-  await expect(page.getByRole("heading", { name: "科目" })).toBeVisible();
-  await expect(page.getByText("OxfordAQA International AS/A-level Economics (9640)")).toBeVisible();
-  await expect(page.getByRole("navigation", { name: "主导航" })).toBeVisible();
+  const subjectToolbar = page.getByRole("form", { name: "科目搜索与筛选" });
+  await expect(page.getByRole("heading", { name: "科目" })).toHaveCount(0);
+  await expect(subjectToolbar).toBeVisible();
+  await expect(subjectToolbar).toBeInViewport();
+  const courseName = page.getByText("OxfordAQA International AS/A-level Economics (9640)");
+  await expect(courseName).toBeVisible();
+  await expect(courseName).toHaveCSS("text-overflow", "ellipsis");
+  await courseName.hover();
+  await expect(page.getByRole("tooltip")).toHaveText("OxfordAQA International AS/A-level Economics (9640)");
+  await page.getByRole("button", { name: "删除 OxfordAQA International AS/A-level Economics (9640)" }).click();
+  await expect(page.getByRole("alertdialog", { name: "确认删除科目" })).toBeVisible();
+  await page.getByRole("button", { name: "取消" }).click();
+  const sidebar = page.getByRole("complementary", { name: "应用侧边栏" });
+  const navigation = page.getByRole("navigation", { name: "主导航" });
+  const pageShell = page.locator(".app-page-shell");
+  await expect(sidebar).toBeVisible();
+  await expect(navigation).toBeVisible();
+  await expect(sidebar.getByText("工作空间")).toHaveCount(0);
+  const sidebarBox = await sidebar.boundingBox();
+  const toolbarBox = await subjectToolbar.boundingBox();
+  expect(sidebarBox?.x).toBeLessThan(toolbarBox?.x ?? 0);
+  expect((toolbarBox?.x ?? 0) - ((sidebarBox?.x ?? 0) + (sidebarBox?.width ?? 0))).toBeLessThanOrEqual(32);
+  expect(await pageShell.evaluate((node) => getComputedStyle(node).borderTopWidth)).toBe("0px");
+  expect(await sidebar.evaluate((node) => getComputedStyle(node).backdropFilter)).toContain("blur");
+  expect(await navigation.getByRole("menu").evaluate((node) => getComputedStyle(node).borderInlineEndWidth)).toBe("0px");
 
   const systemTheme = page.getByRole("radio", { name: "跟随系统" });
-  const systemThemeIcon = page.getByRole("img", { name: "跟随系统" });
-  const systemThemeBox = await systemThemeIcon.boundingBox();
-  await systemThemeIcon.hover();
+  const systemThemeLabel = page.getByText("跟随", { exact: true });
+  const systemThemeBox = await systemThemeLabel.boundingBox();
+  await systemThemeLabel.hover();
   const themeTooltip = page.getByRole("tooltip");
   await expect(themeTooltip).toHaveText("跟随系统");
   const themeTooltipBox = await themeTooltip.boundingBox();
   expect(themeTooltipBox?.width).toBeLessThan(160);
   expect(themeTooltipBox?.height).toBeLessThan(80);
-  expect(await systemThemeIcon.boundingBox()).toEqual(systemThemeBox);
+  expect(await systemThemeLabel.boundingBox()).toEqual(systemThemeBox);
   await expect(systemTheme).toBeChecked();
 
   const darkTheme = page.getByRole("radio", { name: "深色主题" });
-  await page.getByRole("img", { name: "深色主题" }).click();
+  await page.getByText("深色", { exact: true }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await expect(darkTheme).toBeChecked();
 });
@@ -106,7 +128,9 @@ test("keeps the 1024px application viewport free of page-level horizontal scroll
 }) => {
   await page.setViewportSize({ width: 1024, height: 768 });
   await page.goto("/");
+  await expect(page.getByRole("complementary", { name: "应用侧边栏" })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "主导航" })).toBeVisible();
+  await expect(page.getByRole("form", { name: "科目搜索与筛选" })).toBeInViewport();
 
   const overflow = await page.evaluate(() => ({
     viewport: window.innerWidth,
@@ -277,12 +301,13 @@ test("shows rich grading selectors and manages Mark Schemes without leaving the 
   expect(overflow.document).toBeLessThanOrEqual(overflow.viewport);
 });
 
-test("keeps all primary navigation visible without horizontal scrolling at 390px", async ({
+test("opens the full sidebar navigation without horizontal scrolling at 390px", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
 
+  await page.getByRole("button", { name: "打开主导航" }).click();
   const navigation = page.getByRole("navigation", { name: "主导航" });
   await expect(navigation.getByRole("menuitem")).toHaveCount(5);
   for (const label of ["科目", "试卷", "作答", "评分", "复核"]) {

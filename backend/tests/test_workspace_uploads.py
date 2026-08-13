@@ -7,7 +7,8 @@ from pathlib import Path
 from typing import Any, BinaryIO, cast
 
 import pytest
-from examtwin.app.api.dependencies import get_corpus_workspace_service
+from examtwin.app.api import workspaces as workspace_api_module
+from examtwin.app.api.dependencies import get_corpus_workspace_service, get_subject_context
 from examtwin.app.api.workspaces import router as workspace_router
 from examtwin.contracts.common import JobResult
 from examtwin.knowledge.workspace_service import (
@@ -15,7 +16,7 @@ from examtwin.knowledge.workspace_service import (
     KnowledgeBaseBuildError,
     WorkspaceNotFoundError,
 )
-from examtwin.platform.config import Settings
+from examtwin.platform.config import Settings, get_settings
 from examtwin.platform.storage import LocalObjectStore, ManagedObjectStore, ObjectMetadata
 from examtwin.subjects.public import subject_context
 from fastapi import FastAPI
@@ -730,6 +731,54 @@ def test_workspace_router_upload_returns_created_response() -> None:
         "knowledge_base_id": "base-1",
         "license_confirmed": True,
     }
+
+
+def test_workspace_document_content_supports_inline_preview_and_download(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _settings(tmp_path)
+    subject = subject_context(settings)
+    original = tmp_path / "MS-202406-U1.pdf"
+    original.write_bytes(b"%PDF-1.4 original mark scheme")
+    row = {
+        "id": "document-1",
+        "subject_id": subject.id,
+        "subject_code": subject.subject_code,
+        "filename": "MS-202406-U1.pdf",
+        "path": str(original),
+        "object_key": None,
+    }
+
+    class Documents:
+        def get_active(self, document_id: str) -> dict[str, object] | None:
+            return row if document_id == "document-1" else None
+
+    monkeypatch.setattr(workspace_api_module, "corpus_repository", lambda _: Documents())
+    app = FastAPI()
+    app.include_router(workspace_router)
+    app.dependency_overrides[get_settings] = lambda: settings
+    app.dependency_overrides[get_subject_context] = lambda: subject
+
+    with TestClient(app) as client:
+        preview = client.get(
+            f"/subject-workspaces/{subject.id}/documents/document-1/content"
+        )
+        download = client.get(
+            f"/subject-workspaces/{subject.id}/documents/document-1/content?download=true"
+        )
+        row["subject_id"] = "another-workspace"
+        forbidden = client.get(
+            f"/subject-workspaces/{subject.id}/documents/document-1/content"
+        )
+
+    assert preview.status_code == 200
+    assert preview.content == b"%PDF-1.4 original mark scheme"
+    assert preview.headers["content-type"] == "application/pdf"
+    assert preview.headers["content-disposition"].startswith("inline;")
+    assert download.status_code == 200
+    assert download.headers["content-disposition"].startswith("attachment;")
+    assert forbidden.status_code == 404
 
 
 def test_workspace_router_maps_missing_workspace_to_not_found() -> None:
