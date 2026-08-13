@@ -24,6 +24,7 @@ from examtwin.assessment.paper_parsing import (
 from examtwin.assessment.paper_sources import PaperSourceStore
 from examtwin.contracts.papers import (
     AgentStepSummary,
+    PaperAnswerMode,
     PaperJobChunk,
     PaperJobCreated,
     PaperJobFilterStatus,
@@ -97,6 +98,7 @@ class PaperJobService:
         self,
         *,
         status: PaperJobFilterStatus | None = None,
+        answer_mode: PaperAnswerMode | None = None,
         unit_code: str | None = None,
         query: str | None = None,
         paper_unit_id: str | None = None,
@@ -110,6 +112,7 @@ class PaperJobService:
         rows, total = self.repository.list_for_subject(
             self.subject.subject_code,
             statuses=statuses,
+            answer_mode=answer_mode,
             unit_code=unit_code,
             query=query,
             paper_unit_id=paper_unit_id,

@@ -40,6 +40,7 @@ from examtwin.assessment.answering_agent.tools.image_generate import AnswerImage
 from examtwin.assessment.paper_jobs import PaperJobService
 from examtwin.assessment.task_events import PostgresTaskEvents, TaskEvent
 from examtwin.contracts.papers import (
+    PaperAnswerMode,
     PaperJobBulkDeleteRequest,
     PaperJobBulkDeleteResponse,
     PaperJobCreated,
@@ -253,6 +254,7 @@ async def import_answered_paper(
 @router.get("/papers/jobs", response_model=PaperJobListResponse)
 def paper_jobs(
     status_filter: PaperJobFilterStatus | None = Query(default=None, alias="status"),
+    answer_mode: PaperAnswerMode | None = Query(default=None),
     unit_code: str | None = Query(default=None, max_length=32),
     paper_unit_id: str | None = Query(default=None),
     query: str | None = Query(default=None, alias="q", max_length=200),
@@ -263,6 +265,7 @@ def paper_jobs(
 ) -> PaperJobListResponse:
     return jobs.list_jobs(
         status=status_filter,
+        answer_mode=answer_mode,
         unit_code=unit_code,
         paper_unit_id=paper_unit_id,
         query=query,

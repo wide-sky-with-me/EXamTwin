@@ -142,6 +142,107 @@ test("keeps the 1024px application viewport free of page-level horizontal scroll
   expect(overflow.body).toBeLessThanOrEqual(overflow.viewport);
 });
 
+test("keeps AI and uploaded answers inside the paper workspace", async ({ page }) => {
+  let requestedAnswerMode = "";
+  await page.route("**/api/v1/**", (route) => {
+    const url = new URL(route.request().url());
+    const fulfill = (payload: unknown) => route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(payload),
+    });
+    if (url.pathname === "/api/v1/health") {
+      return fulfill({
+        status: "ok",
+        subject_code: null,
+        api_contract_version: "test",
+        capabilities: ["paper_jobs_v1"],
+        llm_model: "test",
+        embedding_model: "test",
+        rerank_model: "test",
+        credentials: {},
+        object_storage_backend: "local",
+        infrastructure,
+      });
+    }
+    if (url.pathname === "/api/v1/subjects/status") {
+      return fulfill({
+        infrastructure,
+        subjects: [{
+          id: "oxfordaqa-economics-9640",
+          version: "1",
+          digest: "test",
+          subject_code: "9640",
+          title: "OxfordAQA Economics",
+          board_name: "OxfordAQA International",
+          active_graph_version_id: null,
+          answering_enabled: true,
+          answering_disabled_reason: null,
+          capability_profile_id: "oxfordaqa-economics-9640",
+          color: "#0F766E",
+          generic_qa_enabled: true,
+          icon: "chart-no-axes-combined",
+          knowledge_bases: [],
+          source_booklet_required: true,
+          units: [{ code: "U1", title: "Markets", strand: "Economics" }],
+          vector_alias: "examtwin_9640_live",
+          vector_index_ready: true,
+          vector_points: 822,
+          stats: null,
+        }],
+      });
+    }
+    if (url.pathname === "/api/v1/grading/reviews/all") return fulfill([]);
+    if (url.pathname === "/api/v1/papers/jobs") {
+      requestedAnswerMode = url.searchParams.get("answer_mode") ?? "";
+      const items = [
+        {
+          job_id: "job-ai",
+          filename: "Economics-9640-U1.pdf",
+          answer_mode: "generated",
+          paper_unit_id: "paper-u1",
+        },
+        {
+          job_id: "job-uploaded",
+          filename: "student-answer.pdf",
+          answer_mode: "uploaded",
+          paper_unit_id: "paper-u1",
+        },
+      ].filter((item) => !requestedAnswerMode || item.answer_mode === requestedAnswerMode)
+        .map((item) => ({
+          ...item,
+          unit_code: "U1",
+          status: "completed",
+          stage: "completed",
+          total_questions: 12,
+          completed_questions: 12,
+          failed_questions: 0,
+          source_integrity_status: "verified",
+          split_contract_version: "paper-question-split-v6",
+          replacement_for_job_id: null,
+          replaced_by_job_id: null,
+          created_at: "2026-08-13T00:00:00Z",
+          updated_at: "2026-08-13T00:10:00Z",
+        }));
+      return fulfill({ items, total: items.length, limit: 10, offset: 0 });
+    }
+    return fulfill([]);
+  });
+
+  await page.goto("/subjects/oxfordaqa-economics-9640/papers/answers");
+
+  const navigation = page.getByRole("navigation", { name: "主导航" });
+  await expect(navigation.getByRole("menuitem")).toHaveCount(4);
+  await expect(navigation.getByRole("menuitem", { name: "作答" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "作答记录", exact: true })).toBeVisible();
+  await expect(page.locator(".paper-history-mode.generated")).toHaveText("AI 作答");
+  await expect(page.locator(".paper-history-mode.uploaded")).toHaveText("外部答卷");
+
+  await page.getByRole("combobox", { name: "按来源筛选" }).selectOption("uploaded");
+  await expect.poll(() => requestedAnswerMode).toBe("uploaded");
+  await expect(page.locator(".paper-history-mode.generated")).toHaveCount(0);
+  await expect(page.locator(".paper-history-mode.uploaded")).toHaveText("外部答卷");
+});
+
 test("shows rich grading selectors and manages Mark Schemes without leaving the page", async ({
   page,
 }) => {
@@ -309,8 +410,8 @@ test("opens the full sidebar navigation without horizontal scrolling at 390px", 
 
   await page.getByRole("button", { name: "打开主导航" }).click();
   const navigation = page.getByRole("navigation", { name: "主导航" });
-  await expect(navigation.getByRole("menuitem")).toHaveCount(5);
-  for (const label of ["科目", "试卷", "作答", "评分", "复核"]) {
+  await expect(navigation.getByRole("menuitem")).toHaveCount(4);
+  for (const label of ["科目", "试卷", "评分", "复核"]) {
     await expect(navigation.getByRole("menuitem", { name: label })).toBeInViewport();
   }
 

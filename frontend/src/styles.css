@@ -646,7 +646,11 @@ textarea:focus, select:focus, input:focus { border-color: var(--blue); box-shado
   box-shadow: inset 3px 0 var(--blue);
 }
 .paper-history-main { display: grid; gap: 4px; min-width: 0; }
-.paper-history-main strong { overflow: hidden; color: var(--text); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.paper-history-title-row { display: flex; min-width: 0; align-items: center; gap: 8px; }
+.paper-history-main strong { min-width: 0; overflow: hidden; color: var(--text); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.paper-history-mode { flex: 0 0 auto; padding: 3px 7px; border-radius: 999px; font-size: 10px; font-weight: 700; line-height: 1.35; }
+.paper-history-mode.generated { color: #1d5fd1; background: #eaf2ff; }
+.paper-history-mode.uploaded { color: #7551b2; background: #f2ecff; }
 .paper-history-rename-input { width: min(420px, 100%); min-height: 34px; padding: 6px 9px; border-radius: 9px; font-size: 13px; font-weight: 650; }
 .paper-history-main small, .paper-history-counts { color: var(--text-secondary); font-size: 11px; }
 .paper-history-main .paper-history-integrity { color: #a04a12; font-weight: 700; }
@@ -701,6 +705,9 @@ textarea:focus, select:focus, input:focus { border-color: var(--blue); box-shado
 .paper-history-pagination label { display: flex; align-items: center; gap: 5px; }
 .paper-history-pagination select { min-height: 28px; padding: 3px 26px 3px 7px; font-size: 11px; }
 .paper-history > footer button { display: grid; width: 30px; height: 28px; place-items: center; padding: 0; }
+.paper-history-embedded { margin: 0; border-color: var(--border-subtle); box-shadow: none; }
+.paper-history-embedded > header { padding: 13px 14px; }
+.paper-history-embedded .list-filter-bar { margin-inline: 12px; }
 
 .paper-upload { display: grid; grid-template-columns: minmax(380px, 1fr) minmax(260px, .55fr); gap: 16px; align-items: stretch; margin-bottom: 16px; }
 .drop-zone { position: relative; min-height: 128px; border: 1px dashed var(--border); border-radius: 10px; background: var(--surface-muted); display: flex; align-items: center; justify-content: center; text-align: center; color: var(--text-secondary); }
@@ -771,6 +778,9 @@ textarea:focus, select:focus, input:focus { border-color: var(--blue); box-shado
 .paper-terminal-empty small { overflow: hidden; max-width: 720px; color: var(--text-secondary); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .paper-terminal-empty > button { white-space: nowrap; }
 .paper-current-context button { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+.paper-answer-origin { display: inline-flex; margin-right: 8px; padding: 3px 7px; border-radius: 999px; font-size: 10px; line-height: 1.3; }
+.paper-answer-origin.generated { color: #1d5fd1; background: #eaf2ff; }
+.paper-answer-origin.uploaded { color: #7551b2; background: #f2ecff; }
 .paper-summary { display: grid; grid-template-columns: auto auto auto auto auto auto minmax(0, 1fr) auto; align-items: center; gap: 7px; padding: 11px 14px; margin-bottom: 10px; border: 1px solid var(--border); background: var(--surface); border-radius: 9px; }
 .paper-summary strong { color: var(--text); font-size: 17px; font-variant-numeric: tabular-nums; }
 .paper-summary strong.failed { color: #d26262; }
@@ -1387,6 +1397,10 @@ textarea:focus, select:focus, input:focus { border-color: var(--blue); box-shado
 :root[data-theme="dark"] .difficulty > span { background: #3a3a3c; }
 :root[data-theme="dark"] .paper-history-status { color: #ffd479; background: #3a2e16; }
 :root[data-theme="dark"] .paper-history-status.completed { color: #6ee7b7; background: #17382d; }
+:root[data-theme="dark"] .paper-history-mode.generated { color: #9ec5ff; background: #18345f; }
+:root[data-theme="dark"] .paper-history-mode.uploaded { color: #d1b6ff; background: #37275b; }
+:root[data-theme="dark"] .paper-answer-origin.generated { color: #9ec5ff; background: #18345f; }
+:root[data-theme="dark"] .paper-answer-origin.uploaded { color: #d1b6ff; background: #37275b; }
 :root[data-theme="dark"] :is(.paper-history-status.partial_failed, .paper-history-status.failed) { color: #ffaaa3; background: #452522; }
 :root[data-theme="dark"] .paper-history-actions .paper-history-delete:hover { border-color: #6d3430; background: #452522; color: #ffaaa3; }
 :root[data-theme="dark"] .paper-history-main .paper-history-integrity { color: #ffb26b; }
@@ -2710,6 +2724,11 @@ tbody tr:hover { background: var(--gray-a2); }
 .paper-editor-current-file .ant-tag { margin: 0; border-radius: 999px; }
 .paper-editor-missing { padding: 12px; border: 1px dashed var(--border-subtle); border-radius: 11px; color: var(--text-secondary); background: color-mix(in srgb, var(--surface-muted) 55%, transparent); font-size: 12px; text-align: center; }
 .paper-editor-material .ant-btn-link { width: fit-content; height: auto; padding: 1px 2px; font-size: 12px; }
+.paper-external-import { display: grid; gap: 14px; padding-top: 6px; }
+.paper-external-import > p { margin: 0; color: var(--text-secondary); font-size: 12px; line-height: 1.65; }
+.paper-external-import .ant-upload-drag { min-height: 148px; border-radius: 13px; background: color-mix(in srgb, var(--blue) 3%, var(--surface-muted)); }
+.paper-external-import .ant-upload-drag strong { display: block; color: var(--text); font-size: 13px; }
+.paper-external-import .ant-upload-drag small { display: block; margin-top: 5px; color: var(--text-secondary); font-size: 10px; }
 .paper-management-page .ant-upload-wrapper .ant-upload-drag {
   min-height: 112px;
   border-color: color-mix(in srgb, var(--blue) 22%, var(--border-subtle));

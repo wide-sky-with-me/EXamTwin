@@ -22,6 +22,7 @@ import {
 import {
   ArrowLeft,
   BookOpenCheck,
+  ClipboardList,
   Download,
   Eye,
   FileText,
@@ -37,6 +38,7 @@ import {
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
 import { ErrorBanner } from "../components/Feedback";
+import { PaperJobHistory } from "../components/PaperJobHistory";
 import { useToast } from "../components/toast-context";
 import { AppConfirmDialog } from "../components/ui/AppConfirmDialog";
 import { ListPagination } from "../components/ui/ListControls";
@@ -46,6 +48,7 @@ import {
   archivePaperUnit,
   backendResourceUrl,
   createPaperUnit,
+  importPaperUnitAnswer,
   listPaperUnits,
   subjectHeaders,
   unwrapApi,
@@ -91,6 +94,7 @@ type PaperManagementProps = {
   onCloseDetail?: (subjectId: string) => void;
   onStartAnswering?: (subjectId: string, paperUnitId: string, jobId: string) => void;
   onStartGrading?: (subjectId: string, paperUnitId: string) => void;
+  onOpenAnswerCatalog?: (subjectId: string) => void;
 };
 
 type BindingDraft = {
@@ -184,6 +188,7 @@ export function PaperManagement({
   onCloseDetail,
   onStartAnswering,
   onStartGrading,
+  onOpenAnswerCatalog,
 }: PaperManagementProps) {
   const [localSubjectId, setLocalSubjectId] = useState(controlledSubjectId ?? subjects[0]?.id ?? "");
   const subjectId = controlledSubjectId ?? localSubjectId;
@@ -214,6 +219,10 @@ export function PaperManagement({
   const [saving, setSaving] = useState(false);
   const [deletingCandidate, setDeletingCandidate] = useState<PaperUnitSummary | null>(null);
   const [starting, setStarting] = useState(false);
+  const [answerHistoryVersion, setAnswerHistoryVersion] = useState(0);
+  const [externalImportOpen, setExternalImportOpen] = useState(false);
+  const [externalAnswerFile, setExternalAnswerFile] = useState<File | null>(null);
+  const [importingAnswer, setImportingAnswer] = useState(false);
   const [convertingDocumentId, setConvertingDocumentId] = useState<string | null>(null);
   const [job, setJob] = useState<PaperJobResult | null>(null);
   const [detailPaper, setDetailPaper] = useState<PaperUnitSummary | null>(null);
@@ -465,6 +474,39 @@ export function PaperManagement({
     }
   }
 
+  function openExternalImport() {
+    setExternalAnswerFile(null);
+    setError(null);
+    setExternalImportOpen(true);
+  }
+
+  async function importExternalAnswer() {
+    if (!selectedPaper || !subjectId || !externalAnswerFile) return;
+    const questionPaper = selectedPaper.documents.find((item) => item.role === "question_paper");
+    if (!questionPaper) {
+      setError("当前试卷缺少 Question Paper，不能导入外部答卷。");
+      return;
+    }
+    setImportingAnswer(true);
+    setError(null);
+    try {
+      const created = await importPaperUnitAnswer(
+        subjectId,
+        selectedPaper.id,
+        questionPaper.id,
+        externalAnswerFile,
+      );
+      setExternalImportOpen(false);
+      setAnswerHistoryVersion((value) => value + 1);
+      notify("外部答卷已归入当前试卷，后台开始解析。", "success");
+      onStartAnswering?.(subjectId, selectedPaper.id, created.job_id);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "外部答卷导入失败");
+    } finally {
+      setImportingAnswer(false);
+    }
+  }
+
   function openDocument(documentId: string) {
     if (subjectId) onOpenDocument?.(subjectId, documentId, selectedPaper?.id);
   }
@@ -556,6 +598,7 @@ export function PaperManagement({
             options={[{ label: "全部考季", value: "" }, ...papers.available_sessions.map((value) => ({ label: sessionLabel(value), value }))]}
             value={examSession}
           />
+          <Button aria-label="查看全部作答记录" disabled={!subject} icon={<ClipboardList size={17} />} onClick={() => subjectId && onOpenAnswerCatalog?.(subjectId)} />
           <Button aria-label="添加试卷" disabled={!subject} icon={<Plus size={17} />} onClick={openCreate} type="primary" />
         </Flex>
       </Card>
@@ -654,7 +697,8 @@ export function PaperManagement({
               <Tag color={selectedPaper.status === "active" ? "success" : "default"}>{selectedPaper.status === "active" ? "使用中" : "已删除"}</Tag>
             </div>
             <Flex className="paper-detail-primary-actions" gap="small" wrap>
-              <Button icon={<Play size={16} />} loading={starting} onClick={() => void startAnswering(selectedPaper)} type="primary">开始作答</Button>
+              <Button icon={<Play size={16} />} loading={starting} onClick={() => void startAnswering(selectedPaper)} type="primary">AI 自动作答</Button>
+              <Button icon={<UploadCloud size={16} />} onClick={openExternalImport}>导入外部答卷</Button>
               <Button disabled={!selectedPaper.documents.some((item) => item.role === "mark_scheme")} icon={<BookOpenCheck size={16} />} onClick={() => onStartGrading?.(subjectId, selectedPaper.id)}>进入评分</Button>
               <Button icon={<Pencil size={16} />} onClick={() => openEdit(selectedPaper)}>编辑试卷</Button>
             </Flex>
@@ -678,6 +722,15 @@ export function PaperManagement({
                 <dd className="paper-detail-summary-date">{new Date(selectedPaper.updated_at).toLocaleDateString("zh-CN")}</dd>
               </div>
             </dl>
+            <PaperJobHistory
+              currentJobId={null}
+              embedded
+              onDeleted={() => setAnswerHistoryVersion((value) => value + 1)}
+              onOpen={(jobId) => onOpenJob?.(subjectId, selectedPaper.id, jobId)}
+              paperUnitId={selectedPaper.id}
+              refreshKey={answerHistoryVersion}
+              subject={subject}
+            />
           </Space>
         )}
         {selectedDocument && (
@@ -846,6 +899,38 @@ export function PaperManagement({
             </Flex>
           </Form>
         </form>
+      </Modal>
+
+      <Modal
+        cancelText="取消"
+        confirmLoading={importingAnswer}
+        okButtonProps={{ disabled: !externalAnswerFile }}
+        okText="导入并解析"
+        onCancel={() => setExternalImportOpen(false)}
+        onOk={() => void importExternalAnswer()}
+        open={externalImportOpen}
+        title="导入外部答卷"
+        width={560}
+        zIndex={1300}
+      >
+        <div className="paper-external-import">
+          <p>答卷会与当前试卷绑定，并与 AI 作答记录统一管理；列表中将标记为“外部答卷”。</p>
+          <Upload.Dragger
+            accept=".pdf,.md,.markdown,application/pdf,text/markdown"
+            aria-label="上传外部答卷"
+            beforeUpload={(file) => {
+              setExternalAnswerFile(file);
+              return false;
+            }}
+            maxCount={1}
+            onRemove={() => setExternalAnswerFile(null)}
+          >
+            <p className="paper-upload-drag-icon"><UploadCloud size={24} /></p>
+            <strong>点击或拖拽答卷文件到这里</strong>
+            <small>支持 PDF、Markdown；无需重新上传试卷</small>
+          </Upload.Dragger>
+          <ErrorBanner message={error} />
+        </div>
       </Modal>
 
       <AppConfirmDialog

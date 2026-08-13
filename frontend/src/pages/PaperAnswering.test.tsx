@@ -60,6 +60,8 @@ describe("PaperAnswering", () => {
     const completedJob: PaperJobResult = {
       job_id: "job-1",
       filename: "paper.pdf",
+      answer_mode: "generated",
+      paper_unit_id: "paper-1",
       subject_pack_id: "oxfordaqa-mathematics-9660",
       subject_code: "9660",
       knowledge_base_version_ids: [],
@@ -146,9 +148,15 @@ describe("PaperAnswering", () => {
     });
     window.localStorage.setItem(`examtwin.paperJobId.${subject.id}`, completedJob.job_id);
 
-    render(<PaperAnswering enabled subject={subject} />);
+    const onBack = vi.fn();
+    render(<PaperAnswering enabled initialPaperUnitId="paper-1" onBack={onBack} subject={subject} />);
 
     expect(await screen.findByText("已作答")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "AI 作答" })).toBeInTheDocument();
+    expect(screen.getByText("AI 作答", { selector: ".paper-answer-origin" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("作答流程")).not.toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole("button", { name: "返回试卷详情" })[0]);
+    expect(onBack).toHaveBeenCalledWith("paper-1");
     expect(screen.getByText("Q1 · 已作答")).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Equation diagram" })).toHaveAttribute(
       "src",

@@ -118,7 +118,9 @@ export async function unwrapApi<Data, ErrorPayload>(
 }
 export type PaperJobHistoryFilters = {
   status?: PaperJobHistoryStatus;
+  answerMode?: "generated" | "uploaded";
   unitCode?: string;
+  paperUnitId?: string;
   query?: string;
   createdAfter?: string;
   limit?: number;
@@ -135,7 +137,9 @@ export async function listPaperJobs(
       params: {
         query: {
           status: filters.status,
+          answer_mode: filters.answerMode,
           unit_code: filters.unitCode,
+          paper_unit_id: filters.paperUnitId,
           q: filters.query,
           created_after: filters.createdAfter,
           limit: filters.limit,
@@ -286,6 +290,23 @@ export async function answerPaperUnit(
       },
     }),
   );
+}
+
+export async function importPaperUnitAnswer(
+  workspaceId: string,
+  paperUnitId: string,
+  questionPaperDocumentId: string,
+  answerFile: File,
+): Promise<PaperUnitAnswerCreated> {
+  const form = new FormData();
+  form.append("question_paper_document_id", questionPaperDocumentId);
+  form.append("answer_file", answerFile);
+  const response = await checkedFetch(
+    workspaceId,
+    `/subject-workspaces/${encodeURIComponent(workspaceId)}/paper-units/${encodeURIComponent(paperUnitId)}/import-answer`,
+    { method: "POST", body: form },
+  );
+  return response.json() as Promise<PaperUnitAnswerCreated>;
 }
 
 

@@ -1,5 +1,5 @@
 import type { ReactElement } from "react";
-import { render as testingLibraryRender, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render as testingLibraryRender, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
@@ -73,6 +73,7 @@ function installServer(
     requests.push(request.clone());
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname.endsWith("/documents")) return json(documents);
+    if (request.method === "GET" && url.pathname.endsWith("/papers/jobs")) return json({ items: [], total: 0, limit: 10, offset: 0 });
     if (request.method === "GET" && url.pathname.endsWith("/paper-units")) return json({ items: rows, total: rows.length, limit: 12, offset: 0, available_units: ["P1"], available_years: [2024], available_sessions: ["JUN"] });
     if (request.method === "GET" && url.pathname.includes("/paper-units/")) return json(paper());
     if (request.method === "POST" && url.pathname.endsWith("/corpus/convert")) {
@@ -87,6 +88,9 @@ function installServer(
       const created = paper({ id: "unit-2", display_name: body.display_name });
       rows = [...rows, created];
       return json(created, 201);
+    }
+    if (request.method === "POST" && url.pathname.endsWith("/import-answer")) {
+      return json({ job_id: "job-uploaded", status: "queued", stage: "queued", paper_unit_id: "unit-1", question_paper_document_id: "qp-1" }, 202);
     }
     if (request.method === "PATCH" && url.pathname.includes("/paper-units/")) {
       const body = await request.json() as { display_name: string | null };
@@ -246,5 +250,29 @@ describe("PaperManagement", () => {
     await user.click(within(refreshedSchemeCard!).getByRole("button", { name: "更新文件" }));
     expect(within(refreshedSchemeCard!).getByLabelText("上传 Mark Scheme（可选）")).toBeInTheDocument();
     expect(requests.some((request) => request.method === "POST" && request.url.endsWith("/corpus/convert"))).toBe(true);
+  });
+
+  test("imports an external answer into the current paper and opens its managed result", async () => {
+    const { requests } = installServer();
+    const onStartAnswering = vi.fn();
+    const user = userEvent.setup();
+    render(<PaperManagement
+      detail={{ kind: "paper", id: "unit-1" }}
+      onStartAnswering={onStartAnswering}
+      subjectId={subject.id}
+      subjects={[subject]}
+    />);
+    await user.click(await screen.findByRole("button", { name: "导入外部答卷" }));
+    const dialog = screen.getAllByRole("dialog").find((candidate) =>
+      within(candidate).queryByRole("button", { name: "导入并解析" }),
+    );
+    expect(dialog).toBeDefined();
+    expect(within(dialog!).getByText(/统一管理/)).toBeInTheDocument();
+    const input = dialog!.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(input).not.toBeNull();
+    fireEvent.change(input!, { target: { files: [new File(["answer"], "student-answer.pdf", { type: "application/pdf" })] } });
+    fireEvent.click(within(dialog!).getByRole("button", { name: "导入并解析" }));
+    await waitFor(() => expect(onStartAnswering).toHaveBeenCalledWith(subject.id, "unit-1", "job-uploaded"));
+    expect(requests.some((request) => request.method === "POST" && request.url.endsWith("/paper-units/unit-1/import-answer"))).toBe(true);
   });
 });

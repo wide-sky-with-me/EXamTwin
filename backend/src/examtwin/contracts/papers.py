@@ -33,6 +33,7 @@ PaperJobFilterStatus = Literal[
     "partial_failed",
     "failed",
 ]
+PaperAnswerMode = Literal["generated", "uploaded"]
 PaperJobStage = Literal[
     "queued",
     "parsing",
@@ -154,7 +155,7 @@ class PaperJobSummary(SerializedResponse):
     job_id: str
     filename: str
     display_name: str | None = None
-    answer_mode: Literal["generated", "uploaded"] = "generated"
+    answer_mode: PaperAnswerMode = "generated"
     pair_key: str | None = None
     paper_unit_id: str | None = None
     question_paper_document_id: str | None = None
@@ -186,7 +187,7 @@ class PaperJobResponse(SerializedResponse):
     job_id: str
     filename: str
     display_name: str | None = None
-    answer_mode: Literal["generated", "uploaded"] = "generated"
+    answer_mode: PaperAnswerMode = "generated"
     pair_key: str | None = None
     paper_unit_id: str | None = None
     question_paper_document_id: str | None = None

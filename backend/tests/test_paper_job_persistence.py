@@ -1007,6 +1007,13 @@ def test_paper_job_history_deletes_unclaimed_or_expired_jobs_but_rejects_live_le
         b"# Question 1\nCalculate 4+4.",
         unit_code="P1",
     )
+    uploaded = jobs.create_job_from_stream(
+        "history-uploaded-paper.md",
+        BytesIO(b"# Question 1\nCalculate 6+6."),
+        unit_code="P1",
+        answer_filename="student-answer.md",
+        answer_stream=BytesIO(b"# Answer 1\n12"),
+    )
     now = datetime.now(UTC)
     database.execute(
         "UPDATE paper_jobs SET status=?, stage=?, completed_at=?, updated_at=? WHERE id IN (?, ?)",
@@ -1022,6 +1029,69 @@ def test_paper_job_history_deletes_unclaimed_or_expired_jobs_but_rejects_live_le
     database.execute(
         "UPDATE paper_jobs SET lease_token=?, lease_expires_at=? WHERE id=?",
         ("live-lease", now + timedelta(minutes=5), leased.job_id),
+    )
+    assessment_id = f"assessment-{unclaimed.job_id}"
+    database.execute(
+        """
+        INSERT INTO assessments (
+            id, subject_code, paper_job_id, question_position, rubric_set_id,
+            knowledge_base_version_ids_json, graph_version_id, question_ref,
+            answer_markdown, total_awarded, total_available, confidence, status,
+            result_json, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            assessment_id,
+            "9660",
+            unclaimed.job_id,
+            0,
+            None,
+            "[]",
+            None,
+            "1",
+            "4",
+            1,
+            1,
+            1,
+            "reviewed",
+            "{}",
+            now,
+            now,
+        ),
+    )
+    database.execute(
+        """
+        INSERT INTO reviews (
+            assessment_id, reviewer, decision, override_mark, note, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (assessment_id, "teacher", "confirm", None, None, now),
+    )
+    database.execute(
+        """
+        INSERT INTO stored_objects (
+            key, storage_backend, bucket, checksum_sha256, size_bytes,
+            content_type, purpose, owner_type, owner_id, state, retain_until,
+            created_at, updated_at, deleted_at, last_error
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            f"paper-jobs/{unclaimed.job_id}/source.md",
+            "local",
+            None,
+            "0" * 64,
+            4,
+            "text/markdown",
+            "paper_source",
+            "paper_job",
+            unclaimed.job_id,
+            "active",
+            now + timedelta(days=30),
+            now,
+            now,
+            None,
+            None,
+        ),
     )
     try:
         listed = jobs.list_jobs(
@@ -1040,6 +1110,9 @@ def test_paper_job_history_deletes_unclaimed_or_expired_jobs_but_rejects_live_le
 
         active_jobs = jobs.list_jobs(status="active", limit=10, offset=0)
         assert {unclaimed.job_id, leased.job_id} <= {item.job_id for item in active_jobs.items}
+        uploaded_jobs = jobs.list_jobs(answer_mode="uploaded", limit=10, offset=0)
+        assert [item.job_id for item in uploaded_jobs.items] == [uploaded.job_id]
+        assert uploaded_jobs.items[0].answer_mode == "uploaded"
         with pytest.raises(ValueError, match="仍由 Worker 处理"):
             jobs.delete_jobs((completed.job_id, leased.job_id))
         assert jobs.repository.get(completed.job_id) is not None
@@ -1047,6 +1120,18 @@ def test_paper_job_history_deletes_unclaimed_or_expired_jobs_but_rejects_live_le
 
         assert jobs.delete_job(unclaimed.job_id) is None
         assert jobs.repository.get(unclaimed.job_id) is None
+        assert database.fetch_one("SELECT id FROM assessments WHERE id=?", (assessment_id,)) is None
+        assert (
+            database.fetch_one("SELECT id FROM reviews WHERE assessment_id=?", (assessment_id,))
+            is None
+        )
+        retained = database.fetch_one(
+            "SELECT state, retain_until FROM stored_objects WHERE owner_id=?",
+            (unclaimed.job_id,),
+        )
+        assert retained is not None
+        assert retained["state"] == "active"
+        assert retained["retain_until"] <= datetime.now(UTC)
 
         database.execute(
             "UPDATE paper_jobs SET lease_expires_at=? WHERE id=?",
@@ -1058,13 +1143,19 @@ def test_paper_job_history_deletes_unclaimed_or_expired_jobs_but_rejects_live_le
         assert jobs.delete_jobs((completed.job_id, completed_second.job_id)) == 2
         assert jobs.repository.get(completed.job_id) is None
         assert jobs.repository.get(completed_second.job_id) is None
+        assert jobs.delete_job(uploaded.job_id) is None
+        assert jobs.repository.get(uploaded.job_id) is None
     finally:
+        database.execute("DELETE FROM stored_objects WHERE owner_id=?", (unclaimed.job_id,))
+        database.execute("DELETE FROM reviews WHERE assessment_id=?", (assessment_id,))
+        database.execute("DELETE FROM assessments WHERE id=?", (assessment_id,))
         database.execute(
-            "DELETE FROM paper_jobs WHERE id IN (?, ?, ?, ?)",
+            "DELETE FROM paper_jobs WHERE id IN (?, ?, ?, ?, ?)",
             (
                 completed.job_id,
                 completed_second.job_id,
                 unclaimed.job_id,
                 leased.job_id,
+                uploaded.job_id,
             ),
         )

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
 from starlette.concurrency import run_in_threadpool
 
 from examtwin.app.api.dependencies import get_paper_units, get_subject_context
@@ -211,6 +211,64 @@ async def answer_paper_unit(
                 str(paper.get("filename") or source_path.name),
                 stream,
                 unit_code=str(paper.get("unit_code") or "") or None,
+                source_booklet=booklet,
+                paper_unit_id=paper_unit_id,
+                question_paper_document_id=str(paper["id"]),
+            )
+        return PaperUnitAnswerCreated(
+            **created.model_dump(),
+            paper_unit_id=paper_unit_id,
+            question_paper_document_id=str(paper["id"]),
+        )
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@router.post(
+    "/subject-workspaces/{workspace_id}/paper-units/{paper_unit_id}/import-answer",
+    response_model=PaperUnitAnswerCreated,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def import_paper_unit_answer(
+    workspace_id: str,
+    paper_unit_id: str,
+    answer_file: UploadFile = File(...),
+    question_paper_document_id: str = Form(...),
+    settings: Settings = Depends(get_settings),
+    subject: SubjectContext = Depends(get_subject_context),
+    service: PaperUnitService = Depends(get_paper_units),
+) -> PaperUnitAnswerCreated:
+    """Import a human/external answer against the exact managed paper unit."""
+
+    _require_workspace(workspace_id, subject)
+    try:
+        paper, booklet = service.answer_sources(
+            paper_unit_id,
+            question_paper_document_id=question_paper_document_id,
+            source_booklet_document_id=None,
+        )
+        workspaces = WorkspaceRepository(create_session_factory(settings.database_url))
+        snapshot = workspaces.active_retrieval_snapshot(subject.id)
+        collections = tuple(str(item) for item in snapshot["collections"])
+        if not collections:
+            raise ValueError("导入答卷前必须先构建并发布知识库版本")
+        selected_subject = subject.with_retrieval_snapshot(
+            version_ids=tuple(str(item) for item in snapshot["version_ids"]),
+            collections=collections,
+            graph_version_id=snapshot.get("graph_version_id"),
+        )
+        source_path = _document_path(settings, paper)
+        jobs = build_paper_job_service(settings, selected_subject)
+        with source_path.open("rb") as stream:
+            created = await run_in_threadpool(
+                jobs.create_job_from_stream,
+                str(paper.get("filename") or source_path.name),
+                stream,
+                unit_code=str(paper.get("unit_code") or "") or None,
+                answer_filename=answer_file.filename or "answers.pdf",
+                answer_stream=answer_file.file,
                 source_booklet=booklet,
                 paper_unit_id=paper_unit_id,
                 question_paper_document_id=str(paper["id"]),

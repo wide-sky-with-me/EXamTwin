@@ -104,10 +104,14 @@ describe("PaperJobHistory", () => {
     await waitFor(() => expect(onSubjectChange).toHaveBeenCalledWith(economics.id));
 
 
-    await user.type(screen.getByRole("searchbox", { name: "按文件名筛选" }), "2026");
+    await user.type(screen.getByRole("searchbox", { name: "按名称或文件名筛选" }), "2026");
     await user.selectOptions(
       screen.getByRole("combobox", { name: "按状态筛选" }),
       "completed",
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "按来源筛选" }),
+      "uploaded",
     );
     await user.selectOptions(
       screen.getByRole("combobox", { name: "按单元筛选" }),
@@ -119,6 +123,7 @@ describe("PaperJobHistory", () => {
         subject.id,
         expect.objectContaining({
           status: "completed",
+          answerMode: "uploaded",
           unitCode: "P1",
           query: "2026",
           limit: 10,
@@ -132,6 +137,7 @@ describe("PaperJobHistory", () => {
         subject.id,
         expect.objectContaining({
           status: undefined,
+          answerMode: undefined,
           unitCode: undefined,
           query: undefined,
           createdAfter: undefined,
@@ -141,7 +147,7 @@ describe("PaperJobHistory", () => {
       );
     });
     await user.click(screen.getByRole("button", { name: "查看" }));
-    expect(onOpen).toHaveBeenCalledWith("job-1");
+    expect(onOpen).toHaveBeenCalledWith("job-1", undefined);
   });
 
   test("requires dialog confirmation before deleting a terminal record", async () => {
@@ -160,7 +166,7 @@ describe("PaperJobHistory", () => {
     await screen.findByText("QP-2026-P1.pdf");
     await user.click(screen.getByRole("button", { name: "删除记录 QP-2026-P1.pdf" }));
     expect(screen.getByRole("alertdialog", { name: "确认删除作答记录" })).toBeInTheDocument();
-    expect(screen.getByText(/将删除“QP-2026-P1\.pdf”及其全部作答结果/)).toBeInTheDocument();
+    expect(screen.getByText(/将永久删除“QP-2026-P1\.pdf”的作答结果、关联评分、复核记录和作答文件/)).toBeInTheDocument();
     expect(deleteMock).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "删除作答记录" }));
@@ -198,7 +204,7 @@ describe("PaperJobHistory", () => {
       { name: "删除记录 stuck-paper.pdf" },
     ));
     expect(screen.getByRole("alertdialog", { name: "确认删除作答记录" })).toBeInTheDocument();
-    expect(screen.getByText(/将删除“stuck-paper\.pdf”及其全部作答结果/)).toBeInTheDocument();
+    expect(screen.getByText(/将永久删除“stuck-paper\.pdf”的作答结果、关联评分、复核记录和作答文件/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "删除作答记录" }));
 
     await waitFor(() => expect(deleteMock).toHaveBeenCalledWith(subject.id, ["queued-job"]));
@@ -240,7 +246,7 @@ describe("PaperJobHistory", () => {
 
     await user.click(screen.getByRole("button", { name: "批量删除" }));
     expect(screen.getByRole("alertdialog", { name: "确认批量删除" })).toBeInTheDocument();
-    expect(screen.getByText(/将删除选中的 2 条作答记录及其结果/)).toBeInTheDocument();
+    expect(screen.getByText(/将永久删除选中的 2 条作答记录，以及关联评分、复核记录和作答文件/)).toBeInTheDocument();
     expect(deleteMock).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "删除 2 条记录" }));
@@ -273,7 +279,45 @@ describe("PaperJobHistory", () => {
       .toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "修复并重跑" }));
     await waitFor(() => expect(replaceMock).toHaveBeenCalledWith(subject.id, "job-1"));
-    expect(onOpen).toHaveBeenCalledWith("replacement-job");
+    expect(onOpen).toHaveBeenCalledWith("replacement-job", undefined);
+  });
+
+  test("groups AI and uploaded answers under one paper with source labels", async () => {
+    listMock.mockResolvedValue({
+      ...history,
+      items: [
+        { ...history.items[0], answer_mode: "generated", paper_unit_id: "paper-1" },
+        {
+          ...history.items[0],
+          job_id: "job-uploaded",
+          filename: "student-answer.pdf",
+          answer_mode: "uploaded",
+          paper_unit_id: "paper-1",
+        },
+      ],
+      total: 2,
+    });
+    render(
+      <PaperJobHistory
+        currentJobId={null}
+        embedded
+        onDeleted={vi.fn()}
+        onOpen={vi.fn()}
+        paperUnitId="paper-1"
+        refreshKey={0}
+        subject={subject}
+      />,
+    );
+
+    expect(await screen.findByText("AI 作答")).toBeInTheDocument();
+    expect(screen.getByText("外部答卷", { selector: ".paper-history-mode" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "按来源筛选" })).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "按科目筛选" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "按单元筛选" })).not.toBeInTheDocument();
+    await waitFor(() => expect(listMock).toHaveBeenCalledWith(
+      subject.id,
+      expect.objectContaining({ paperUnitId: "paper-1" }),
+    ));
   });
 
   test("changes page size and loads the next page with the matching offset", async () => {

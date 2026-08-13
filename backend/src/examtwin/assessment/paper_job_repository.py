@@ -5,17 +5,20 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, sessionmaker
 
 from examtwin.platform.database.models import (
+    AssessmentModel,
     PaperAgentRunModel,
     PaperAgentStepModel,
     PaperAgentToolCallModel,
     PaperJobChunkModel,
     PaperJobModel,
     PaperJobQuestionModel,
+    ReviewModel,
+    StoredObjectModel,
 )
 from examtwin.platform.database.results import affected_rows
 from examtwin.platform.database.session import utcnow
@@ -97,6 +100,7 @@ class PaperJobRepository:
         subject_code: str,
         *,
         statuses: Sequence[str] | None = None,
+        answer_mode: str | None = None,
         unit_code: str | None = None,
         query: str | None = None,
         paper_unit_id: str | None = None,
@@ -107,6 +111,8 @@ class PaperJobRepository:
         conditions = [PaperJobModel.subject_code == subject_code]
         if statuses:
             conditions.append(PaperJobModel.status.in_(statuses))
+        if answer_mode:
+            conditions.append(PaperJobModel.answer_mode == answer_mode)
         if unit_code:
             conditions.append(PaperJobModel.unit_code == unit_code)
         if paper_unit_id:
@@ -173,6 +179,26 @@ class PaperJobRepository:
             )
             if has_replacement_lineage:
                 raise ValueError("具有替代审计关系的试卷任务不能删除")
+            matched_job_ids = tuple(str(row.id) for row in rows)
+            if matched_job_ids:
+                assessment_ids = select(AssessmentModel.id).where(
+                    AssessmentModel.paper_job_id.in_(matched_job_ids)
+                )
+                session.execute(
+                    delete(ReviewModel).where(ReviewModel.assessment_id.in_(assessment_ids))
+                )
+                session.execute(
+                    delete(AssessmentModel).where(AssessmentModel.paper_job_id.in_(matched_job_ids))
+                )
+                session.execute(
+                    update(StoredObjectModel)
+                    .where(
+                        StoredObjectModel.owner_type == "paper_job",
+                        StoredObjectModel.owner_id.in_(matched_job_ids),
+                        StoredObjectModel.state == "active",
+                    )
+                    .values(retain_until=now, updated_at=now)
+                )
             for row in rows:
                 session.delete(row)
         return len(rows)

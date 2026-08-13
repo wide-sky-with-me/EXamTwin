@@ -65,14 +65,18 @@ export function PaperJobHistory({
   onOpen,
   onDeleted,
   onSubjectChange = () => undefined,
+  paperUnitId,
+  embedded = false,
 }: {
   subject: SubjectPack | null;
   subjects?: SubjectPack[];
   currentJobId: string | null;
   refreshKey: number;
-  onOpen: (jobId: string) => void;
+  onOpen: (jobId: string, paperUnitId?: string | null) => void;
   onDeleted: (jobId: string) => void;
   onSubjectChange?: (subjectId: string) => void;
+  paperUnitId?: string;
+  embedded?: boolean;
 }) {
   const [history, setHistory] = useState<PaperJobList | null>(null);
   const [loading, setLoading] = useState(false);
@@ -80,6 +84,7 @@ export function PaperJobHistory({
   const [queryDraft, setQueryDraft] = useState("");
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<PaperJobHistoryStatus | "">("");
+  const [answerMode, setAnswerMode] = useState<"generated" | "uploaded" | "">("");
   const [unitCode, setUnitCode] = useState("");
   const [range, setRange] = useState<HistoryRange>("all");
   const [page, setPage] = useState(0);
@@ -106,7 +111,9 @@ export function PaperJobHistory({
     setError(null);
     void listPaperJobs(subjectId, {
       status: status || undefined,
+      answerMode: answerMode || undefined,
       unitCode: unitCode || undefined,
+      paperUnitId,
       query: query || undefined,
       createdAfter: createdAfter(range),
       limit: pageSize,
@@ -126,13 +133,13 @@ export function PaperJobHistory({
     return () => {
       active = false;
     };
-  }, [localRefresh, page, pageSize, query, range, refreshKey, status, subjectId, unitCode]);
+  }, [answerMode, localRefresh, page, pageSize, paperUnitId, query, range, refreshKey, status, subjectId, unitCode]);
 
   useEffect(() => {
     setSelectedIds(new Set());
     setBulkConfirming(false);
     setDeleteCandidate(null);
-  }, [query, range, status, subjectId, unitCode]);
+  }, [answerMode, query, range, status, subjectId, unitCode]);
 
   function applyQuery() {
     setPage(0);
@@ -143,6 +150,7 @@ export function PaperJobHistory({
     setQueryDraft("");
     setQuery("");
     setStatus("");
+    setAnswerMode("");
     setUnitCode("");
     setRange("all");
     setPage(0);
@@ -206,7 +214,7 @@ export function PaperJobHistory({
       const replacement = await replacePaperJob(subjectId, item.job_id);
       notify("已创建替代任务；旧记录将保留用于审计。");
       setLocalRefresh((value) => value + 1);
-      onOpen(replacement.job_id);
+      onOpen(replacement.job_id, item.paper_unit_id);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "替代任务创建失败");
     } finally {
@@ -269,12 +277,12 @@ export function PaperJobHistory({
 
 
   return (
-    <article aria-busy={loading} className="panel paper-history">
+    <article aria-busy={loading} className={`panel paper-history${embedded ? " paper-history-embedded" : ""}`}>
       <header>
         <div>
           <FileClock size={19} />
           <div>
-            <h2>试卷作答记录</h2>
+            <h2>{embedded ? "作答记录" : "全部作答记录"}</h2>
           </div>
         </div>
         <button
@@ -295,23 +303,25 @@ export function PaperJobHistory({
         onReset={resetFilters}
         onSearch={applyQuery}
         query={queryDraft}
-        queryLabel="按文件名筛选"
-        queryPlaceholder="搜索试卷文件名"
-        resetDisabled={!queryDraft && !query && !status && !unitCode && range === "all"}
+        queryLabel="按名称或文件名筛选"
+        queryPlaceholder="搜索作答名称或文件名"
+        resetDisabled={!queryDraft && !query && !status && !answerMode && !unitCode && range === "all"}
       >
-        <ListFilterSelect
-          ariaLabel="按科目筛选"
-          onValueChange={(value) => {
-            setPage(0);
-            setUnitCode("");
-            onSubjectChange(value);
-          }}
-          options={subjects.map((item) => ({
-            label: `${item.title} · ${item.subject_code}`,
-            value: item.id,
-          }))}
-          value={subject?.id ?? ""}
-        />
+        {!embedded && (
+          <ListFilterSelect
+            ariaLabel="按科目筛选"
+            onValueChange={(value) => {
+              setPage(0);
+              setUnitCode("");
+              onSubjectChange(value);
+            }}
+            options={subjects.map((item) => ({
+              label: `${item.title} · ${item.subject_code}`,
+              value: item.id,
+            }))}
+            value={subject?.id ?? ""}
+          />
+        )}
         <ListFilterSelect
           ariaLabel="按状态筛选"
           onValueChange={(value) => {
@@ -328,20 +338,35 @@ export function PaperJobHistory({
           value={status}
         />
         <ListFilterSelect
-          ariaLabel="按单元筛选"
+          ariaLabel="按来源筛选"
           onValueChange={(value) => {
             setPage(0);
-            setUnitCode(value);
+            setAnswerMode(value as "generated" | "uploaded" | "");
           }}
           options={[
-            { label: "全部单元", value: "" },
-            ...(subject?.units.map((item) => ({
-              label: item.code,
-              value: item.code,
-            })) ?? []),
+            { label: "全部来源", value: "" },
+            { label: "AI 作答", value: "generated" },
+            { label: "外部答卷", value: "uploaded" },
           ]}
-          value={unitCode}
+          value={answerMode}
         />
+        {!embedded && (
+          <ListFilterSelect
+            ariaLabel="按单元筛选"
+            onValueChange={(value) => {
+              setPage(0);
+              setUnitCode(value);
+            }}
+            options={[
+              { label: "全部单元", value: "" },
+              ...(subject?.units.map((item) => ({
+                label: item.code,
+                value: item.code,
+              })) ?? []),
+            ]}
+            value={unitCode}
+          />
+        )}
         <ListFilterSelect
           ariaLabel="按时间筛选"
           onValueChange={(value) => {
@@ -422,7 +447,12 @@ export function PaperJobHistory({
                       value={draftName}
                     />
                   ) : (
-                    <strong>{item.display_name || item.filename}</strong>
+                    <div className="paper-history-title-row">
+                      <strong>{item.display_name || item.filename}</strong>
+                      <span className={`paper-history-mode ${item.answer_mode === "uploaded" ? "uploaded" : "generated"}`}>
+                        {item.answer_mode === "uploaded" ? "外部答卷" : "AI 作答"}
+                      </span>
+                    </div>
                   )}
                   <small>
                     {formatDate(item.created_at)} · {item.unit_code || "未限定单元"}
@@ -471,13 +501,13 @@ export function PaperJobHistory({
                       </>
                     ) : (
                       <>
-                    <button className="secondary" onClick={() => onOpen(item.job_id)} type="button">
+                    <button className="secondary" onClick={() => onOpen(item.job_id, item.paper_unit_id)} type="button">
                       查看
                     </button>
                     {item.replaced_by_job_id ? (
                       <button
                         className="secondary"
-                        onClick={() => onOpen(item.replaced_by_job_id!)}
+                        onClick={() => onOpen(item.replaced_by_job_id!, item.paper_unit_id)}
                         type="button"
                       >
                         查看替代任务
@@ -559,7 +589,7 @@ export function PaperJobHistory({
         confirmLabel="删除作答记录"
         danger
         description={deleteCandidate
-          ? `将删除“${deleteCandidate.display_name || deleteCandidate.filename}”及其全部作答结果。此操作无法从页面恢复。`
+          ? `将永久删除“${deleteCandidate.display_name || deleteCandidate.filename}”的作答结果、关联评分、复核记录和作答文件。此操作无法恢复。`
           : ""}
         onConfirm={confirmDelete}
         onOpenChange={(open) => {
@@ -572,7 +602,7 @@ export function PaperJobHistory({
         busy={deleting}
         confirmLabel={`删除 ${selectedIds.size} 条记录`}
         danger
-        description={`将删除选中的 ${selectedIds.size} 条作答记录及其结果。此操作无法从页面恢复。`}
+        description={`将永久删除选中的 ${selectedIds.size} 条作答记录，以及关联评分、复核记录和作答文件。此操作无法恢复。`}
         onConfirm={confirmBulkDelete}
         onOpenChange={setBulkConfirming}
         open={bulkConfirming}
