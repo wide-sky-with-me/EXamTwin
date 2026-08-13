@@ -7,6 +7,8 @@ from examtwin.assessment.paper_job_repository import PaperJobRepository
 from examtwin.assessment.paper_job_runtime import PaperJobRuntime
 from examtwin.assessment.paper_jobs import PaperJobService
 from examtwin.assessment.paper_sources import PaperSourceStore
+from examtwin.assessment.paper_unit_repository import PaperUnitRepository
+from examtwin.assessment.paper_units import PaperUnitService
 from examtwin.assessment.paper_worker import PaperWorker
 from examtwin.assessment.rag import RagService
 from examtwin.assessment.rubric_repository import RubricRepository
@@ -180,6 +182,19 @@ def build_rubric_service(
         assessments,
         grading,
         markdown_cache=MarkdownCacheStore(build_object_store(settings)),
+    )
+
+
+def build_paper_unit_service(
+    settings: Settings,
+    subject: SubjectContext | None = None,
+) -> PaperUnitService:
+    sessions = create_session_factory(settings.database_url)
+    context = subject or subject_context(settings)
+    return PaperUnitService(
+        context,
+        PaperUnitRepository(sessions),
+        CorpusRepository(sessions),
     )
 
 

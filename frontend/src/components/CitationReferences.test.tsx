@@ -37,7 +37,7 @@ describe("CitationMarkdown", () => {
         headers: { "Content-Type": "application/json" },
       })));
     const { rerender } = render(
-      <CitationMarkdown citations={citations} query="recurrence">
+      <CitationMarkdown citations={citations} query="recurrence" subjectId="test-subject">
         The recurrence follows the textbook definition [S1].
       </CitationMarkdown>,
     );
@@ -58,7 +58,7 @@ describe("CitationMarkdown", () => {
     });
 
     rerender(
-      <CitationMarkdown citations={citations} query="recurrence">
+      <CitationMarkdown citations={citations} query="recurrence" subjectId="test-subject">
         The recurrence follows the textbook definition [S1].
       </CitationMarkdown>,
     );

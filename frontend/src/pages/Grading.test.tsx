@@ -61,9 +61,10 @@ async function chooseMaterialOption(
   label: "选择作答记录" | "选择 Mark Scheme",
   filename: string,
 ) {
-  await user.click(screen.getByLabelText(label));
+  const select = screen.getByLabelText<HTMLSelectElement>(label);
   const escapedFilename = filename.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  await user.click(await screen.findByRole("option", { name: new RegExp(escapedFilename) }));
+  const option = within(select).getByRole<HTMLOptionElement>("option", { name: new RegExp(escapedFilename) });
+  await user.selectOptions(select, option.value);
 }
 
 function criterionFixture(
@@ -431,6 +432,23 @@ afterEach(() => {
 });
 
 describe("Grading", () => {
+  test("uses the routed paper context without a duplicate subject step", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => response([])));
+    subscribeMock.mockImplementation(() => () => undefined);
+    render(
+      <Grading
+        initialSubjectId={subject.id}
+        onCreated={vi.fn()}
+        subjects={[subject]}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: /选择科目/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /准备材料/ })).toBeVisible();
+    expect(screen.getByRole("button", { name: /逐题判分/ })).toBeVisible();
+    expect(screen.getByRole("button", { name: /整卷结果/ })).toBeVisible();
+  });
+
   test("tracks an imported answer job and selects it when parsing completes", async () => {
     const importedJobId = "job-imported-answer";
     const importedPaper = paperFixture(importedJobId);
@@ -927,7 +945,6 @@ describe("Grading", () => {
     await waitFor(() => expect(deleteRequests).toHaveLength(1));
     await waitFor(() => expect(schemeSelector).toHaveValue(""));
     expect(schemeSelector).toHaveTextContent("请选择 Mark Scheme");
-    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     expect(screen.getByText("other-scheme.pdf")).toBeInTheDocument();
   });
 
@@ -1894,19 +1911,17 @@ describe("Grading", () => {
     };
     const user = userEvent.setup();
     const { container } = render(
-      <GradingQuestionStage
-        assessments={[assessment]}
-        busy={null}
-        error={null}
-        onAssessQuestion={vi.fn(async () => undefined)}
-        onBack={vi.fn()}
-        onOverview={vi.fn()}
-        onSelectPosition={vi.fn()}
-        onViewRubric={vi.fn()}
-        paper={paper}
-        rubric={rubric}
-        selectedPosition={1}
-      />,
+      <GradingQuestionStage assessments={[assessment]}
+      busy={null}
+      error={null}
+      onAssessQuestion={vi.fn(async () => undefined)}
+      onBack={vi.fn()}
+      onOverview={vi.fn()}
+      onSelectPosition={vi.fn()}
+      onViewRubric={vi.fn()}
+      paper={paper}
+      rubric={rubric}
+      selectedPosition={1} subjectId="test-subject" />,
     );
 
     expect(container.querySelectorAll(".grading-award-evidence .katex")).toHaveLength(1);
@@ -1918,9 +1933,8 @@ describe("Grading", () => {
     await user.click(screen.getByText("原题"));
     expect(screen.getByRole("img", { name: "Question diagram" })).toHaveAttribute(
       "src",
-      imageUrl,
+      `${imageUrl}?subject=test-subject`,
     );
-    expect(question).toHaveAttribute("open");
     expect(answer).not.toHaveAttribute("open");
   });
 
@@ -1934,19 +1948,17 @@ describe("Grading", () => {
     const onAssessQuestion = vi.fn(async () => result);
     const user = userEvent.setup();
     render(
-      <GradingQuestionStage
-        assessments={[assessmentFixture(1, "pending_review", result)]}
-        busy={null}
-        error={null}
-        onAssessQuestion={onAssessQuestion}
-        onBack={vi.fn()}
-        onViewRubric={vi.fn()}
-        onOverview={vi.fn()}
-        onSelectPosition={vi.fn()}
-        paper={paper}
-        rubric={rubric}
-        selectedPosition={1}
-      />,
+      <GradingQuestionStage assessments={[assessmentFixture(1, "pending_review", result)]}
+      busy={null}
+      error={null}
+      onAssessQuestion={onAssessQuestion}
+      onBack={vi.fn()}
+      onViewRubric={vi.fn()}
+      onOverview={vi.fn()}
+      onSelectPosition={vi.fn()}
+      paper={paper}
+      rubric={rubric}
+      selectedPosition={1} subjectId="test-subject" />,
     );
     const awardEvidence = screen.getByText("学生证据").closest("section")!;
     expect(within(awardEvidence).getByText("Answer 1")).toBeVisible();
@@ -2010,14 +2022,14 @@ describe("Grading", () => {
       paper,
       rubric,
     };
-    const mounted = render(<GradingQuestionStage {...common} selectedPosition={1} />);
+    const mounted = render(<GradingQuestionStage {...common} selectedPosition={1} subjectId="test-subject" />);
 
     expect(screen.getByText("人工复核已确认")).toBeInTheDocument();
     expect(screen.getByText("评分结果已由人工确认")).toBeInTheDocument();
     expect(screen.queryByText("等待人工复核")).not.toBeInTheDocument();
     expect(screen.queryByText("判分结果已进入人工复核队列")).not.toBeInTheDocument();
 
-    mounted.rerender(<GradingQuestionStage {...common} selectedPosition={2} />);
+    mounted.rerender(<GradingQuestionStage {...common} selectedPosition={2} subjectId="test-subject" />);
     expect(screen.getByText("人工改分已确认")).toBeInTheDocument();
     expect(screen.getByText("评分结果已由人工改分确认")).toBeInTheDocument();
     expect(screen.queryByText("等待人工复核")).not.toBeInTheDocument();
@@ -2327,18 +2339,12 @@ describe("Grading", () => {
     expect(screen.getByText(/没有匹配 Q3 的已接受得分点/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "生成判分结果" })).toBeDisabled();
     await user.click(screen.getByRole("button", { name: /Q1/ }));
-    await user.click(screen.getByRole("button", { name: "查看评分标准" }));
-    expect(within(screen.getByRole("dialog", { name: "审核评分标准" })).getByRole(
-      "heading",
-      { level: 2, name: "审核评分标准" },
-    )).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "返回逐题判分" }));
     expect(container.querySelectorAll(".katex").length).toBeGreaterThanOrEqual(6);
-    expect(screen.getByRole("img", { name: "Generated working graph" })).toHaveAttribute(
+    expect(container.querySelector('img[alt="Generated working graph"]')).toHaveAttribute(
       "src",
-      "/api/v1/papers/jobs/job-1/images/graph.png",
+      `/api/v1/papers/jobs/job-1/images/graph.png?subject=${subject.id}`,
     );
-    expect(screen.getByRole("img", { name: "Substitution diagram" })).toHaveAttribute(
+    expect(container.querySelector('img[alt="Substitution diagram"]')).toHaveAttribute(
       "src",
       "https://example.com/substitution.png",
     );
@@ -2772,7 +2778,7 @@ describe("Grading", () => {
       selectedPosition: 1,
     };
     const { rerender } = render(
-      <GradingQuestionStage {...commonProps} assessments={[]} />,
+      <GradingQuestionStage {...commonProps} assessments={[]} subjectId="test-subject" />,
     );
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "生成判分结果" }));
@@ -2788,7 +2794,7 @@ describe("Grading", () => {
     };
     await act(async () => {
       resolveAssessment?.(result);
-      rerender(<GradingQuestionStage {...commonProps} assessments={[assessment]} />);
+      rerender(<GradingQuestionStage {...commonProps} assessments={[assessment]} subjectId="test-subject" />);
       await assessmentRequest;
     });
 

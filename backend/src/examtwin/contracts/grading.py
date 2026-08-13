@@ -96,6 +96,7 @@ class ReviewRequest(BaseModel):
 class ReviewQueueItem(SerializedResponse):
     id: str
     subject_code: str
+    subject_id: str
     question_ref: str | None
     total_awarded: float
     total_available: float

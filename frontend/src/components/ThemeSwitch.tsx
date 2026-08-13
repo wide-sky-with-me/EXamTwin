@@ -1,5 +1,5 @@
+import { Segmented, Tooltip } from "antd";
 import { Laptop, Moon, Sun } from "lucide-react";
-import { Tooltip } from "@radix-ui/themes";
 import { useEffect, useState } from "react";
 
 import {
@@ -29,29 +29,18 @@ export function ThemeSwitch() {
   }, [preference]);
 
   return (
-    <div className="theme-switch" role="group" aria-label="界面主题">
-      {choices.map(({ value, label, icon: Icon }) => (
-        <Tooltip
-          content={label}
-          delayDuration={300}
-          disableHoverableContent
-          key={value}
-          side="right"
-        >
-          <button
-            type="button"
-            className={`theme-switch-button${preference === value ? " active" : ""}`}
-            aria-label={label}
-            aria-pressed={preference === value}
-            onClick={() => {
-              setPreference(value);
-              saveTheme(value);
-            }}
-          >
-            <Icon aria-hidden="true" size={15} />
-          </button>
-        </Tooltip>
-      ))}
-    </div>
+    <Segmented<ThemePreference>
+      aria-label="界面主题"
+      onChange={(value) => {
+        setPreference(value);
+        saveTheme(value);
+      }}
+      options={choices.map(({ value, label, icon: Icon }) => ({
+        label: <Tooltip title={label}><Icon aria-label={label} size={15} /></Tooltip>,
+        value,
+      }))}
+      size="small"
+      value={preference}
+    />
   );
 }

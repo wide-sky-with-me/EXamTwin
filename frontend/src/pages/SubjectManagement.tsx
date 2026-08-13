@@ -1,4 +1,25 @@
 import {
+  Button,
+  Card,
+  Col,
+  ColorPicker,
+  Descriptions,
+  Drawer,
+  Empty,
+  Flex,
+  Form,
+  Input,
+  Modal,
+  Row,
+  Select,
+  Skeleton,
+  Space,
+  Statistic,
+  Tabs,
+  Tag,
+  Typography,
+} from "antd";
+import {
   Atom,
   BookOpen,
   BookOpenText,
@@ -10,22 +31,20 @@ import {
   GraduationCap,
   Languages,
   Landmark,
-  LoaderCircle,
   Plus,
-  Search,
   Settings2,
   Trash2,
-  X,
 } from "lucide-react";
-import { type CSSProperties, type FormEvent, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { ErrorBanner } from "../components/Feedback";
 import { SubjectWorkspace } from "../components/SubjectWorkspace";
 import { AppConfirmDialog } from "../components/ui/AppConfirmDialog";
-import { AppDialog } from "../components/ui/AppDialog";
-import { apiClient, setApiSubject, unwrapApi } from "../lib/api";
+import { ListFilterBar, ListFilterSelect, ListPagination } from "../components/ui/ListControls";
+import { apiClient, subjectHeaders, unwrapApi } from "../lib/api";
 import type { SubjectStatus } from "../types";
 
+const { Paragraph, Text, Title } = Typography;
 const ICONS = {
   "book-open": BookOpen,
   calculator: Calculator,
@@ -39,6 +58,7 @@ const ICONS = {
 
 type SubjectIcon = keyof typeof ICONS;
 type SubjectTab = "basic" | "documents" | "knowledge";
+type SubjectAvailability = "" | "enabled" | "disabled";
 type CapabilityProfile = {
   id: string;
   subject_code: string;
@@ -56,7 +76,8 @@ type CreateForm = {
   color: string;
 };
 
-const emptyCreateForm: CreateForm = {
+const PAGE_SIZES = [10, 20, 50] as const;
+const EMPTY_CREATE_FORM: CreateForm = {
   id: "",
   subject_code: "",
   title: "",
@@ -65,6 +86,10 @@ const emptyCreateForm: CreateForm = {
   icon: "book-open",
   color: "#2F6FED",
 };
+
+function subjectIcon(subject: SubjectStatus): SubjectIcon {
+  return subject.icon && subject.icon in ICONS ? subject.icon as SubjectIcon : "book-open";
+}
 
 function IconPicker({
   icon,
@@ -76,20 +101,29 @@ function IconPicker({
   onChange: (next: { icon: SubjectIcon; color: string }) => void;
 }) {
   return (
-    <fieldset className="subject-appearance full-field">
-      <legend>图标与颜色</legend>
-      <div className="icon-picker">
+    <Form.Item label="图标与颜色">
+      <Flex align="center" gap="small" wrap>
         {(Object.keys(ICONS) as SubjectIcon[]).map((value) => {
           const Icon = ICONS[value];
           return (
-            <button aria-label={value} aria-pressed={icon === value} key={value} onClick={() => onChange({ icon: value, color })} type="button">
-              <Icon size={19} />
-            </button>
+            <Button
+              aria-label={value}
+              aria-pressed={icon === value}
+              icon={<Icon size={18} />}
+              key={value}
+              onClick={() => onChange({ icon: value, color })}
+              shape="circle"
+              type={icon === value ? "primary" : "default"}
+            />
           );
         })}
-        <input aria-label="科目颜色" onChange={(event) => onChange({ icon, color: event.target.value.toUpperCase() })} type="color" value={color} />
-      </div>
-    </fieldset>
+        <ColorPicker
+          aria-label="科目颜色"
+          onChange={(nextColor) => onChange({ icon, color: nextColor.toHexString().toUpperCase() })}
+          value={color}
+        />
+      </Flex>
+    </Form.Item>
   );
 }
 
@@ -102,27 +136,37 @@ export function SubjectManagement({
   refresh: () => Promise<void>;
   loading: boolean;
 }) {
+  const [queryDraft, setQueryDraft] = useState("");
   const [query, setQuery] = useState("");
+  const [availability, setAvailability] = useState<SubjectAvailability>("");
+  const [board, setBoard] = useState("");
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0]);
   const [createOpen, setCreateOpen] = useState(false);
   const [manageOpen, setManageOpen] = useState(false);
   const [managedSubjectId, setManagedSubjectId] = useState<string | null>(null);
   const [tab, setTab] = useState<SubjectTab>("basic");
   const [profiles, setProfiles] = useState<CapabilityProfile[]>([]);
-  const [createForm, setCreateForm] = useState<CreateForm>(emptyCreateForm);
+  const [createForm, setCreateForm] = useState<CreateForm>(EMPTY_CREATE_FORM);
   const [editForm, setEditForm] = useState({ title: "", icon: "book-open" as SubjectIcon, color: "#2F6FED" });
   const [busy, setBusy] = useState<"create" | "save" | "delete" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<SubjectStatus | null>(null);
 
   const managedSubject = subjects.find((subject) => subject.id === managedSubjectId) ?? null;
+  const boards = useMemo(() => [...new Set(subjects.map((subject) => subject.board_name))].sort(), [subjects]);
   const filteredSubjects = useMemo(() => {
-    const normalized = query.trim().toLowerCase();
-    if (!normalized) return subjects;
-    return subjects.filter((subject) =>
-      [subject.title, subject.subject_code, subject.board_name]
-        .some((value) => value.toLowerCase().includes(normalized)),
-    );
-  }, [query, subjects]);
+    const normalized = query.toLowerCase();
+    return subjects.filter((subject) => {
+      const matchesQuery = !normalized || [subject.title, subject.subject_code, subject.board_name]
+        .some((value) => value.toLowerCase().includes(normalized));
+      const matchesAvailability = !availability || subject.answering_enabled === (availability === "enabled");
+      return matchesQuery && matchesAvailability && (!board || subject.board_name === board);
+    });
+  }, [availability, board, query, subjects]);
+  const totalPages = Math.max(1, Math.ceil(filteredSubjects.length / pageSize));
+  const currentPage = Math.min(page, totalPages - 1);
+  const pageSubjects = filteredSubjects.slice(currentPage * pageSize, (currentPage + 1) * pageSize);
 
   useEffect(() => {
     if (!createOpen) return;
@@ -132,22 +176,16 @@ export function SubjectManagement({
   }, [createOpen]);
 
   function openManager(subject: SubjectStatus, initialTab: SubjectTab = "basic") {
-    setApiSubject(subject.id);
     setManagedSubjectId(subject.id);
     setManageOpen(true);
     setTab(initialTab);
-    setEditForm({
-      title: subject.title,
-      icon: subject.icon && subject.icon in ICONS ? subject.icon as SubjectIcon : "book-open",
-      color: subject.color ?? "#2F6FED",
-    });
+    setEditForm({ title: subject.title, icon: subjectIcon(subject), color: subject.color ?? "#2F6FED" });
     setError(null);
   }
 
   function closeManager() {
     setManageOpen(false);
     setManagedSubjectId(null);
-    setApiSubject(null);
     setError(null);
   }
 
@@ -162,8 +200,7 @@ export function SubjectManagement({
     }));
   }
 
-  async function createSubject(event: FormEvent) {
-    event.preventDefault();
+  async function createSubject() {
     setBusy("create");
     setError(null);
     try {
@@ -180,7 +217,7 @@ export function SubjectManagement({
         },
       }));
       setCreateOpen(false);
-      setCreateForm(emptyCreateForm);
+      setCreateForm(EMPTY_CREATE_FORM);
       await refresh();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "科目创建失败");
@@ -194,8 +231,8 @@ export function SubjectManagement({
     setBusy("save");
     setError(null);
     try {
-      setApiSubject(managedSubject.id);
       await unwrapApi(apiClient.PATCH("/api/v1/subject-workspaces/{workspace_id}", {
+        headers: subjectHeaders(managedSubject.id),
         params: { path: { workspace_id: managedSubject.id } },
         body: editForm,
       }));
@@ -211,9 +248,7 @@ export function SubjectManagement({
     setBusy("delete");
     setError(null);
     try {
-      await unwrapApi(apiClient.POST("/api/v1/subject-workspaces/batch-delete", {
-        body: { subject_ids: [subject.id] },
-      }));
+      await unwrapApi(apiClient.POST("/api/v1/subject-workspaces/batch-delete", { body: { subject_ids: [subject.id] } }));
       closeManager();
       setPendingDelete(null);
       await refresh();
@@ -224,111 +259,171 @@ export function SubjectManagement({
     }
   }
 
-  return (
-    <div className="subject-page">
-      <header className="page-heading subject-heading">
-        <div><h1>科目管理</h1></div>
-        <button className="primary" onClick={() => { setCreateOpen(true); setError(null); }} type="button"><Plus size={17} />新增科目</button>
-      </header>
+  function resetFilters() {
+    setQueryDraft("");
+    setQuery("");
+    setAvailability("");
+    setBoard("");
+    setPage(0);
+  }
 
-      <div className="subject-toolbar">
-        <label className="search-field"><Search size={17} /><input aria-label="搜索科目" onChange={(event) => setQuery(event.target.value)} placeholder="搜索科目名称或代码" value={query} /></label>
-        <span>{filteredSubjects.length} 个科目</span>
-      </div>
+  return (
+    <Space orientation="vertical" size="large" style={{ width: "100%" }}>
+      <Flex align="flex-end" justify="space-between" wrap gap="middle">
+        <div>
+          <Title level={1} style={{ marginBottom: 4 }}>科目</Title>
+          <Paragraph type="secondary" style={{ margin: 0 }}>课程资料、知识版本和考试任务的长期工作空间。</Paragraph>
+        </div>
+        <Button icon={<Plus size={17} />} onClick={() => { setCreateOpen(true); setError(null); }} size="large" type="primary">新增科目</Button>
+      </Flex>
+
+      <ListFilterBar
+        ariaLabel="科目搜索与筛选"
+        onQueryChange={setQueryDraft}
+        onReset={resetFilters}
+        onSearch={() => { setPage(0); setQuery(queryDraft.trim()); }}
+        query={queryDraft}
+        queryLabel="搜索科目"
+        queryPlaceholder="搜索科目名称、代码或考试局"
+        resetDisabled={!queryDraft && !query && !availability && !board}
+      >
+        <ListFilterSelect
+          ariaLabel="按科目状态筛选"
+          onValueChange={(value) => { setPage(0); setAvailability(value as SubjectAvailability); }}
+          options={[{ label: "全部状态", value: "" }, { label: "可用", value: "enabled" }, { label: "需配置", value: "disabled" }]}
+          value={availability}
+        />
+        <ListFilterSelect
+          ariaLabel="按考试局筛选"
+          onValueChange={(value) => { setPage(0); setBoard(value); }}
+          options={[{ label: "全部考试局", value: "" }, ...boards.map((item) => ({ label: item, value: item }))]}
+          value={board}
+        />
+      </ListFilterBar>
 
       <ErrorBanner message={!createOpen && !manageOpen ? error : null} />
-      {loading && !subjects.length ? (
-        <div className="empty"><LoaderCircle className="spin" size={28} /><p>正在加载科目…</p></div>
+      {loading && subjects.length === 0 ? (
+        <Row gutter={[16, 16]}>{Array.from({ length: 6 }, (_, index) => <Col key={index} lg={8} md={12} xs={24}><Card><Skeleton active /></Card></Col>)}</Row>
+      ) : pageSubjects.length === 0 ? (
+        <Card><Empty description={query || availability || board ? "没有符合当前条件的科目" : "还没有科目，先创建一个"} image={<BookOpenText size={48} />} /></Card>
       ) : (
-        <div className="subject-card-grid">
-          {filteredSubjects.map((subject) => {
-            const icon = subject.icon && subject.icon in ICONS ? subject.icon as SubjectIcon : "book-open";
-            const Icon = ICONS[icon];
+        <Row gutter={[16, 16]}>
+          {pageSubjects.map((subject) => {
+            const Icon = ICONS[subjectIcon(subject)];
             return (
-              <article className="subject-card" key={subject.id} style={{ "--subject-color": subject.color ?? "#2F6FED" } as CSSProperties}>
-                <header>
-                  <span className="subject-card-icon"><Icon size={23} /></span>
-                  <button aria-label={`管理 ${subject.title}`} className="icon-button" onClick={() => openManager(subject)} type="button"><Settings2 size={18} /></button>
-                </header>
-                <button className="subject-card-main" onClick={() => openManager(subject)} type="button">
-                  <strong>{subject.title}</strong><span>{subject.subject_code} · {subject.board_name}</span>
-                </button>
-                <dl>
-                  <div><dt><FileText size={15} />资料</dt><dd>{subject.stats?.documents_total ?? 0}</dd></div>
-                  <div><dt><Database size={15} />向量</dt><dd>{subject.vector_points}</dd></div>
-                </dl>
-                <footer>
-                  <span className={subject.answering_enabled ? "status-dot success" : "status-dot warning"}>{subject.answering_enabled ? "可用" : "需配置"}</span>
-                  <button onClick={() => openManager(subject, "documents")} type="button">管理资料</button>
-                </footer>
-              </article>
+              <Col key={subject.id} lg={8} md={12} xs={24}>
+                <Card
+                  actions={[
+                    <Button key="documents" onClick={() => openManager(subject, "documents")} type="link">管理资料</Button>,
+                    <Button aria-label={`管理 ${subject.title}`} icon={<Settings2 size={16} />} key="manage" onClick={() => openManager(subject)} type="link">设置</Button>,
+                  ]}
+                  hoverable
+                  style={{ borderTop: `3px solid ${subject.color ?? "#2F6FED"}` }}
+                  title={<Space><span style={{ color: subject.color ?? "#2F6FED" }}><Icon size={22} /></span><Text strong>{subject.title}</Text></Space>}
+                >
+                  <Space orientation="vertical" size="middle" style={{ width: "100%" }}>
+                    <Flex justify="space-between" wrap gap="small">
+                      <Space><Tag color="blue">{subject.subject_code}</Tag><Text type="secondary">{subject.board_name}</Text></Space>
+                      <Tag color={subject.answering_enabled ? "success" : "warning"}>{subject.answering_enabled ? "可用" : "需配置"}</Tag>
+                    </Flex>
+                    <Row gutter={12}>
+                      <Col span={12}><Statistic prefix={<FileText size={15} />} title="资料" value={subject.stats?.documents_total ?? 0} /></Col>
+                      <Col span={12}><Statistic prefix={<Database size={15} />} title="向量" value={subject.vector_points} /></Col>
+                    </Row>
+                  </Space>
+                </Card>
+              </Col>
             );
           })}
-          {!filteredSubjects.length && <div className="empty subject-empty"><BookOpenText size={32} /><p>{query ? "没有匹配的科目。" : "还没有科目，先创建一个。"}</p></div>}
-        </div>
+        </Row>
       )}
 
-      {createOpen && (
-        <AppDialog
-          contentClassName="modal-card subject-create-modal"
-          dismissible={busy === null}
-          initialFocusSelector="#create-subject-title"
-          onOpenChange={setCreateOpen}
-          open
-          title="新增科目"
-        >
-            <header className="modal-header"><div><span>科目管理</span><h2 id="create-subject-title">新增科目</h2></div><button aria-label="关闭" className="icon-button" data-modal-close onClick={() => setCreateOpen(false)} type="button"><X size={19} /></button></header>
-            <form className="subject-form" onSubmit={(event) => void createSubject(event)}>
-              <ErrorBanner message={error} />
-              <label className="full-field">课程模板（可选）<select onChange={(event) => chooseProfile(event.target.value)} value={createForm.capability_profile_id}><option value="">不使用模板</option>{profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.title} · {profile.subject_code}</option>)}</select></label>
-              <label>科目名称<input maxLength={200} onChange={(event) => setCreateForm({ ...createForm, title: event.target.value })} required value={createForm.title} /></label>
-              <label>科目代码<input maxLength={32} onChange={(event) => setCreateForm({ ...createForm, subject_code: event.target.value })} pattern="[A-Za-z0-9._-]{2,32}" required value={createForm.subject_code} /></label>
-              <label>科目标识<input maxLength={63} onChange={(event) => setCreateForm({ ...createForm, id: event.target.value.toLowerCase() })} pattern="[a-z0-9][a-z0-9-]{1,62}" required value={createForm.id} /></label>
-              <label>考试局 / 课程体系<input maxLength={200} onChange={(event) => setCreateForm({ ...createForm, board_name: event.target.value })} required value={createForm.board_name} /></label>
-              <IconPicker color={createForm.color} icon={createForm.icon} onChange={(next) => setCreateForm({ ...createForm, ...next })} />
-              <footer className="modal-actions"><button className="secondary" onClick={() => setCreateOpen(false)} type="button">取消</button><button className="primary" disabled={busy !== null} type="submit">{busy === "create" && <LoaderCircle className="spin" size={16} />}创建科目</button></footer>
-            </form>
-        </AppDialog>
-      )}
+      <ListPagination
+        ariaLabel="科目分页"
+        disabled={loading}
+        itemName="科目"
+        itemUnit="个"
+        onPageChange={setPage}
+        onPageSizeChange={(size) => { setPage(0); setPageSize(size); }}
+        page={currentPage}
+        pageSize={pageSize}
+        pageSizes={PAGE_SIZES}
+        total={filteredSubjects.length}
+        visibleCount={pageSubjects.length}
+      />
 
-      {manageOpen && managedSubject && (
-        <AppDialog
-          contentClassName="modal-card subject-manage-modal"
-          dismissible={busy === null}
-          initialFocusSelector="#manage-subject-title"
-          onOpenChange={(open) => { if (!open) closeManager(); }}
-          open
-          title={managedSubject.title}
-        >
-            <header className="modal-header"><div><span>{managedSubject.subject_code}</span><h2 id="manage-subject-title">{managedSubject.title}</h2></div><button aria-label="关闭" className="icon-button" data-modal-close onClick={closeManager} type="button"><X size={19} /></button></header>
-            <nav className="modal-tabs" aria-label="科目设置"><button aria-current={tab === "basic" ? "page" : undefined} onClick={() => setTab("basic")} type="button">基本信息</button><button aria-current={tab === "documents" ? "page" : undefined} onClick={() => setTab("documents")} type="button">资料管理</button><button aria-current={tab === "knowledge" ? "page" : undefined} onClick={() => setTab("knowledge")} type="button">知识库</button></nav>
-            <div className="subject-modal-body">
-              <ErrorBanner message={error} />
-              {tab === "basic" && (
-                <section className="subject-form subject-edit-form">
-                  <label className="full-field">科目名称<input maxLength={200} onChange={(event) => setEditForm({ ...editForm, title: event.target.value })} required value={editForm.title} /></label>
-                  <IconPicker color={editForm.color} icon={editForm.icon} onChange={(next) => setEditForm({ ...editForm, ...next })} />
-                  <div className="readonly-subject-fields"><div><span>科目标识</span><strong>{managedSubject.id}</strong></div><div><span>科目代码</span><strong>{managedSubject.subject_code}</strong></div><div><span>课程体系</span><strong>{managedSubject.board_name}</strong></div></div>
-                  <footer className="modal-actions"><button className="danger-button" disabled={busy !== null} onClick={() => setPendingDelete(managedSubject)} type="button"><Trash2 size={16} />删除科目</button><button className="primary" disabled={!editForm.title.trim() || busy !== null} onClick={() => void saveSubject()} type="button">{busy === "save" && <LoaderCircle className="spin" size={16} />}保存修改</button></footer>
-                </section>
-              )}
-              {tab === "documents" && <SubjectWorkspace key={`${managedSubject.id}-documents`} onChanged={refresh} subject={managedSubject} view="documents" />}
-              {tab === "knowledge" && <SubjectWorkspace key={`${managedSubject.id}-knowledge`} onChanged={refresh} subject={managedSubject} view="knowledge" />}
-            </div>
-        </AppDialog>
-      )}
+      <Modal destroyOnHidden footer={null} onCancel={() => setCreateOpen(false)} open={createOpen} title="新增科目" width={720}>
+        <Form layout="vertical" onFinish={() => void createSubject()}>
+          <ErrorBanner message={error} />
+          <Form.Item label="课程模板（可选）">
+            <Select
+              onChange={chooseProfile}
+              options={[{ label: "不使用模板", value: "" }, ...profiles.map((profile) => ({ label: `${profile.title} · ${profile.subject_code}`, value: profile.id }))]}
+              value={createForm.capability_profile_id}
+            />
+          </Form.Item>
+          <Row gutter={16}>
+            <Col span={12}><Form.Item label="科目名称" required><Input maxLength={200} onChange={(event) => setCreateForm({ ...createForm, title: event.target.value })} value={createForm.title} /></Form.Item></Col>
+            <Col span={12}><Form.Item label="科目代码" required><Input maxLength={32} onChange={(event) => setCreateForm({ ...createForm, subject_code: event.target.value })} value={createForm.subject_code} /></Form.Item></Col>
+            <Col span={12}><Form.Item label="科目标识" required><Input maxLength={63} onChange={(event) => setCreateForm({ ...createForm, id: event.target.value.toLowerCase() })} value={createForm.id} /></Form.Item></Col>
+            <Col span={12}><Form.Item label="考试局 / 课程体系" required><Input maxLength={200} onChange={(event) => setCreateForm({ ...createForm, board_name: event.target.value })} value={createForm.board_name} /></Form.Item></Col>
+          </Row>
+          <IconPicker color={createForm.color} icon={createForm.icon} onChange={(next) => setCreateForm({ ...createForm, ...next })} />
+          <Flex gap="small" justify="flex-end"><Button onClick={() => setCreateOpen(false)}>取消</Button><Button disabled={!createForm.id || !createForm.subject_code || !createForm.title || !createForm.board_name} htmlType="submit" loading={busy === "create"} type="primary">创建科目</Button></Flex>
+        </Form>
+      </Modal>
+
+      <Drawer
+        destroyOnHidden
+        onClose={closeManager}
+        open={manageOpen && managedSubject !== null}
+        size="large"
+        title={managedSubject ? `${managedSubject.title} · ${managedSubject.subject_code}` : "科目设置"}
+      >
+        {managedSubject && (
+          <Space orientation="vertical" size="large" style={{ width: "100%" }}>
+            <ErrorBanner message={error} />
+            <Tabs
+              activeKey={tab}
+              items={[
+                {
+                  key: "basic",
+                  label: "基本信息",
+                  children: (
+                    <Form layout="vertical">
+                      <Form.Item label="科目名称" required><Input maxLength={200} onChange={(event) => setEditForm({ ...editForm, title: event.target.value })} value={editForm.title} /></Form.Item>
+                      <IconPicker color={editForm.color} icon={editForm.icon} onChange={(next) => setEditForm({ ...editForm, ...next })} />
+                      <Descriptions bordered column={1} size="small">
+                        <Descriptions.Item label="科目标识"><Text code>{managedSubject.id}</Text></Descriptions.Item>
+                        <Descriptions.Item label="科目代码">{managedSubject.subject_code}</Descriptions.Item>
+                        <Descriptions.Item label="课程体系">{managedSubject.board_name}</Descriptions.Item>
+                      </Descriptions>
+                      <Flex gap="small" justify="space-between" style={{ marginTop: 24 }}>
+                        <Button danger icon={<Trash2 size={16} />} onClick={() => setPendingDelete(managedSubject)}>删除科目</Button>
+                        <Button disabled={!editForm.title.trim()} loading={busy === "save"} onClick={() => void saveSubject()} type="primary">保存修改</Button>
+                      </Flex>
+                    </Form>
+                  ),
+                },
+                { key: "documents", label: "资料管理", children: <SubjectWorkspace key={`${managedSubject.id}-documents`} onChanged={refresh} subject={managedSubject} view="documents" /> },
+                { key: "knowledge", label: "知识库", children: <SubjectWorkspace key={`${managedSubject.id}-knowledge`} onChanged={refresh} subject={managedSubject} view="knowledge" /> },
+              ]}
+              onChange={(key) => setTab(key as SubjectTab)}
+            />
+          </Space>
+        )}
+      </Drawer>
+
       <AppConfirmDialog
         busy={busy === "delete"}
         confirmLabel="永久删除科目"
         danger
-        description={pendingDelete
-          ? `将删除“${pendingDelete.title}”的资料、知识库、作答和评分记录。此操作不可恢复。`
-          : ""}
+        description={pendingDelete ? `将删除“${pendingDelete.title}”的资料、知识库、作答和评分记录。此操作不可恢复。` : ""}
         onConfirm={() => pendingDelete ? deleteSubject(pendingDelete) : undefined}
         onOpenChange={(open) => { if (!open) setPendingDelete(null); }}
         open={pendingDelete !== null}
         title="确认删除科目"
       />
-    </div>
+    </Space>
   );
 }

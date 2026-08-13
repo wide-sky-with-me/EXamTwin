@@ -1,10 +1,16 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import type { ReactElement } from "react";
+import { render as testingLibraryRender, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import { deletePaperJobs, listPaperJobs, replacePaperJob } from "../lib/api";
 import type { PaperJobList, SubjectPack } from "../types";
+import { DesignSystemProvider } from "./ui/DesignSystemProvider";
 import { PaperJobHistory } from "./PaperJobHistory";
+
+function render(ui: ReactElement) {
+  return testingLibraryRender(ui, { wrapper: DesignSystemProvider });
+}
 
 vi.mock("../lib/api", () => ({
   deletePaperJobs: vi.fn(),
@@ -15,10 +21,19 @@ vi.mock("../lib/api", () => ({
 const subject = {
   id: "oxfordaqa-mathematics-9660",
   subject_code: "9660",
+  title: "Mathematics",
+  board_name: "OxfordAQA",
   units: [
     { code: "P1", title: "Pure Mathematics 1" },
     { code: "M1", title: "Mechanics 1" },
   ],
+} as SubjectPack;
+const economics = {
+  ...subject,
+  id: "oxfordaqa-economics-9640",
+  subject_code: "9640",
+  title: "Economics",
+  units: [],
 } as SubjectPack;
 
 const history: PaperJobList = {
@@ -60,17 +75,21 @@ beforeEach(() => {
   });
 });
 
+
 describe("PaperJobHistory", () => {
   test("loads records, applies filters and opens the selected result", async () => {
     const user = userEvent.setup();
     const onOpen = vi.fn();
+    const onSubjectChange = vi.fn();
     render(
       <PaperJobHistory
         currentJobId={null}
         onDeleted={vi.fn()}
         onOpen={onOpen}
+        onSubjectChange={onSubjectChange}
         refreshKey={0}
         subject={subject}
+        subjects={[subject, economics]}
       />,
     );
 
@@ -78,18 +97,44 @@ describe("PaperJobHistory", () => {
     expect(screen.getByText("处理完成", { selector: ".paper-history-status" }))
       .toBeInTheDocument();
     expect(screen.getByText("13/13 题已处理")).toBeInTheDocument();
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "按科目筛选" }),
+      economics.id,
+    );
+    await waitFor(() => expect(onSubjectChange).toHaveBeenCalledWith(economics.id));
+
 
     await user.type(screen.getByRole("searchbox", { name: "按文件名筛选" }), "2026");
-    await user.selectOptions(screen.getByRole("combobox", { name: "按状态筛选" }), "completed");
-    await user.selectOptions(screen.getByRole("combobox", { name: "按单元筛选" }), "P1");
-    await user.click(screen.getByRole("button", { name: "筛选" }));
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "按状态筛选" }),
+      "completed",
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "按单元筛选" }),
+      "P1",
+    );
 
     await waitFor(() => {
       expect(listMock).toHaveBeenLastCalledWith(
+        subject.id,
         expect.objectContaining({
           status: "completed",
           unitCode: "P1",
           query: "2026",
+          limit: 10,
+          offset: 0,
+        }),
+      );
+    });
+    await user.click(screen.getByRole("button", { name: "重置" }));
+    await waitFor(() => {
+      expect(listMock).toHaveBeenLastCalledWith(
+        subject.id,
+        expect.objectContaining({
+          status: undefined,
+          unitCode: undefined,
+          query: undefined,
+          createdAfter: undefined,
           limit: 10,
           offset: 0,
         }),
@@ -119,7 +164,7 @@ describe("PaperJobHistory", () => {
     expect(deleteMock).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "删除作答记录" }));
-    await waitFor(() => expect(deleteMock).toHaveBeenCalledWith(["job-1"]));
+    await waitFor(() => expect(deleteMock).toHaveBeenCalledWith(subject.id, ["job-1"]));
     expect(onDeleted).toHaveBeenCalledWith("job-1");
   });
 
@@ -156,7 +201,7 @@ describe("PaperJobHistory", () => {
     expect(screen.getByText(/将删除“stuck-paper\.pdf”及其全部作答结果/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "删除作答记录" }));
 
-    await waitFor(() => expect(deleteMock).toHaveBeenCalledWith(["queued-job"]));
+    await waitFor(() => expect(deleteMock).toHaveBeenCalledWith(subject.id, ["queued-job"]));
     expect(onDeleted).toHaveBeenCalledWith("queued-job");
   });
 
@@ -199,7 +244,7 @@ describe("PaperJobHistory", () => {
     expect(deleteMock).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "删除 2 条记录" }));
-    await waitFor(() => expect(deleteMock).toHaveBeenCalledWith(["job-1", "job-2"]));
+    await waitFor(() => expect(deleteMock).toHaveBeenCalledWith(subject.id, ["job-1", "job-2"]));
     expect(onDeleted).toHaveBeenCalledWith("job-2");
   });
 
@@ -227,7 +272,7 @@ describe("PaperJobHistory", () => {
     expect(await screen.findByText("旧版未验证结果 · 不应作为可信答案"))
       .toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "修复并重跑" }));
-    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("job-1"));
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith(subject.id, "job-1"));
     expect(onOpen).toHaveBeenCalledWith("replacement-job");
   });
 
@@ -244,18 +289,23 @@ describe("PaperJobHistory", () => {
       />,
     );
 
-    await screen.findByText("第 1 / 3 页");
-    await user.selectOptions(screen.getByRole("combobox", { name: "每页显示条数" }), "20");
+    await screen.findByText("1 / 3");
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "每页显示条数" }),
+      "20",
+    );
     await waitFor(() =>
       expect(listMock).toHaveBeenLastCalledWith(
+        subject.id,
         expect.objectContaining({ limit: 20, offset: 0 }),
       ),
     );
-    expect(screen.getByText("第 1 / 2 页")).toBeInTheDocument();
+    expect(screen.getByText("1 / 2")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "下一页作答记录" }));
     await waitFor(() =>
       expect(listMock).toHaveBeenLastCalledWith(
+        subject.id,
         expect.objectContaining({ limit: 20, offset: 20 }),
       ),
     );

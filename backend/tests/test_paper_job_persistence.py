@@ -17,6 +17,7 @@ from examtwin.assessment.answering_agent.contracts import ToolReplayPayload
 from examtwin.assessment.paper_answering import SPLIT_CONTRACT_VERSION
 from examtwin.assessment.paper_job_repository import LostLeaseError, PaperJobRepository
 from examtwin.assessment.paper_jobs import PaperJobService
+from examtwin.assessment.paper_parsing import ParsedPaperChunk
 from examtwin.assessment.paper_vision import (
     VISION_REVIEW_CONTRACT_VERSION,
     VisionPageClassification,
@@ -34,7 +35,6 @@ from examtwin.platform.config import Settings
 from examtwin.subjects.packages import subject_package_registry
 from examtwin.subjects.public import subject_context
 from examtwin.subjects.workspace_repository import WorkspaceRepository
-from llama_index.core import Document
 
 from backend.tests.paper_job_support import (
     FakeAnswerService,
@@ -73,7 +73,7 @@ def test_agent_tool_ledger_replays_a_completed_safe_call_across_attempts(
     database = _test_database()
     settings = Settings(
         object_store_local_root=tmp_path,
-        subject_pack="oxfordaqa-economics-9640",
+        subject_pack="oxfordaqa-mathematics-9660",
         database_url=database.database_url,
     )
     context = subject_context(settings).with_retrieval_snapshot(
@@ -459,27 +459,24 @@ def test_pdf_transport_disconnect_is_retried_before_job_failure(
     runtime = _job_runtime(database, settings)
     calls = 0
 
-    class FlakyMinerUReader:
-        def load_data(
-            self,
-            _source: Path,
-            *,
-            extra_info: dict[str, Any],
-        ) -> list[Document]:
-            nonlocal calls
-            calls += 1
-            if calls == 1:
-                raise httpx.RemoteProtocolError("Server disconnected without sending a response.")
-            return [
-                Document(
-                    text="# Question 1\nEvaluate the integral, showing all working.",
-                    metadata={"page": 1, **extra_info},
-                )
-            ]
+    def flaky_extract_paper_chunk(
+        _settings: Settings,
+        _source: Path,
+        *,
+        timeout: int | None = None,
+    ) -> ParsedPaperChunk:
+        del timeout
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise httpx.RemoteProtocolError("Server disconnected without sending a response.")
+        return ParsedPaperChunk(
+            markdown="# Question 1\nEvaluate the integral, showing all working."
+        )
 
     monkeypatch.setattr(
-        "examtwin.assessment.paper_worker.mineru_reader",
-        lambda _settings, *, timeout: FlakyMinerUReader(),
+        "examtwin.assessment.paper_worker.extract_paper_chunk",
+        flaky_extract_paper_chunk,
     )
     created = jobs.create_job(
         "transport-retry.pdf",

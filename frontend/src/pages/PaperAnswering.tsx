@@ -40,7 +40,7 @@ import {
   apiClient,
   backendResourceUrl,
   replacePaperJob,
-  setApiSubject,
+  subjectHeaders,
   unwrapApi,
   uploadPaper,
 } from "../lib/api";
@@ -67,16 +67,20 @@ export function PaperAnswering({
   enabled,
   subjects: providedSubjects,
   subject: legacySubject,
+  initialSubjectId,
+  initialJobId,
 }: {
   enabled: boolean;
   subjects?: SubjectPack[];
   subject?: SubjectPack | null;
+  initialSubjectId?: string;
+  initialJobId?: string;
 }) {
   const subjects = useMemo(
     () => providedSubjects ?? (legacySubject ? [legacySubject] : []),
     [legacySubject, providedSubjects],
   );
-  const [subjectId, setSubjectId] = useState(legacySubject?.id ?? subjects[0]?.id ?? "");
+  const [subjectId, setSubjectId] = useState(initialSubjectId ?? legacySubject?.id ?? subjects[0]?.id ?? "");
   const [draftSubjectId, setDraftSubjectId] = useState("");
   const subject = subjects.find((item) => item.id === subjectId) ?? null;
   const canAnswer = enabled && Boolean(subject?.answering_enabled);
@@ -87,7 +91,7 @@ export function PaperAnswering({
   const [sourceBooklet, setSourceBooklet] = useState<File | null>(null);
   const [unit, setUnit] = useState("");
   const [jobId, setJobId] = useState<string | null>(() =>
-    window.localStorage.getItem(jobStorageKey),
+    initialJobId ?? window.localStorage.getItem(jobStorageKey),
   );
   const [job, setJob] = useState<PaperJobResult | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -110,17 +114,29 @@ export function PaperAnswering({
   }, [subjectId, subjects]);
 
   useEffect(() => {
-    setApiSubject(subjectId || null);
     setJobId(window.localStorage.getItem(jobStorageKey));
     setJob(null);
     setSelectedIndex(0);
     setError(null);
   }, [jobStorageKey, subjectId]);
+  useEffect(() => {
+    if (!initialSubjectId) return;
+    setSubjectId(initialSubjectId);
+  }, [initialSubjectId]);
+
+  useEffect(() => {
+    if (!initialJobId) return;
+    window.localStorage.setItem(jobStorageKey, initialJobId);
+    setJob(null);
+    setJobId(initialJobId);
+    setStreamVersion((version) => version + 1);
+  }, [initialJobId, jobStorageKey]);
 
 
   useEffect(() => {
-    if (!jobId || !enabled) return;
+    if (!jobId || !enabled || !subjectId) return;
     return subscribeTaskSnapshots<PaperJobResult>({
+      subjectId,
       path: `/papers/jobs/${jobId}/events`,
       onSnapshot: (next) => {
         setJob(next);
@@ -155,7 +171,7 @@ export function PaperAnswering({
       },
       onError: setError,
     });
-  }, [enabled, jobId, jobStorageKey, notify, streamVersion]);
+  }, [enabled, jobId, jobStorageKey, notify, streamVersion, subjectId]);
 
   useEffect(() => {
     setSourcePreviewOpen(false);
@@ -238,7 +254,7 @@ export function PaperAnswering({
     setUploading(true);
     setError(null);
     try {
-      const created = await uploadPaper(file, unit, sourceBooklet);
+      const created = await uploadPaper(subjectId, file, unit, sourceBooklet);
       window.localStorage.setItem(jobStorageKey, created.job_id);
       setJob(null);
       setJobId(created.job_id);
@@ -261,6 +277,7 @@ export function PaperAnswering({
     try {
       await unwrapApi(
         apiClient.POST("/api/v1/papers/jobs/{job_id}/retry", {
+          headers: subjectHeaders(subjectId),
           params: { path: { job_id: job.job_id } },
         }),
       );
@@ -279,7 +296,7 @@ export function PaperAnswering({
     setReplacing(true);
     setError(null);
     try {
-      const replacement = await replacePaperJob(job.job_id);
+      const replacement = await replacePaperJob(subjectId, job.job_id);
       notify("已创建替代任务；旧结果将保留用于审计。");
       setHistoryVersion((version) => version + 1);
       openHistoryJob(replacement.job_id);
@@ -297,6 +314,7 @@ export function PaperAnswering({
     try {
       await unwrapApi(
         apiClient.POST("/api/v1/papers/jobs/{job_id}/questions/{position}/retry", {
+          headers: subjectHeaders(subjectId),
           params: { path: { job_id: job.job_id, position } },
         }),
       );
@@ -345,14 +363,12 @@ export function PaperAnswering({
 
   function continueToPaper() {
     if (!draftSubjectId) return;
-    setApiSubject(draftSubjectId);
     setSubjectId(draftSubjectId);
     setCreateStep(2);
     setError(null);
   }
 
   function changeRecordSubject(nextSubjectId: string) {
-    setApiSubject(nextSubjectId || null);
     setSubjectId(nextSubjectId);
   }
 
@@ -389,22 +405,15 @@ export function PaperAnswering({
       </header>
 
       {!job && (
-        <>
-          <div className="records-toolbar">
-            <label>科目
-              <select onChange={(event) => changeRecordSubject(event.target.value)} value={subjectId}>
-                {subjects.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
-              </select>
-            </label>
-          </div>
-          <PaperJobHistory
-            currentJobId={jobId}
-            onDeleted={handleHistoryDeleted}
-            onOpen={openHistoryJob}
-            refreshKey={historyVersion}
-            subject={subject}
-          />
-        </>
+        <PaperJobHistory
+          currentJobId={jobId}
+          onDeleted={handleHistoryDeleted}
+          onOpen={openHistoryJob}
+          onSubjectChange={changeRecordSubject}
+          refreshKey={historyVersion}
+          subject={subject}
+          subjects={subjects}
+        />
       )}
 
       {job && (
@@ -724,7 +733,7 @@ export function PaperAnswering({
                       </div>
                     )}
                     <div className="question-copy">
-                      <QuestionMarkdown>{selected.question_markdown}</QuestionMarkdown>
+                      <QuestionMarkdown subjectId={subjectId}>{selected.question_markdown}</QuestionMarkdown>
                     </div>
                   </section>
                   {selected.source_warnings.length > 0 && (
@@ -748,7 +757,7 @@ export function PaperAnswering({
                     )}
                     <a
                       className="source-paper-link"
-                      href={backendResourceUrl(`/papers/jobs/${job.job_id}/source`)}
+                      href={backendResourceUrl(`/papers/jobs/${job.job_id}/source`, subjectId)}
                       target="_blank"
                       rel="noreferrer"
                     >
@@ -762,6 +771,7 @@ export function PaperAnswering({
                       onClose={() => setSourcePreviewOpen(false)}
                       pages={selectedSourcePages}
                       questionNumber={selected.number}
+                      subjectId={subjectId}
                       ref={sourcePreviewDialogRef}
                     />,
                     document.body,
@@ -776,11 +786,13 @@ export function PaperAnswering({
                         diagrams={selected.diagrams ?? []}
                         images={selected.images ?? []}
                         jobId={job.job_id}
+                        subjectId={subjectId}
                         renderMarkdown={(markdown, key) => (
                           <div className="markdown" key={key}>
                             <CitationMarkdown
                               citations={selected.citations}
                               query={selected.question_markdown.slice(0, 300)}
+                              subjectId={subjectId}
                             >
                               {markdown}
                             </CitationMarkdown>
@@ -835,7 +847,7 @@ export function PaperAnswering({
                     <div className="paper-knowledge">
                       {selected.knowledge_points.length === 0 && <p>未能可靠映射知识点。</p>}
                       {selected.knowledge_points.map((point, index) => (
-                        <KnowledgeEvidenceCard point={point} index={index} key={point.code} />
+                        <KnowledgeEvidenceCard point={point} index={index} key={point.code} subjectId={subjectId} />
                       ))}
                     </div>
                   </details>
@@ -854,6 +866,7 @@ export function PaperAnswering({
                       <CitationReferenceList
                         citations={selected.citations}
                         query={selected.question_markdown.slice(0, 300)}
+                        subjectId={subjectId}
                       />
                     </div>
                   </details>

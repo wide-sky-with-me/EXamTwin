@@ -7,11 +7,13 @@ from examtwin.app.composition import (
     build_grading_service,
     build_object_store,
     build_paper_job_service,
+    build_paper_unit_service,
     build_rubric_service,
 )
 from examtwin.assessment.answering_agent.tools.image_generate import AnswerImageStore
 from examtwin.assessment.grading import GradingService
 from examtwin.assessment.paper_jobs import PaperJobService
+from examtwin.assessment.paper_units import PaperUnitService
 from examtwin.assessment.rubrics import RubricService
 from examtwin.assessment.task_events import PostgresTaskEvents
 from examtwin.knowledge.workspace_service import CorpusWorkspaceService
@@ -43,6 +45,13 @@ def get_paper_jobs(
     subject: SubjectContext = Depends(get_subject_context),
 ) -> PaperJobService:
     return build_paper_job_service(settings, subject)
+
+
+def get_paper_units(
+    settings: Settings = Depends(get_settings),
+    subject: SubjectContext = Depends(get_subject_context),
+) -> PaperUnitService:
+    return build_paper_unit_service(settings, subject)
 
 
 def get_grading_service(

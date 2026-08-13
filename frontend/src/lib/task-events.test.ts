@@ -33,14 +33,12 @@ describe("task event subscription", () => {
     const onError = vi.fn();
     const onState = vi.fn();
 
-    subscribeTaskSnapshots({
-      path: "/papers/jobs/job-1/events",
-      onSnapshot: vi.fn(),
-      isTerminal: () => false,
-      onState,
-      onUnavailable: vi.fn(),
-      onError,
-    });
+    subscribeTaskSnapshots({ subjectId: "test-subject", path: "/papers/jobs/job-1/events",
+    onSnapshot: vi.fn(),
+    isTerminal: () => false,
+    onState,
+    onUnavailable: vi.fn(),
+    onError, });
 
     for (let attempt = 0; attempt < 6; attempt += 1) {
       FailingSocket.instances[attempt].onclose?.({ code: 1006, reason: "" } as CloseEvent);

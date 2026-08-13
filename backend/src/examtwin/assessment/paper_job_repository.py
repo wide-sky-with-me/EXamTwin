@@ -99,6 +99,7 @@ class PaperJobRepository:
         statuses: Sequence[str] | None = None,
         unit_code: str | None = None,
         query: str | None = None,
+        paper_unit_id: str | None = None,
         created_after: datetime | None = None,
         limit: int = 50,
         offset: int = 0,
@@ -108,6 +109,8 @@ class PaperJobRepository:
             conditions.append(PaperJobModel.status.in_(statuses))
         if unit_code:
             conditions.append(PaperJobModel.unit_code == unit_code)
+        if paper_unit_id:
+            conditions.append(PaperJobModel.paper_unit_id == paper_unit_id)
         if query:
             pattern = f"%{query.strip()}%"
             conditions.append(

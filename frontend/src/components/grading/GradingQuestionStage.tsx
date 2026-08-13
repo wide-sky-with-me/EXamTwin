@@ -23,9 +23,11 @@ import { AnswerArtifactFlow } from "../AnswerArtifactFlow";
 
 function GradingSubmission({
   jobId,
+  subjectId,
   question,
 }: {
   jobId: string;
+  subjectId: string;
   question: PaperJobQuestion;
 }) {
   return (
@@ -33,7 +35,7 @@ function GradingSubmission({
       <details className="grading-submission-section">
         <summary>原题</summary>
         <div className="grading-submission-content grading-rich grading-question">
-          <QuestionMarkdown>{question.question_markdown}</QuestionMarkdown>
+          <QuestionMarkdown subjectId={subjectId}>{question.question_markdown}</QuestionMarkdown>
         </div>
       </details>
       <details className="grading-submission-section">
@@ -44,6 +46,7 @@ function GradingSubmission({
             diagrams={question.diagrams}
             images={question.images}
             jobId={jobId}
+            subjectId={subjectId}
             renderMarkdown={(markdown, key) => (
               <div className="grading-rich" key={key}>
                 <Markdown>{markdown}</Markdown>
@@ -61,6 +64,7 @@ export function GradingQuestionStage({
   rubric,
   assessments,
   selectedPosition,
+  subjectId,
   busy,
   error,
   onSelectPosition,
@@ -73,6 +77,7 @@ export function GradingQuestionStage({
   rubric: RubricSet | null;
   assessments: PaperAssessment[];
   selectedPosition: number | null;
+  subjectId: string;
   busy: string | null;
   error: string | null;
   onSelectPosition: (position: number) => void;
@@ -265,7 +270,7 @@ export function GradingQuestionStage({
                   开始本题判分
                 </h2>
               </div>
-              <GradingSubmission jobId={paper!.job_id} key={selectedQuestion.position} question={selectedQuestion} />
+              <GradingSubmission jobId={paper!.job_id} key={selectedQuestion.position} question={selectedQuestion} subjectId={subjectId} />
               {selectedAcceptedCriteria === 0 && (
                 <p className="inline-warning">
                   <TriangleAlert size={14} />
@@ -302,7 +307,7 @@ export function GradingQuestionStage({
                 </div>
                 <p>{reviewStatusCopy.score}</p>
               </div>
-              <GradingSubmission jobId={paper!.job_id} key={selectedQuestion.position} question={selectedQuestion} />
+              <GradingSubmission jobId={paper!.job_id} key={selectedQuestion.position} question={selectedQuestion} subjectId={subjectId} />
               <div className="grading-assurance">
                 <span>模型置信度 <Confidence value={selectedResult.confidence} /></span>
                 <span>{selectedResult.rubric_awards.length} 个得分点判定</span>

@@ -1,5 +1,4 @@
-import { AlertDialog } from "@radix-ui/themes";
-import { AlertTriangle, LoaderCircle } from "lucide-react";
+import { Alert, Modal } from "antd";
 
 export function AppConfirmDialog({
   busy = false,
@@ -21,41 +20,30 @@ export function AppConfirmDialog({
   title: string;
 }) {
   return (
-    <AlertDialog.Root
-      onOpenChange={(nextOpen) => {
-        if (!busy) onOpenChange(nextOpen);
+    <Modal
+      cancelButtonProps={{ disabled: busy }}
+      cancelText={<span aria-label="取消">取消</span>}
+      closable={!busy}
+      confirmLoading={busy}
+      keyboard={!busy}
+      mask={{ closable: !busy }}
+      modalRender={(node) => <div aria-label={title} role="alertdialog">{node}</div>}
+      okButtonProps={{ danger }}
+      okText={<span>{confirmLabel}</span>}
+      onCancel={() => {
+        if (!busy) onOpenChange(false);
       }}
+      onOk={() => void onConfirm()}
       open={open}
+      title={title}
+      width={440}
     >
-      <AlertDialog.Content className="app-confirm-dialog" maxWidth="440px">
-        <div className={`app-confirm-icon ${danger ? "danger" : "warning"}`}>
-          <AlertTriangle aria-hidden="true" size={20} />
-        </div>
-        <div>
-          <AlertDialog.Title>{title}</AlertDialog.Title>
-          <AlertDialog.Description>{description}</AlertDialog.Description>
-        </div>
-        <div className="app-confirm-actions">
-          <button
-            className="secondary"
-            disabled={busy}
-            onClick={() => onOpenChange(false)}
-            type="button"
-          >
-            取消
-          </button>
-          <button
-            aria-busy={busy || undefined}
-            className={danger ? "danger-button" : "primary"}
-            disabled={busy}
-            onClick={() => void onConfirm()}
-            type="button"
-          >
-            {busy && <LoaderCircle aria-hidden="true" className="spin" size={16} />}
-            {confirmLabel}
-          </button>
-        </div>
-      </AlertDialog.Content>
-    </AlertDialog.Root>
+      <Alert
+        description={description}
+        showIcon
+        title={danger ? "此操作不可撤销" : "请确认操作范围"}
+        type={danger ? "error" : "warning"}
+      />
+    </Modal>
   );
 }

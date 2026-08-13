@@ -254,6 +254,7 @@ async def import_answered_paper(
 def paper_jobs(
     status_filter: PaperJobFilterStatus | None = Query(default=None, alias="status"),
     unit_code: str | None = Query(default=None, max_length=32),
+    paper_unit_id: str | None = Query(default=None),
     query: str | None = Query(default=None, alias="q", max_length=200),
     created_after: datetime | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=100),
@@ -263,6 +264,7 @@ def paper_jobs(
     return jobs.list_jobs(
         status=status_filter,
         unit_code=unit_code,
+        paper_unit_id=paper_unit_id,
         query=query,
         created_after=created_after,
         limit=limit,

@@ -48,7 +48,7 @@ function citationLabels(citation: Citation) {
   };
 }
 
-function useSourceContext(citation: Citation, query: string, open: boolean) {
+function useSourceContext(citation: Citation, query: string, open: boolean, subjectId: string) {
   const [context, setContext] = useState<SourceContextResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -59,6 +59,7 @@ function useSourceContext(citation: Citation, query: string, open: boolean) {
     setLoading(true);
     setError(null);
     void getSourceContext(
+      subjectId,
       citation.document_id,
       citation.page ?? null,
       query,
@@ -78,7 +79,7 @@ function useSourceContext(citation: Citation, query: string, open: boolean) {
     return () => {
       active = false;
     };
-  }, [citation, context, open, query]);
+  }, [citation, context, open, query, subjectId]);
 
   return { context, loading, error };
 }
@@ -87,18 +88,20 @@ function CitationDialog({
   citation,
   index,
   query,
+  subjectId,
   open,
   setOpen,
 }: {
   citation: Citation;
   index: number;
   query: string;
+  subjectId: string;
   open: boolean;
   setOpen: Dispatch<SetStateAction<boolean>>;
 }) {
   const labels = citationLabels(citation);
   const modalRef = useModalFocus(open, setOpen);
-  const { context, loading, error } = useSourceContext(citation, query, open);
+  const { context, loading, error } = useSourceContext(citation, query, open, subjectId);
   if (!open) return null;
   return createPortal(
     <div
@@ -174,11 +177,13 @@ export function CitationReference({
   citation,
   index,
   query,
+  subjectId,
   variant = "list",
 }: {
   citation: Citation;
   index: number;
   query: string;
+  subjectId: string;
   variant?: "inline" | "list";
 }) {
   const labels = citationLabels(citation);
@@ -265,6 +270,7 @@ export function CitationReference({
         index={index}
         open={open}
         query={query}
+        subjectId={subjectId}
         setOpen={setOpen}
       />
     </>
@@ -281,10 +287,12 @@ export function CitationMarkdown({
   children,
   citations,
   query,
+  subjectId,
 }: {
   children: string;
   citations: Citation[];
   query: string;
+  subjectId: string;
 }) {
   const components = useMemo(
     () => ({
@@ -301,12 +309,13 @@ export function CitationMarkdown({
             citation={citation}
             index={index}
             query={query}
+            subjectId={subjectId}
             variant="inline"
           />
         );
       },
     }),
-    [citations, query],
+    [citations, query, subjectId],
   );
 
   return (
@@ -319,9 +328,11 @@ export function CitationMarkdown({
 export function CitationReferenceList({
   citations,
   query,
+  subjectId,
 }: {
   citations: Citation[];
   query: string;
+  subjectId: string;
 }) {
   return (
     <div className="citation-reference-list">
@@ -331,6 +342,7 @@ export function CitationReferenceList({
           index={index}
           key={`${citation.source}-${citation.page ?? citation.section ?? "section"}-${index}`}
           query={query}
+          subjectId={subjectId}
         />
       ))}
     </div>

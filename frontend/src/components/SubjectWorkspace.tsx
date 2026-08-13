@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { apiClient, setApiSubject, unwrapApi, uploadWorkspaceDocument } from "../lib/api";
+import { apiClient, subjectHeaders, unwrapApi, uploadWorkspaceDocument } from "../lib/api";
 import { sourceLabels } from "../lib/evidence";
 import type { SourceDocument, SubjectPack } from "../types";
 import { ErrorBanner } from "./Feedback";
@@ -61,11 +61,11 @@ export function SubjectWorkspace({
   }, [documents, target]);
 
   const loadDocuments = useCallback(async () => {
-    setApiSubject(subject.id);
     setBusy("load");
     try {
       const rows = await unwrapApi(
         apiClient.GET("/api/v1/subject-workspaces/{workspace_id}/documents", {
+          headers: subjectHeaders(subject.id),
           params: { path: { workspace_id: subject.id } },
         }),
       );
@@ -99,7 +99,6 @@ export function SubjectWorkspace({
       setError("教材进入知识库前必须确认已获得使用授权。");
       return;
     }
-    setApiSubject(subject.id);
     setBusy("upload");
     setNotice("");
     setError(null);
@@ -110,6 +109,7 @@ export function SubjectWorkspace({
       });
       await unwrapApi(
         apiClient.POST("/api/v1/corpus/convert", {
+          headers: subjectHeaders(subject.id),
           body: {
             document_ids: [uploaded.id],
             source_types: [],
@@ -132,13 +132,13 @@ export function SubjectWorkspace({
   }
 
   async function deleteDocument(document: SourceDocument) {
-    setApiSubject(subject.id);
     setBusy("delete");
     setNotice("");
     setError(null);
     try {
       await unwrapApi(
         apiClient.DELETE("/api/v1/subject-workspaces/{workspace_id}/documents/{document_id}", {
+          headers: subjectHeaders(subject.id),
           params: { path: { workspace_id: subject.id, document_id: document.id } },
         }),
       );
@@ -154,13 +154,13 @@ export function SubjectWorkspace({
 
   async function buildVersion() {
     if (!selectedBase) return;
-    setApiSubject(subject.id);
     setBusy("build");
     setNotice("");
     setError(null);
     try {
       const result = await unwrapApi(
         apiClient.POST("/api/v1/knowledge-bases/{knowledge_base_id}/build", {
+          headers: subjectHeaders(subject.id),
           params: { path: { knowledge_base_id: selectedBase.id } },
         }),
       );

@@ -2,14 +2,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   backendResourceUrl,
-  setApiSubject,
   unwrapApi,
   uploadPaper,
   websocketUrl,
 } from "./api";
 
 afterEach(() => {
-  setApiSubject(null);
   vi.unstubAllGlobals();
 });
 
@@ -28,18 +26,25 @@ describe("subject-scoped transport", () => {
       }),
     );
     vi.stubGlobal("fetch", fetchMock);
-    setApiSubject("oxfordaqa-economics-9640");
 
-    await uploadPaper(new File(["# Paper"], "paper.md"), "U1");
+    await uploadPaper(
+      "oxfordaqa-economics-9640",
+      new File(["# Paper"], "paper.md"),
+      "U1",
+    );
 
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
     expect(new Headers(init.headers).get("X-ExamTwin-Subject")).toBe(
       "oxfordaqa-economics-9640",
     );
-    expect(backendResourceUrl("/papers/jobs/job-1/source")).toContain(
-      "subject=oxfordaqa-economics-9640",
-    );
-    expect(websocketUrl("/papers/jobs/job-1/events")).toContain(
+    expect(backendResourceUrl(
+      "/papers/jobs/job-1/source",
+      "oxfordaqa-economics-9640",
+    )).toContain("subject=oxfordaqa-economics-9640");
+    expect(websocketUrl(
+      "/papers/jobs/job-1/events",
+      "oxfordaqa-economics-9640",
+    )).toContain(
       "subject=oxfordaqa-economics-9640",
     );
   });

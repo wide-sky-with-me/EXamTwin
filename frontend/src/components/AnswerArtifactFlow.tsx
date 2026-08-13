@@ -79,12 +79,14 @@ export function AnswerArtifactFlow({
   answerMarkdown,
   diagrams,
   images,
+  subjectId,
   jobId,
   renderMarkdown,
 }: {
   answerMarkdown: string;
   diagrams: AnswerDiagram[];
   images: AnswerImage[];
+  subjectId: string;
   jobId?: string;
   renderMarkdown: (markdown: string, key: string) => ReactNode;
 }) {
@@ -127,6 +129,7 @@ export function AnswerArtifactFlow({
                 ? (
                     <AnswerDiagramView
                       diagram={entry.value as AnswerDiagram}
+                      subjectId={subjectId}
                       jobId={jobId}
                       key={artifactKey(entry)}
                     />
@@ -134,6 +137,7 @@ export function AnswerArtifactFlow({
                 : (
                     <AnswerImageView
                       image={entry.value as AnswerImage}
+                      subjectId={subjectId}
                       key={artifactKey(entry)}
                     />
                   ))}

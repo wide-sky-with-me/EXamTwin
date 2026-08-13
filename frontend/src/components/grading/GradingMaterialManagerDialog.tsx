@@ -8,7 +8,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { Button, Tooltip } from "@radix-ui/themes";
+import { Button, Tooltip } from "antd";
 import { useMemo, useState } from "react";
 
 import { paperMaterialMeta, schemeMaterialMeta } from "../../lib/grading-materials";
@@ -203,7 +203,7 @@ function MaterialManagerDialog({
                     <span className="grading-material-manager-actions">
                       {editingId === item.id ? (
                         <>
-                          <Tooltip content="取消修改" delayDuration={250} disableHoverableContent>
+                          <Tooltip mouseEnterDelay={0.25} title="取消修改">
                             <button
                               aria-label="取消修改名称"
                               className="icon-button"
@@ -214,7 +214,7 @@ function MaterialManagerDialog({
                               <X size={15} />
                             </button>
                           </Tooltip>
-                          <Tooltip content="保存名称" delayDuration={250} disableHoverableContent>
+                          <Tooltip mouseEnterDelay={0.25} title="保存名称">
                             <button
                               aria-label="保存显示名称"
                               className="icon-button material-save-name"
@@ -242,7 +242,7 @@ function MaterialManagerDialog({
                       )}
                       {editingId !== item.id && (
                         <>
-                          <Tooltip content="修改显示名称" delayDuration={250} disableHoverableContent>
+                          <Tooltip mouseEnterDelay={0.25} title="修改显示名称">
                             <button
                               aria-label={`修改 ${item.name} 的显示名称`}
                               className="icon-button"
@@ -253,7 +253,7 @@ function MaterialManagerDialog({
                               <Pencil size={15} />
                             </button>
                           </Tooltip>
-                          <Tooltip content="删除" delayDuration={250} disableHoverableContent>
+                          <Tooltip mouseEnterDelay={0.25} title="删除">
                             <button
                               aria-label={`删除 ${item.name}`}
                               className="icon-button danger"
@@ -281,12 +281,11 @@ function MaterialManagerDialog({
         <footer className="modal-actions grading-material-manager-footer">
           <Button
             disabled={deletingId !== null || renamingId !== null}
-            highContrast
+            icon={<Check size={15} />}
             onClick={() => onOpenChange(false)}
-            size="2"
-            variant="soft"
+            type="primary"
           >
-            <Check size={15} />完成
+            完成
           </Button>
         </footer>
       </AppDialog>

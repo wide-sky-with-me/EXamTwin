@@ -17,6 +17,7 @@ type TaskStreamError = {
 };
 
 type TaskSnapshotSubscription<T> = {
+  subjectId: string;
   path: string;
   onSnapshot: (snapshot: T) => void;
   isTerminal: (snapshot: T) => boolean;
@@ -53,7 +54,7 @@ export function subscribeTaskSnapshots<T>(
   const connect = () => {
     if (stopped) return;
     options.onState(reconnectAttempts ? "reconnecting" : "connecting");
-    const current = new WebSocket(websocketUrl(options.path));
+    const current = new WebSocket(websocketUrl(options.path, options.subjectId));
     socket = current;
 
     current.onopen = () => {

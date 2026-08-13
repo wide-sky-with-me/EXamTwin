@@ -1,4 +1,4 @@
-import { Select, Tooltip } from "@radix-ui/themes";
+import { Tooltip } from "antd";
 import {
   ArrowRight,
   BookOpenCheck,
@@ -88,8 +88,8 @@ export function GradingMaterialsStage({
   sourceBookletRequired?: boolean;
   onContinue: () => Promise<void>;
 }) {
-  const paperSelectRef = useRef<HTMLButtonElement>(null);
-  const documentSelectRef = useRef<HTMLButtonElement>(null);
+  const paperSelectRef = useRef<HTMLSelectElement>(null);
+  const documentSelectRef = useRef<HTMLSelectElement>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const retryButtonRef = useRef<HTMLButtonElement>(null);
   const [retryPhase, setRetryPhase] = useState<"idle" | "pending" | "settled">("idle");
@@ -224,32 +224,21 @@ export function GradingMaterialsStage({
               <Settings2 aria-hidden="true" size={15} />管理答卷
             </button>
           </div>
-          <Select.Root
+          <select
+            aria-label="选择作答记录"
+            className="grading-control-boundary grading-material-select-trigger"
             disabled={materialSelectionBusy || papersLoading || papersError !== null || papers.length === 0}
-            onValueChange={onChoosePaper}
+            onChange={(event) => onChoosePaper(event.target.value)}
+            ref={paperSelectRef}
             value={paperId}
           >
-            <Select.Trigger
-              aria-label="选择作答记录"
-              className="grading-control-boundary grading-material-select-trigger"
-              placeholder={paperPlaceholder}
-              ref={paperSelectRef}
-              value={paperId}
-            />
-            <Select.Content className="grading-material-select-content" position="popper">
-              {papers.map((item) => (
-                <Select.Item key={item.job_id} value={item.job_id}>
-                  <span className="grading-material-option">
-                    <FileCheck2 aria-hidden="true" size={17} />
-                    <span>
-                      <strong>{item.display_name || item.filename}</strong>
-                      <small>{paperMaterialMeta(item)}</small>
-                    </span>
-                  </span>
-                </Select.Item>
-              ))}
-            </Select.Content>
-          </Select.Root>
+            <option value="">{paperPlaceholder}</option>
+            {papers.map((item) => (
+              <option key={item.job_id} value={item.job_id}>
+                {item.display_name || item.filename} · {paperMaterialMeta(item)}
+              </option>
+            ))}
+          </select>
           {papersLoading ? (
             <div className="grading-discovery-state is-loading" role="status">
               <LoaderCircle aria-hidden="true" className="spin" size={15} />
@@ -293,38 +282,27 @@ export function GradingMaterialsStage({
             </button>
           </div>
           <div className="scheme-picker">
-            <Select.Root
+            <select
+              aria-label="选择 Mark Scheme"
+              className="grading-control-boundary grading-material-select-trigger"
               disabled={
                 materialSelectionBusy
                 || documentsLoading
                 || documentsError !== null
                 || documents.length === 0
               }
-              onValueChange={onChooseDocument}
+              onChange={(event) => onChooseDocument(event.target.value)}
+              ref={documentSelectRef}
               value={documentId}
             >
-              <Select.Trigger
-                aria-label="选择 Mark Scheme"
-                className="grading-control-boundary grading-material-select-trigger"
-                placeholder={documentPlaceholder}
-                ref={documentSelectRef}
-                value={documentId}
-              />
-              <Select.Content className="grading-material-select-content" position="popper">
-                {documents.map((item) => (
-                  <Select.Item key={item.id} value={item.id}>
-                    <span className="grading-material-option">
-                      <BookOpenCheck aria-hidden="true" size={17} />
-                      <span>
-                        <strong>{item.display_name || item.filename}</strong>
-                        <small>{schemeMaterialMeta(item)}</small>
-                      </span>
-                    </span>
-                  </Select.Item>
-                ))}
-              </Select.Content>
-            </Select.Root>
-            <Tooltip content="上传官方版本" delayDuration={300} disableHoverableContent>
+              <option value="">{documentPlaceholder}</option>
+              {documents.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.display_name || item.filename} · {schemeMaterialMeta(item)}
+                </option>
+              ))}
+            </select>
+            <Tooltip mouseEnterDelay={0.3} title="上传官方版本">
               <label
                 aria-disabled={busy !== null}
                 className="secondary file-button grading-control-boundary grading-scheme-upload"

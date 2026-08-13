@@ -20,7 +20,7 @@ import {
   importAnsweredPaper,
   renamePaperJob,
   renameWorkspaceDocument,
-  setApiSubject,
+  subjectHeaders,
   unwrapApi,
   uploadWorkspaceDocument,
 } from "../lib/api";
@@ -51,14 +51,19 @@ export function Grading({
   subjects: providedSubjects,
   subject: legacySubject,
   onCreated,
+  initialSubjectId,
+  initialPaperUnitId,
 }: {
   subjects?: SubjectPack[];
   subject?: SubjectPack | null;
   onCreated: () => Promise<void>;
+  initialSubjectId?: string;
+  initialPaperUnitId?: string;
 }) {
   const subjects = providedSubjects ?? (legacySubject ? [legacySubject] : []);
   const legacyMode = providedSubjects === undefined;
-  const [subjectId, setSubjectId] = useState(legacySubject?.id ?? "");
+  const routedContext = Boolean(initialSubjectId);
+  const [subjectId, setSubjectId] = useState(initialSubjectId ?? legacySubject?.id ?? "");
   const subject = subjects.find((item) => item.id === subjectId) ?? null;
   const [papers, setPapers] = useState<GradingPaper[]>([]);
   const [documents, setDocuments] = useState<SourceDocument[]>([]);
@@ -148,11 +153,13 @@ export function Grading({
   }, []);
 
   const loadSources = useCallback(async (preserveSelection = false) => {
+    if (!subjectId) return;
     const requestId = ++sourceRequestRef.current;
     setDocumentsLoading(true);
     try {
       const rows = await unwrapApi(
         apiClient.GET("/api/v1/corpus/documents", {
+          headers: subjectHeaders(subjectId),
           params: { query: { source_type: "mark_scheme", limit: 100 } },
         }),
       );
@@ -183,13 +190,17 @@ export function Grading({
     } finally {
       if (requestId === sourceRequestRef.current) setDocumentsLoading(false);
     }
-  }, []);
+  }, [subjectId]);
 
   const loadPapers = useCallback(async (preferredPaperId?: string) => {
+    if (!subjectId) return;
     const requestId = ++paperDiscoveryRequestRef.current;
     setPapersLoading(true);
     try {
-      const rows = await unwrapApi(apiClient.GET("/api/v1/grading/papers"));
+      const rows = await unwrapApi(apiClient.GET("/api/v1/grading/papers", {
+        headers: subjectHeaders(subjectId),
+        params: { query: { paper_unit_id: initialPaperUnitId } },
+      }));
       if (requestId !== paperDiscoveryRequestRef.current) return;
       setPapers(rows);
       setPapersError(null);
@@ -212,7 +223,12 @@ export function Grading({
     } finally {
       if (requestId === paperDiscoveryRequestRef.current) setPapersLoading(false);
     }
-  }, [clearPaperContextState]);
+  }, [clearPaperContextState, initialPaperUnitId, subjectId]);
+
+  useEffect(() => {
+    if (!initialSubjectId) return;
+    setSubjectId(initialSubjectId);
+  }, [initialSubjectId]);
 
   useEffect(() => {
     setImportJobId(window.localStorage.getItem(importStorageKey));
@@ -223,6 +239,7 @@ export function Grading({
   useEffect(() => {
     if (!importJobId || !subject) return;
     return subscribeTaskSnapshots<PaperJobResult>({
+      subjectId: subject.id,
       path: `/papers/jobs/${importJobId}/events`,
       onSnapshot: (next) => {
         setImportJob(next);
@@ -260,11 +277,13 @@ export function Grading({
     rubricId: string,
   ) => {
     const requestId = ++overviewRequestRef.current;
+    if (!subjectId) return;
     setOverviewBusy(true);
     setOverviewError(null);
     try {
       const nextOverview = await unwrapApi(
         apiClient.GET("/api/v1/grading/papers/{paper_job_id}/overview", {
+          headers: subjectHeaders(subjectId),
           params: {
             path: { paper_job_id: nextPaperId },
             query: { rubric_set_id: rubricId },
@@ -296,9 +315,10 @@ export function Grading({
     } finally {
       if (requestId === overviewRequestRef.current) setOverviewBusy(false);
     }
-  }, []);
+  }, [subjectId]);
 
   const loadPaperContext = useCallback(async (nextPaperId: string) => {
+    if (!subjectId) return;
     const requestId = ++paperRequestRef.current;
     const documentRevision = documentSelectionRevisionRef.current;
     rubricRequestRef.current += 1;
@@ -318,16 +338,19 @@ export function Grading({
       const [nextPaper, nextRubrics, nextAssessments] = await Promise.all([
         unwrapApi(
           apiClient.GET("/api/v1/papers/jobs/{job_id}", {
+            headers: subjectHeaders(subjectId),
             params: { path: { job_id: nextPaperId } },
           }),
         ),
         unwrapApi(
           apiClient.GET("/api/v1/grading/rubrics", {
+            headers: subjectHeaders(subjectId),
             params: { query: { paper_job_id: nextPaperId } },
           }),
         ),
         unwrapApi(
           apiClient.GET("/api/v1/grading/papers/{paper_job_id}/assessments", {
+            headers: subjectHeaders(subjectId),
             params: { path: { paper_job_id: nextPaperId } },
           }),
         ),
@@ -350,6 +373,7 @@ export function Grading({
       const nextRubric = pairedSummary
         ? await unwrapApi(
             apiClient.GET("/api/v1/grading/rubrics/{rubric_id}", {
+              headers: subjectHeaders(subjectId),
               params: { path: { rubric_id: pairedSummary.id } },
             }),
           )
@@ -395,7 +419,7 @@ export function Grading({
     } finally {
       if (requestId === paperRequestRef.current) finishBusy(operationId);
     }
-  }, [beginBusy, clearPaperContextState, finishBusy, loadOverview]);
+  }, [beginBusy, clearPaperContextState, finishBusy, loadOverview, subjectId]);
 
   useEffect(() => {
     if (!subject) return;
@@ -564,7 +588,7 @@ export function Grading({
     const operationId = beginBusy("import-answer");
     setError(null);
     try {
-      const created = await importAnsweredPaper(questionFile, answerFile, "", sourceBooklet);
+      const created = await importAnsweredPaper(subjectId, questionFile, answerFile, "", sourceBooklet);
       window.localStorage.setItem(importStorageKey, created.job_id);
       setImportJobId(created.job_id);
       setImportJob(null);
@@ -581,7 +605,7 @@ export function Grading({
 
   async function deletePaperMaterial(deletingPaperId: string) {
     try {
-      await deletePaperJobs([deletingPaperId]);
+      await deletePaperJobs(subjectId, [deletingPaperId]);
       if (paperIdRef.current === deletingPaperId) choosePaper("");
       await Promise.all([loadPapers(), onCreated()]);
       notify("作答记录已删除。");
@@ -595,6 +619,7 @@ export function Grading({
     try {
       await unwrapApi(
         apiClient.DELETE("/api/v1/subject-workspaces/{workspace_id}/documents/{document_id}", {
+          headers: subjectHeaders(subject.id),
           params: {
             path: { workspace_id: subject.id, document_id: deletingDocumentId },
           },
@@ -606,14 +631,14 @@ export function Grading({
         (item) => String(item.id) !== deletingDocumentId,
       ));
       notify("Mark Scheme 已从可用材料中删除。");
-      await Promise.allSettled([loadSources(true), onCreated()]);
+      void Promise.allSettled([loadSources(true), onCreated()]);
     } catch (cause) {
       throw new Error(cause instanceof Error ? cause.message : "Mark Scheme 删除失败");
     }
   }
 
   async function renamePaperMaterial(renamingPaperId: string, displayName: string) {
-    const renamed = await renamePaperJob(renamingPaperId, displayName);
+    const renamed = await renamePaperJob(subjectId, renamingPaperId, displayName);
     setPapers((items) => items.map((item) => (
       item.job_id === renamingPaperId
         ? { ...item, display_name: renamed.display_name }
@@ -649,6 +674,7 @@ export function Grading({
       const uploaded = await uploadWorkspaceDocument(subject.id, file, "mark_scheme");
       const conversion = await unwrapApi(
         apiClient.POST("/api/v1/corpus/convert", {
+          headers: subjectHeaders(subject.id),
           body: {
             authority_tiers: [],
             document_ids: [uploaded.id],
@@ -711,6 +737,7 @@ export function Grading({
     try {
       const created = await unwrapApi(
         apiClient.POST("/api/v1/grading/rubrics/generate", {
+          headers: subjectHeaders(subjectId),
           body: { paper_job_id: activePaperId },
         }),
       );
@@ -742,6 +769,7 @@ export function Grading({
     try {
       const created = await unwrapApi(
         apiClient.POST("/api/v1/grading/rubrics", {
+          headers: subjectHeaders(subjectId),
           body: { paper_job_id: activePaperId, source_document_id: activeDocumentId },
         }),
       );
@@ -808,6 +836,7 @@ export function Grading({
     try {
       const refreshed = await unwrapApi(
         apiClient.POST("/api/v1/grading/rubrics/{rubric_id}/criteria/{criterion_id}/review", {
+          headers: subjectHeaders(subjectId),
           params: { path: { rubric_id: rubricId, criterion_id: criterionId } },
           body: {
             note: note.trim() || null,
@@ -849,6 +878,7 @@ export function Grading({
     try {
       const refreshed = await unwrapApi(
         apiClient.POST("/api/v1/grading/rubrics/{rubric_id}/batch-review", {
+          headers: subjectHeaders(subjectId),
           params: { path: { rubric_id: rubricId } },
           body: request,
         }),
@@ -885,6 +915,7 @@ export function Grading({
     try {
       const refreshed = await unwrapApi(
         apiClient.POST("/api/v1/grading/rubrics/{rubric_id}/ai-review", {
+          headers: subjectHeaders(subjectId),
           params: { path: { rubric_id: rubricId } },
           body: request,
         }),
@@ -919,6 +950,7 @@ export function Grading({
     try {
       const refreshed = await unwrapApi(
         apiClient.POST("/api/v1/grading/rubrics/{rubric_id}/confirm", {
+          headers: subjectHeaders(subjectId),
           params: { path: { rubric_id: rubricId } },
           body: { reviewer: reviewerName },
         }),
@@ -953,6 +985,7 @@ export function Grading({
     try {
       const result = await unwrapApi(
         apiClient.POST("/api/v1/grading/papers/{paper_job_id}/questions/{position}/assess", {
+          headers: subjectHeaders(subjectId),
           params: { path: { paper_job_id: activePaperId, position } },
           body: { rubric_set_id: rubricId },
         }),
@@ -992,11 +1025,13 @@ export function Grading({
         const [assessmentRefresh, overviewRefresh, createdRefresh] = await Promise.allSettled([
           unwrapApi(
             apiClient.GET("/api/v1/grading/papers/{paper_job_id}/assessments", {
+              headers: subjectHeaders(subjectId),
               params: { path: { paper_job_id: activePaperId } },
             }),
           ),
           unwrapApi(
             apiClient.GET("/api/v1/grading/papers/{paper_job_id}/overview", {
+              headers: subjectHeaders(subjectId),
               params: {
                 path: { paper_job_id: activePaperId },
                 query: { rubric_set_id: rubricId },
@@ -1087,11 +1122,13 @@ export function Grading({
       const [detail, nextAssessments] = await Promise.all([
         unwrapApi(
           apiClient.GET("/api/v1/grading/rubrics/{rubric_id}", {
+            headers: subjectHeaders(subjectId),
             params: { path: { rubric_id: nextRubricId } },
           }),
         ),
         unwrapApi(
           apiClient.GET("/api/v1/grading/papers/{paper_job_id}/assessments", {
+            headers: subjectHeaders(subjectId),
             params: { path: { paper_job_id: activePaperId } },
           }),
         ),
@@ -1135,7 +1172,7 @@ export function Grading({
     } finally {
       finishBusy(operationId);
     }
-  }, [activePaper, beginBusy, finishBusy, loadOverview]);
+  }, [activePaper, beginBusy, finishBusy, loadOverview, subjectId]);
 
   useLayoutEffect(() => {
     const pendingDocument = pendingDiscoveredDocumentRef.current;
@@ -1169,7 +1206,6 @@ export function Grading({
   }
 
   function chooseSubject(nextSubjectId: string) {
-    setApiSubject(nextSubjectId);
     setSubjectId(nextSubjectId);
     setPaperId("");
     setDocumentId("");
@@ -1190,7 +1226,7 @@ export function Grading({
         </div>
       </header>
 
-      {legacyMode ? (
+      {legacyMode || routedContext ? (
         <nav aria-label="评分流程" className="grading-journey">
           <button aria-current={step === 1 ? "step" : undefined} className={step === 1 ? "current" : "completed"} disabled={journeyLocked} onClick={() => transitionToStep(1)} type="button">
             <span>01</span><strong>准备材料</strong>
@@ -1208,7 +1244,7 @@ export function Grading({
             aria-current={!subject ? "step" : undefined}
             className={!subject ? "current" : "completed"}
             disabled={journeyLocked}
-            onClick={() => { setApiSubject(null); setSubjectId(""); }}
+            onClick={() => setSubjectId("")}
             type="button"
           >
             <span>01</span><strong>选择科目</strong>
@@ -1351,6 +1387,7 @@ export function Grading({
           paper={activePaper}
           rubric={activeRubric}
           selectedPosition={selectedPosition}
+          subjectId={subject.id}
         />
       )}
       {subject && step === 4 && (

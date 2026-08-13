@@ -1,4 +1,4 @@
-import { Dialog } from "@radix-ui/themes";
+import { Modal } from "antd";
 import { type ReactNode, useRef } from "react";
 
 export function AppDialog({
@@ -21,35 +21,24 @@ export function AppDialog({
   const contentRef = useRef<HTMLDivElement>(null);
 
   return (
-    <Dialog.Root
-      onOpenChange={(nextOpen) => {
-        if (!nextOpen && !dismissible) return;
-        onOpenChange(nextOpen);
+    <Modal
+      afterOpenChange={(nextOpen) => {
+        if (!nextOpen || !initialFocusSelector) return;
+        contentRef.current?.querySelector<HTMLElement>(initialFocusSelector)?.focus();
+      }}
+      aria-label={title}
+      className={contentClassName}
+      closable={dismissible}
+      mask={{ closable: dismissible }}
+      keyboard={dismissible}
+      onCancel={() => {
+        if (dismissible) onOpenChange(false);
       }}
       open={open}
+      title={null}
+      width={1180}
     >
-      <Dialog.Content
-        aria-describedby={undefined}
-        className={contentClassName}
-        maxWidth="1180px"
-        onEscapeKeyDown={(event) => {
-          if (!dismissible) event.preventDefault();
-        }}
-        onOpenAutoFocus={(event) => {
-          if (!initialFocusSelector) return;
-          const target = contentRef.current?.querySelector<HTMLElement>(initialFocusSelector);
-          if (!target) return;
-          event.preventDefault();
-          target.focus();
-        }}
-        onPointerDownOutside={(event) => {
-          if (!dismissible) event.preventDefault();
-        }}
-        ref={contentRef}
-      >
-        <Dialog.Title className="sr-only">{title}</Dialog.Title>
-        {children}
-      </Dialog.Content>
-    </Dialog.Root>
+      <div ref={contentRef}>{children}</div>
+    </Modal>
   );
 }

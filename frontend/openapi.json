@@ -1065,6 +1065,73 @@
         "title": "ConvertRequest",
         "type": "object"
       },
+      "CreatePaperUnitAnswerRequest": {
+        "properties": {
+          "include_supplementary": {
+            "default": false,
+            "title": "Include Supplementary",
+            "type": "boolean"
+          },
+          "knowledge_base_version_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Knowledge Base Version Ids",
+            "type": "array"
+          },
+          "question_paper_document_id": {
+            "title": "Question Paper Document Id",
+            "type": "string"
+          },
+          "source_booklet_document_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Booklet Document Id"
+          }
+        },
+        "required": [
+          "question_paper_document_id"
+        ],
+        "title": "CreatePaperUnitAnswerRequest",
+        "type": "object"
+      },
+      "CreatePaperUnitRequest": {
+        "properties": {
+          "display_name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "document_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Document Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "document_ids"
+        ],
+        "title": "CreatePaperUnitRequest",
+        "type": "object"
+      },
       "CreateRubricRequest": {
         "properties": {
           "paper_job_id": {
@@ -1757,6 +1824,28 @@
             "title": "Job Id",
             "type": "string"
           },
+          "paper_unit_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paper Unit Id"
+          },
+          "question_paper_document_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Question Paper Document Id"
+          },
           "status": {
             "enum": [
               "completed",
@@ -1790,6 +1879,8 @@
           "job_id",
           "filename",
           "display_name",
+          "paper_unit_id",
+          "question_paper_document_id",
           "unit_code",
           "status",
           "total_questions",
@@ -3334,9 +3425,31 @@
             ],
             "title": "Pair Key"
           },
+          "paper_unit_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paper Unit Id"
+          },
           "parsed_pages": {
             "title": "Parsed Pages",
             "type": "integer"
+          },
+          "question_paper_document_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Question Paper Document Id"
           },
           "questions": {
             "items": {
@@ -3496,6 +3609,8 @@
           "display_name",
           "answer_mode",
           "pair_key",
+          "paper_unit_id",
+          "question_paper_document_id",
           "source_booklet_document_id",
           "source_booklet_checksum",
           "source_booklet_filename",
@@ -3577,6 +3692,28 @@
               }
             ],
             "title": "Pair Key"
+          },
+          "paper_unit_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paper Unit Id"
+          },
+          "question_paper_document_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Question Paper Document Id"
           },
           "replaced_by_job_id": {
             "anyOf": [
@@ -3706,6 +3843,8 @@
           "display_name",
           "answer_mode",
           "pair_key",
+          "paper_unit_id",
+          "question_paper_document_id",
           "source_booklet_document_id",
           "source_booklet_checksum",
           "source_booklet_filename",
@@ -3818,6 +3957,259 @@
           "difficulty"
         ],
         "title": "PaperKnowledgeReference",
+        "type": "object"
+      },
+      "PaperUnitAnswerCreated": {
+        "properties": {
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "paper_unit_id": {
+            "title": "Paper Unit Id",
+            "type": "string"
+          },
+          "question_paper_document_id": {
+            "title": "Question Paper Document Id",
+            "type": "string"
+          },
+          "stage": {
+            "const": "queued",
+            "title": "Stage",
+            "type": "string"
+          },
+          "status": {
+            "const": "queued",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "stage",
+          "paper_unit_id",
+          "question_paper_document_id"
+        ],
+        "title": "PaperUnitAnswerCreated",
+        "type": "object"
+      },
+      "PaperUnitDocument": {
+        "properties": {
+          "checksum": {
+            "title": "Checksum",
+            "type": "string"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "filename": {
+            "title": "Filename",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "page_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Count"
+          },
+          "role": {
+            "enum": [
+              "question_paper",
+              "mark_scheme",
+              "source_booklet"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "source_type": {
+            "enum": [
+              "question_paper",
+              "mark_scheme",
+              "insert"
+            ],
+            "title": "Source Type",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "filename",
+          "display_name",
+          "role",
+          "source_type",
+          "status",
+          "checksum",
+          "page_count"
+        ],
+        "title": "PaperUnitDocument",
+        "type": "object"
+      },
+      "PaperUnitListResponse": {
+        "properties": {
+          "available_sessions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Available Sessions",
+            "type": "array"
+          },
+          "available_units": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Available Units",
+            "type": "array"
+          },
+          "available_years": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Available Years",
+            "type": "array"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PaperUnitSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "minimum": 0.0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset",
+          "available_units",
+          "available_years",
+          "available_sessions"
+        ],
+        "title": "PaperUnitListResponse",
+        "type": "object"
+      },
+      "PaperUnitSummary": {
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "documents": {
+            "items": {
+              "$ref": "#/components/schemas/PaperUnitDocument"
+            },
+            "title": "Documents",
+            "type": "array"
+          },
+          "exam_session": {
+            "title": "Exam Session",
+            "type": "string"
+          },
+          "exam_year": {
+            "title": "Exam Year",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "pair_key": {
+            "title": "Pair Key",
+            "type": "string"
+          },
+          "paper_job_count": {
+            "minimum": 0.0,
+            "title": "Paper Job Count",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "archived"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "subject_code": {
+            "title": "Subject Code",
+            "type": "string"
+          },
+          "subject_id": {
+            "title": "Subject Id",
+            "type": "string"
+          },
+          "unit_code": {
+            "title": "Unit Code",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "subject_id",
+          "subject_code",
+          "pair_key",
+          "display_name",
+          "unit_code",
+          "exam_year",
+          "exam_session",
+          "status",
+          "documents",
+          "paper_job_count",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "PaperUnitSummary",
         "type": "object"
       },
       "PlatformStatusResponse": {
@@ -4078,6 +4470,10 @@
             "title": "Subject Code",
             "type": "string"
           },
+          "subject_id": {
+            "title": "Subject Id",
+            "type": "string"
+          },
           "total_available": {
             "title": "Total Available",
             "type": "number"
@@ -4090,6 +4486,7 @@
         "required": [
           "id",
           "subject_code",
+          "subject_id",
           "question_ref",
           "total_awarded",
           "total_available",
@@ -4928,12 +5325,50 @@
             ],
             "title": "Error"
           },
+          "exam_session": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exam Session"
+          },
+          "exam_year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exam Year"
+          },
           "filename": {
             "title": "Filename",
             "type": "string"
           },
           "id": {
             "title": "Id",
+            "type": "string"
+          },
+          "identity_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Identity Error"
+          },
+          "identity_status": {
+            "default": "not_applicable",
+            "title": "Identity Status",
             "type": "string"
           },
           "knowledge_base_id": {
@@ -4973,6 +5408,17 @@
             ],
             "title": "Page Count"
           },
+          "pair_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pair Key"
+          },
           "source_role": {
             "title": "Source Role",
             "type": "string"
@@ -4984,6 +5430,17 @@
           "status": {
             "title": "Status",
             "type": "string"
+          },
+          "unit_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Code"
           }
         },
         "required": [
@@ -4999,7 +5456,13 @@
           "checksum",
           "object_key",
           "page_count",
-          "error"
+          "error",
+          "pair_key",
+          "unit_code",
+          "exam_year",
+          "exam_session",
+          "identity_status",
+          "identity_error"
         ],
         "title": "SourceDocumentResponse",
         "type": "object"
@@ -5543,6 +6006,40 @@
         "title": "SymbolicCheck",
         "type": "object"
       },
+      "UpdatePaperUnitRequest": {
+        "properties": {
+          "display_name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "document_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Ids"
+          }
+        },
+        "title": "UpdatePaperUnitRequest",
+        "type": "object"
+      },
       "UpdateSubjectRequest": {
         "additionalProperties": false,
         "properties": {
@@ -6036,6 +6533,22 @@
       "get": {
         "operationId": "grading_papers_api_v1_grading_papers_get",
         "parameters": [
+          {
+            "in": "query",
+            "name": "paper_unit_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Paper Unit Id"
+            }
+          },
           {
             "in": "query",
             "name": "subject",
@@ -8195,6 +8708,22 @@
           },
           {
             "in": "query",
+            "name": "paper_unit_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Paper Unit Id"
+            }
+          },
+          {
+            "in": "query",
             "name": "q",
             "required": false,
             "schema": {
@@ -9757,6 +10286,577 @@
           }
         },
         "summary": "Rename Workspace Document"
+      }
+    },
+    "/api/v1/subject-workspaces/{workspace_id}/paper-units": {
+      "get": {
+        "operationId": "list_paper_units_api_v1_subject_workspaces__workspace_id__paper_units_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "unit_code",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 32,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Unit Code"
+            }
+          },
+          {
+            "in": "query",
+            "name": "exam_year",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 2200,
+                  "minimum": 1900,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Exam Year"
+            }
+          },
+          {
+            "in": "query",
+            "name": "exam_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 32,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Exam Session"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaperUnitListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Paper Units"
+      },
+      "post": {
+        "operationId": "create_paper_unit_api_v1_subject_workspaces__workspace_id__paper_units_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePaperUnitRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaperUnitSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Paper Unit"
+      }
+    },
+    "/api/v1/subject-workspaces/{workspace_id}/paper-units/{paper_unit_id}": {
+      "delete": {
+        "operationId": "archive_paper_unit_api_v1_subject_workspaces__workspace_id__paper_units__paper_unit_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "paper_unit_id",
+            "required": true,
+            "schema": {
+              "title": "Paper Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Archive Paper Unit"
+      },
+      "get": {
+        "operationId": "get_paper_unit_api_v1_subject_workspaces__workspace_id__paper_units__paper_unit_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "paper_unit_id",
+            "required": true,
+            "schema": {
+              "title": "Paper Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaperUnitSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Paper Unit"
+      },
+      "patch": {
+        "operationId": "update_paper_unit_api_v1_subject_workspaces__workspace_id__paper_units__paper_unit_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "paper_unit_id",
+            "required": true,
+            "schema": {
+              "title": "Paper Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePaperUnitRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaperUnitSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Paper Unit"
+      }
+    },
+    "/api/v1/subject-workspaces/{workspace_id}/paper-units/{paper_unit_id}/answer": {
+      "post": {
+        "operationId": "answer_paper_unit_api_v1_subject_workspaces__workspace_id__paper_units__paper_unit_id__answer_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "paper_unit_id",
+            "required": true,
+            "schema": {
+              "title": "Paper Unit Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePaperUnitAnswerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaperUnitAnswerCreated"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Answer Paper Unit"
       }
     },
     "/api/v1/subjects": {

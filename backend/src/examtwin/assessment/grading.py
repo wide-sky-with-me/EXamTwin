@@ -349,7 +349,10 @@ RELEVANT KNOWLEDGE CODES:
         return result
 
     def pending_reviews(self) -> list[dict[str, Any]]:
-        return self.assessments.pending(subject_code=self.subject.subject_code)
+        return [
+            {**item, "subject_id": self.subject.id}
+            for item in self.assessments.pending(subject_code=self.subject.subject_code)
+        ]
 
     def review(self, assessment_id: str, request: ReviewRequest) -> dict[str, Any]:
         return self.assessments.review(

@@ -258,19 +258,17 @@ function questionStageElement({
   };
   return (
     <div className="grading-page">
-      <GradingQuestionStage
-        assessments={assessments}
-        busy={busy}
-        error={null}
-        onAssessQuestion={vi.fn(async () => undefined)}
-        onBack={vi.fn()}
-        onViewRubric={vi.fn()}
-        onOverview={vi.fn()}
-        onSelectPosition={vi.fn()}
-        paper={paper}
-        rubric={rubric}
-        selectedPosition={1}
-      />
+      <GradingQuestionStage assessments={assessments}
+      busy={busy}
+      error={null}
+      onAssessQuestion={vi.fn(async () => undefined)}
+      onBack={vi.fn()}
+      onViewRubric={vi.fn()}
+      onOverview={vi.fn()}
+      onSelectPosition={vi.fn()}
+      paper={paper}
+      rubric={rubric}
+      selectedPosition={1} subjectId="test-subject" />
     </div>
   );
 }
@@ -1286,7 +1284,9 @@ describe("grading materials UI closure regressions", () => {
     await user.click(screen.getByRole("button", { name: "设为当前" }));
 
     expect(onChoosePaper).toHaveBeenCalledWith("paper-second");
-    expect(screen.queryByPlaceholderText("搜索文件名、Unit 或状态")).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "管理作答记录" })).not.toBeInTheDocument();
+    });
   });
 
   test("deletes a Mark Scheme through the manager confirmation dialog", async () => {

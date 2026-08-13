@@ -10,9 +10,11 @@ import { InlineMarkdown, Markdown } from "./Markdown";
 export function KnowledgeEvidenceCard({
   point,
   index,
+  subjectId,
 }: {
   point: PaperKnowledgeReference;
   index: number;
+  subjectId: string;
 }) {
   const difficulty = difficultyOf(point);
   return (
@@ -70,7 +72,7 @@ export function KnowledgeEvidenceCard({
         <div className="knowledge-card-evidence">
           <h4>支撑这一知识点的参考原文</h4>
           {point.references.length === 0 && <p>当前没有可定位的教材或大纲原文。</p>}
-          <CitationReferenceList citations={point.references} query={point.title} />
+          <CitationReferenceList citations={point.references} query={point.title} subjectId={subjectId} />
         </div>
       </div>
     </details>
@@ -81,17 +83,19 @@ type SourcePreviewDialogProps = {
   jobId: string;
   questionNumber: string;
   pages: number[];
+  subjectId: string;
   onClose: () => void;
 };
 
 export const SourcePreviewDialog = forwardRef<HTMLDivElement, SourcePreviewDialogProps>(
   function SourcePreviewDialog(
-    { jobId, questionNumber, pages, onClose },
+    { jobId, questionNumber, pages, onClose, subjectId },
     ref,
   ) {
     const [activePage, setActivePage] = useState(pages[0] ?? 1);
     const activePageUrl = backendResourceUrl(
       `/papers/jobs/${jobId}/source/pages/${activePage}`,
+      subjectId,
     );
 
     return (
@@ -166,7 +170,7 @@ export const SourcePreviewDialog = forwardRef<HTMLDivElement, SourcePreviewDialo
           </div>
           <footer>
             <a
-              href={backendResourceUrl(`/papers/jobs/${jobId}/source`)}
+              href={backendResourceUrl(`/papers/jobs/${jobId}/source`, subjectId)}
               target="_blank"
               rel="noreferrer"
             >
