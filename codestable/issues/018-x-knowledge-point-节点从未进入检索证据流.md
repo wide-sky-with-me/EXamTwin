@@ -2,7 +2,7 @@
 kind: issue
 title: "knowledge_point 节点从未进入检索证据流"
 type: bug
-status: open
+status: closed
 created: 2026-08-07
 epic: ""
 ---
@@ -27,7 +27,7 @@ epic: ""
 
 - 独立 issue（不隶属现有 epic）。
 - 相关 spec：`codestable/spec/index.md` “用证据回答问题”“整卷证据作答”能力边界。
-- 关联：`codestable/issues/012-o-原始证据回退的-pair-key-闭合验证.md`（同为检索边界闭合的
+- 关联：`codestable/issues/012-x-原始证据回退的-pair-key-闭合验证.md`（同为检索边界闭合的
   同类问题）。
 
 ## 当前证据
@@ -165,3 +165,10 @@ epic: ""
   `132 passed`、Playwright `7 passed`，Ruff、BasedPyright、架构、OpenAPI、ESLint、
   TypeScript/Vite、配置与 `git diff --check` 均通过。
 - 本 issue 的实现与验证目标已经达到；按 CodeStable 生命周期保持 open，等待显式关闭授权。
+
+## 关闭结论
+
+- `knowledge_point` 已作为核心知识图谱的课程身份投影进入检索，同时保持“课程节点不单独充当答案原文引用”的边界。
+- 数学 Core v5 与经济 Core v4 均经 staging/alias 原子发布；最终两科 Recall@5 均为 `1.0`，MRR 分别为 `0.8595`、`0.8889`，空结果率和范围污染均为 `0`。
+- 外部 reranker 超时时退回已受门禁的本地顺序，课程节点不进入外部 reranker；稳定行为已合并到 Project Spec 的检索路径和发布约束。
+- 无遗留事项。

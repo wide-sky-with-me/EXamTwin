@@ -1871,6 +1871,8 @@ export interface components {
             status: string;
             /** Subject Code */
             subject_code: string | null;
+            /** Warnings */
+            warnings: string[];
         };
         /** IndexRequest */
         IndexRequest: {

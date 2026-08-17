@@ -18,7 +18,7 @@ from examtwin.contracts.system import API_CAPABILITIES, API_CONTRACT_VERSION
 from examtwin.knowledge.inventory import corpus_stats
 from examtwin.platform.config import Settings, get_settings
 from examtwin.platform.database.session import create_session_factory
-from examtwin.platform.health import infrastructure_health
+from examtwin.platform.health import access_boundary_warning, infrastructure_health
 from examtwin.subjects.public import SubjectContext, all_subject_contexts
 from examtwin.subjects.status import subject_statuses
 from examtwin.subjects.workspace_repository import WorkspaceRepository
@@ -29,9 +29,11 @@ router = APIRouter()
 @router.get("/health", response_model=HealthResponse)
 def health(settings: Settings = Depends(get_settings)) -> HealthResponse:
     infrastructure = infrastructure_health(settings)
+    warnings = [warning for warning in (access_boundary_warning(settings),) if warning is not None]
     return HealthResponse(
-        status="ok" if infrastructure.available else "degraded",
+        status="ok" if infrastructure.available and not warnings else "degraded",
         subject_code=None,
+        warnings=warnings,
         api_contract_version=API_CONTRACT_VERSION,
         capabilities=list(API_CAPABILITIES),
         llm_model=settings.llm_model,

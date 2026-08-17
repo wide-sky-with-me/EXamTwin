@@ -58,9 +58,10 @@ API 与 Worker 必须来自同一个 uv 锁定镜像，避免前端命中新旧�
 前端的 pnpm v11 store 固定在 `frontend/.pnpm-store`（不纳入版本控制），避免依赖用户级
 可写状态；允许执行安装脚本的依赖目前只有锁定的 `esbuild`。
 当前部署边界是单机、单用户工作台；PostgreSQL、Qdrant、SeaweedFS 端口均只允许 loopback，
-API 还会在 ASGI 边界拒绝非 loopback HTTP/WebSocket 客户端。不要在反向代理后关闭这条边界
-并直接暴露到 LAN 或公网。多用户部署前必须补齐统一认证、授权和 tenant 绑定；对象目录中的
-owner 是生命周期归属，不是当前缺失的用户鉴权替代品。
+API 默认以 `API_BIND_HOST=127.0.0.1` 监听，并在 ASGI 边界拒绝非 loopback HTTP/WebSocket
+客户端。若同时把 `LOCAL_ACCESS_ONLY=false` 与 `API_BIND_HOST` 配成非 loopback，健康接口会
+返回 `degraded` 并指出当前没有认证边界；不要把该状态直接暴露到 LAN 或公网。多用户部署前
+必须补齐统一认证、授权和 tenant 绑定；对象目录中的 owner 是生命周期归属，不是用户鉴权替代品。
 
 ## 启动
 

@@ -13,6 +13,7 @@ class InfrastructureHealthResponse(SerializedResponse):
 
 class HealthResponse(SerializedResponse):
     status: str
+    warnings: list[str] = Field(default_factory=list)
     subject_code: str | None = None
     api_contract_version: str
     capabilities: list[str]

@@ -2,7 +2,7 @@
 kind: issue
 title: "原始证据回退的 pair_key 闭合验证"
 type: bug
-status: open
+status: closed
 created: 2026-08-07
 epic: ""
 ---
@@ -70,3 +70,19 @@ helper 中复制一套容易漂移的过滤逻辑。
 
 - 不改 project spec；关闭结论需明确记录：核心知识检索不受当前试卷 `pair_key` 限制，
   严格配对资料由独立工具按 `pair_key` 读取。
+
+## 执行记录
+
+- 新增公开 `RagService.retrieve` 契约回归：底层故意同时返回合法原文、跨场次原文和错误资料类型，
+  只有合法节点能进入 reranker、知识卡片和 raw fallback；测试不直接伪造私有 helper 的不可达状态。
+- 新增 `knowledge_search` 工具回归，确认题目即使携带 `pair_key`，核心知识检索仍只传科目、
+  Unit、来源和权威范围；既有 `paired_exam_lookup` 回归继续证明 Insert 只按精确配对键读取。
+- 健康、公开 RAG、答题工具和精确配对工具专项回归合计 `44 passed`。
+
+## 关闭结论
+
+- 原风险不成立：raw fallback 只消费已经通过 Qdrant 预过滤和 `_in_scope` 后置门禁的节点，
+  reranker 与父块展开都不扩张节点身份。
+- 核心 syllabus / textbook 检索不受当前试卷 `pair_key` 限制；Question Paper 配套 Insert
+  由独立工具按精确配对键读取。该边界由公开路径测试固化，不在下游 helper 复制第三套过滤。
+- 当前 Project Spec 的“配对键先于语义相似”与作答检索说明已经准确，无需追加产品真相。

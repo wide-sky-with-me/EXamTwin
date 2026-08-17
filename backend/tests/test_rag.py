@@ -192,6 +192,163 @@ def test_rag_unit_scope_accepts_global_and_cross_unit_catalog_but_not_other_unit
     assert RagService._in_scope(node("P2", node_kind="knowledge_point"), **scope)
 
 
+def test_public_retrieve_keeps_cards_and_raw_fallbacks_inside_scope(monkeypatch) -> None:
+    pair_key = "9660:2026:JAN:P1"
+
+    def candidate(
+        document_id: str,
+        *,
+        candidate_pair_key: str,
+        source_type: str = "textbook",
+        score: float,
+    ) -> NodeWithScore:
+        return NodeWithScore(
+            node=TextNode(
+                id_=document_id,
+                text=f"Evidence from {document_id}",
+                metadata={
+                    "node_kind": "evidence_chunk",
+                    "subject_code": "9660",
+                    "unit_code": "P1",
+                    "pair_key": candidate_pair_key,
+                    "source_type": source_type,
+                    "source_role": "core_knowledge",
+                    "authority_tier": "licensed_core",
+                    "document_id": document_id,
+                    "page": 1,
+                    "section": document_id,
+                },
+            ),
+            score=score,
+        )
+
+    candidates = [
+        candidate("mapped", candidate_pair_key=pair_key, score=0.9),
+        candidate("raw", candidate_pair_key=pair_key, score=0.8),
+        candidate("wrong-pair", candidate_pair_key="9660:2025:JUN:P1", score=1.0),
+        candidate(
+            "wrong-source",
+            candidate_pair_key=pair_key,
+            source_type="mark_scheme",
+            score=1.0,
+        ),
+    ]
+    captured: dict[str, list[str]] = {}
+
+    class FakeVectorStore:
+        enable_hybrid = False
+
+    class FakeRetriever:
+        def retrieve(self, _question: str) -> list[NodeWithScore]:
+            return candidates
+
+    class FakeIndex:
+        vector_store = FakeVectorStore()
+
+        def as_retriever(self, **_kwargs) -> FakeRetriever:
+            return FakeRetriever()
+
+    class CapturingReranker:
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+        def rerank(
+            self,
+            _question: str,
+            nodes: list[NodeWithScore],
+            *,
+            top_n: int,
+        ) -> list[NodeWithScore]:
+            del top_n
+            captured["reranked"] = [node.node.node_id for node in nodes]
+            return nodes
+
+    def build_cards(
+        _repository,
+        _question: str,
+        evidence_items: list[dict],
+        **_kwargs,
+    ) -> list[dict]:
+        captured["cards"] = [str(item["metadata"]["document_id"]) for item in evidence_items]
+        return [
+            {
+                "id": "9660:P1.1.O01",
+                "code": "P1.1.O01",
+                "title": "Approved objective",
+                "definition": "Use approved evidence.",
+                "breadcrumb": "Mathematics › P1",
+                "subject_code": "9660",
+                "unit_code": "P1",
+                "source_ref": "mapped",
+                "path": [],
+                "relations": [],
+                "references": [
+                    {
+                        "source": "mapped",
+                        "document_id": "mapped",
+                        "page": 1,
+                        "section": "mapped",
+                        "unit_code": "P1",
+                        "source_type": "textbook",
+                        "authority_tier": "licensed_core",
+                        "pair_key": pair_key,
+                        "excerpt": "Evidence from mapped",
+                    }
+                ],
+                "retrieval_score": 0.9,
+                "difficulty": {
+                    "score": 0.3,
+                    "label": "easy",
+                    "confidence": 0.4,
+                    "evidence_level": "D",
+                    "rationale": "Cold-start estimate.",
+                },
+            }
+        ]
+
+    monkeypatch.setattr(
+        "examtwin.assessment.rag.build_embedding",
+        lambda *_args, **_kwargs: object(),
+    )
+    monkeypatch.setattr(
+        "examtwin.assessment.rag.load_vector_index",
+        lambda *_args, **_kwargs: FakeIndex(),
+    )
+    monkeypatch.setattr(
+        "examtwin.assessment.rag.SiliconFlowReranker",
+        CapturingReranker,
+    )
+    monkeypatch.setattr(
+        "examtwin.assessment.rag.build_retrieval_cards",
+        build_cards,
+    )
+
+    settings = Settings(retrieval_raw_fallback_count=2)
+    results = RagService(
+        settings,
+        subject_context(settings),
+        knowledge_repository=object(),
+        final_answer_provider=object(),
+    ).retrieve(
+        "approved evidence",
+        subject_code="9660",
+        unit_code="P1",
+        pair_key=pair_key,
+        source_types=["textbook"],
+        authority_tiers=["licensed_core"],
+        top_k=4,
+    )
+
+    assert captured == {
+        "reranked": ["mapped", "raw"],
+        "cards": ["mapped", "raw"],
+    }
+    assert [node.node.metadata["document_id"] for node in results] == [
+        "mapped",
+        "raw",
+    ]
+
+
 def test_reranker_cannot_drop_direct_catalog_candidates() -> None:
     def node(node_id: str, *, node_kind: str) -> NodeWithScore:
         return NodeWithScore(
