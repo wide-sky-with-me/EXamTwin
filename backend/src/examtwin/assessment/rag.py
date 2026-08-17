@@ -6,6 +6,7 @@ import logging
 import re
 import time
 import uuid
+from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
 from urllib.parse import quote
@@ -258,6 +259,74 @@ def _card_node(card: dict) -> NodeWithScore:
     )
 
 
+def retain_direct_catalog_candidates(
+    reranked: list[NodeWithScore],
+    candidates: list[NodeWithScore],
+) -> list[NodeWithScore]:
+    """Keep authoritative catalog candidates available for deterministic card ranking.
+
+    The external reranker may reorder direct curriculum nodes, but it must not be
+    the sole gate that can discard an exact official objective before the local
+    title/definition matcher sees it.
+    """
+
+    retained = list(reranked)
+    seen = {node.node.node_id for node in retained}
+    for node in candidates:
+        if node.node.metadata.get("node_kind") != "knowledge_point":
+            continue
+        if node.node.node_id in seen:
+            continue
+        seen.add(node.node.node_id)
+        retained.append(node)
+    return retained
+
+
+def rerank_retrieval_candidates(
+    question: str,
+    candidates: list[NodeWithScore],
+    *,
+    top_n: int,
+    rerank: Callable[..., list[NodeWithScore]],
+) -> tuple[list[NodeWithScore], bool]:
+    """Rerank source evidence without making the external service a hard gate.
+
+    Direct curriculum nodes use a local sparse rank plus deterministic catalog
+    matching, so sending them to the external reranker adds latency without
+    affecting their final card score. If the external reranker is unavailable,
+    retain the strongest hybrid evidence instead of failing the whole Agent tool
+    call and paying for another reasoning round.
+    """
+
+    evidence = [
+        node for node in candidates if node.node.metadata.get("node_kind") != "knowledge_point"
+    ]
+    rerank_limit = min(max(top_n * 3, top_n), len(evidence))
+    fallback = False
+    if not evidence:
+        reranked: list[NodeWithScore] = []
+    else:
+        try:
+            reranked = rerank(
+                question,
+                evidence,
+                top_n=rerank_limit,
+            )
+        except Exception as error:
+            fallback = True
+            logger.warning(
+                "retrieval_rerank_fallback error_type=%s candidate_count=%d",
+                type(error).__name__,
+                len(evidence),
+            )
+            reranked = sorted(
+                evidence,
+                key=lambda node: float(node.score or 0),
+                reverse=True,
+            )[:rerank_limit]
+    return retain_direct_catalog_candidates(reranked, candidates), fallback
+
+
 def calibrate_evidence_confidence(
     citations: list[Citation],
     *,
@@ -343,7 +412,11 @@ class RagService:
         metadata = node.node.metadata
         return bool(
             metadata.get("subject_code") == subject_code
-            and (not unit_code or metadata.get("unit_code") in {"", unit_code})
+            and (
+                not unit_code
+                or metadata.get("unit_code") in {"", unit_code}
+                or metadata.get("node_kind") == "knowledge_point"
+            )
             and (not pair_key or metadata.get("pair_key") == pair_key)
             and (not source_types or metadata.get("source_type") in source_types)
             and (not authority_tiers or metadata.get("authority_tier") in authority_tiers)
@@ -507,7 +580,12 @@ class RagService:
                     retrieval_question = f"{question}\nRelated curriculum terms: " + "; ".join(
                         expansion_terms
                     )
-            embedding = build_embedding(self.settings)
+            query_provider_timeout = self.settings.retrieval_provider_timeout
+            embedding = build_embedding(
+                self.settings,
+                timeout=min(self.settings.embedding_timeout, query_provider_timeout),
+                max_retries=0,
+            )
             collections = self.subject.vector_collections or (
                 self.settings.qdrant_collection_alias,
             )
@@ -540,11 +618,70 @@ class RagService:
                         source_roles=("core_knowledge", "supplementary_knowledge"),
                     ),
                 )
-                for node in retriever.retrieve(retrieval_question):
+                try:
+                    retrieved_nodes = retriever.retrieve(retrieval_question)
+                except Exception as error:
+                    if not hybrid:
+                        raise
+                    retrieval_modes.discard("hybrid")
+                    retrieval_modes.add("sparse_fallback")
+                    logger.warning(
+                        "retrieval_hybrid_fallback error_type=%s collection=%s",
+                        type(error).__name__,
+                        collection,
+                    )
+                    sparse_retriever = index.as_retriever(
+                        similarity_top_k=candidate_count,
+                        sparse_top_k=candidate_count,
+                        vector_store_query_mode=VectorStoreQueryMode.SPARSE,
+                        filters=retrieval_filters(
+                            subject_code=subject_code,
+                            unit_code=unit_code,
+                            pair_key=pair_key,
+                            source_types=tuple(source_type_set),
+                            authority_tiers=tuple(authority_tier_set),
+                            source_roles=("core_knowledge", "supplementary_knowledge"),
+                        ),
+                    )
+                    retrieved_nodes = sparse_retriever.retrieve(retrieval_question)
+                for node in retrieved_nodes:
                     current = nodes_by_id.get(node.node.node_id)
                     if current is None or float(node.score or 0) > float(current.score or 0):
                         nodes_by_id[node.node.node_id] = node
-            trace["retrieval_mode"] = "+".join(sorted(retrieval_modes))
+                if hybrid:
+                    # Direct curriculum lookup is local and cheap. Keep enough
+                    # candidates that minor sparse/reranker score drift cannot
+                    # cut the exact official objective at an arbitrary top-10
+                    # boundary; card ranking still controls the public top-k.
+                    # The catalog is small and the sparse lookup is local. A
+                    # bounded 256-node window covers the current full subject
+                    # catalogs (mathematics currently has 183 objectives), so
+                    # an exact long-form objective cannot be cut before local
+                    # deterministic card ranking. These nodes never enter the
+                    # external reranker input.
+                    catalog_count = 256
+                    catalog_retriever = index.as_retriever(
+                        similarity_top_k=catalog_count,
+                        sparse_top_k=catalog_count,
+                        vector_store_query_mode=VectorStoreQueryMode.SPARSE,
+                        filters=retrieval_filters(
+                            subject_code=subject_code,
+                            source_types=tuple(source_type_set),
+                            authority_tiers=tuple(authority_tier_set),
+                            source_roles=("core_knowledge", "supplementary_knowledge"),
+                            node_kinds=("knowledge_point",),
+                        ),
+                    )
+                    for catalog_rank, node in enumerate(
+                        catalog_retriever.retrieve(question),
+                        start=1,
+                    ):
+                        node.node.metadata["catalog_sparse_rank"] = catalog_rank
+                        current = nodes_by_id.get(node.node.node_id)
+                        if current is not None:
+                            current.node.metadata["catalog_sparse_rank"] = catalog_rank
+                        if current is None or float(node.score or 0) > float(current.score or 0):
+                            nodes_by_id[node.node.node_id] = node
             nodes = list(nodes_by_id.values())
             trace["candidate_count"] = len(nodes)
             filtered = [
@@ -561,13 +698,23 @@ class RagService:
             ]
             trace["postfilter_count"] = len(filtered)
             if not filtered:
-                trace.update(status="empty", retrieval_mode=trace["retrieval_mode"])
+                trace.update(
+                    status="empty",
+                    retrieval_mode="+".join(sorted(retrieval_modes)),
+                )
                 return []
-            reranked = SiliconFlowReranker(self.settings).rerank(
+            reranked, rerank_fallback = rerank_retrieval_candidates(
                 question,
                 filtered,
-                top_n=min(max(top_n * 3, top_n), len(filtered)),
+                top_n=top_n,
+                rerank=SiliconFlowReranker(
+                    self.settings,
+                    timeout=min(self.settings.rerank_timeout, query_provider_timeout),
+                ).rerank,
             )
+            if rerank_fallback:
+                retrieval_modes.add("rerank_fallback")
+            trace["retrieval_mode"] = "+".join(sorted(retrieval_modes))
             reranked = self._expand_parent_context(reranked)
             trace["reranked_count"] = len(reranked)
             if self.knowledge_repository is None:

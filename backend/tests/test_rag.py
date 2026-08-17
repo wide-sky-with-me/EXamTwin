@@ -10,6 +10,8 @@ from examtwin.assessment.rag import (
     _card_node,
     calibrate_evidence_confidence,
     relevant_node_excerpt,
+    rerank_retrieval_candidates,
+    retain_direct_catalog_candidates,
 )
 from examtwin.contracts import AskRequest, Citation
 from examtwin.platform.config import Settings
@@ -160,8 +162,8 @@ def test_knowledge_card_preserves_subject_and_unit_scope() -> None:
     assert node.node.metadata["unit_code"] == "P1"
 
 
-def test_rag_unit_scope_accepts_global_but_not_other_unit_evidence() -> None:
-    def node(unit_code: str) -> NodeWithScore:
+def test_rag_unit_scope_accepts_global_and_cross_unit_catalog_but_not_other_unit_evidence() -> None:
+    def node(unit_code: str, *, node_kind: str = "evidence_chunk") -> NodeWithScore:
         return NodeWithScore(
             node=TextNode(
                 text="Approved subject evidence.",
@@ -171,6 +173,7 @@ def test_rag_unit_scope_accepts_global_but_not_other_unit_evidence() -> None:
                     "source_type": "textbook",
                     "authority_tier": "licensed_core",
                     "source_role": "core_knowledge",
+                    "node_kind": node_kind,
                 },
             )
         )
@@ -186,6 +189,114 @@ def test_rag_unit_scope_accepts_global_but_not_other_unit_evidence() -> None:
     assert RagService._in_scope(node(""), **scope)
     assert RagService._in_scope(node("P1"), **scope)
     assert not RagService._in_scope(node("P2"), **scope)
+    assert RagService._in_scope(node("P2", node_kind="knowledge_point"), **scope)
+
+
+def test_reranker_cannot_drop_direct_catalog_candidates() -> None:
+    def node(node_id: str, *, node_kind: str) -> NodeWithScore:
+        return NodeWithScore(
+            node=TextNode(
+                id_=node_id,
+                text=node_id,
+                metadata={"node_kind": node_kind},
+            ),
+            score=0.8,
+        )
+
+    evidence = node("evidence", node_kind="evidence_chunk")
+    catalog = node("catalog", node_kind="knowledge_point")
+    dropped_evidence = node("dropped", node_kind="evidence_chunk")
+
+    retained = retain_direct_catalog_candidates(
+        [evidence],
+        [evidence, catalog, dropped_evidence],
+    )
+
+    assert [item.node.node_id for item in retained] == ["evidence", "catalog"]
+
+
+def test_retrieval_reranks_only_source_evidence_and_retains_direct_catalog() -> None:
+    def node(node_id: str, *, node_kind: str, score: float) -> NodeWithScore:
+        return NodeWithScore(
+            node=TextNode(
+                id_=node_id,
+                text=node_id,
+                metadata={"node_kind": node_kind},
+            ),
+            score=score,
+        )
+
+    evidence = node("evidence", node_kind="evidence_chunk", score=0.7)
+    catalog = node("catalog", node_kind="knowledge_point", score=0.9)
+    received: list[str] = []
+
+    def rerank(_question: str, candidates: list[NodeWithScore], *, top_n: int):
+        received.extend(item.node.node_id for item in candidates)
+        assert top_n == 1
+        return candidates
+
+    reranked, fallback = rerank_retrieval_candidates(
+        "query",
+        [evidence, catalog],
+        top_n=1,
+        rerank=rerank,
+    )
+
+    assert received == ["evidence"]
+    assert [item.node.node_id for item in reranked] == ["evidence", "catalog"]
+    assert fallback is False
+
+
+def test_retrieval_falls_back_to_hybrid_scores_when_reranker_times_out() -> None:
+    def node(node_id: str, score: float) -> NodeWithScore:
+        return NodeWithScore(
+            node=TextNode(
+                id_=node_id,
+                text=node_id,
+                metadata={"node_kind": "evidence_chunk"},
+            ),
+            score=score,
+        )
+
+    def timeout(*_args, **_kwargs):
+        raise TimeoutError("reranker timed out")
+
+    reranked, fallback = rerank_retrieval_candidates(
+        "query",
+        [node("weaker", 0.4), node("stronger", 0.9)],
+        top_n=1,
+        rerank=timeout,
+    )
+
+    assert [item.node.node_id for item in reranked] == ["stronger", "weaker"]
+    assert fallback is True
+
+
+def test_query_provider_timeout_is_bounded_independently_from_index_timeout(
+    monkeypatch,
+) -> None:
+    settings = Settings(
+        embedding_timeout=120,
+        rerank_timeout=30,
+        retrieval_provider_timeout=15,
+    )
+    captured: dict[str, object] = {}
+
+    class FakeEmbedding:
+        def __init__(self, **kwargs) -> None:
+            captured.update(kwargs)
+
+    monkeypatch.setattr(
+        "examtwin.platform.providers.ResilientOpenAIEmbedding",
+        FakeEmbedding,
+    )
+
+    from examtwin.platform.providers import build_embedding
+
+    build_embedding(settings, timeout=settings.retrieval_provider_timeout, max_retries=0)
+
+    assert captured["timeout"] == 15
+    assert captured["max_retries"] == 0
 
 
 def test_rag_carries_question_images_into_answer_task(monkeypatch) -> None:

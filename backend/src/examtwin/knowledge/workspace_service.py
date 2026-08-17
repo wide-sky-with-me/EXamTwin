@@ -249,3 +249,38 @@ class CorpusWorkspaceService:
         except Exception as error:
             self.workspaces.fail_version(version_id, str(error))
             raise KnowledgeBaseBuildError(f"{base['name']}构建失败：{str(error)[:500]}") from error
+
+    def resume_knowledge_base_version(self, version_id: str) -> KnowledgeBaseBuildResult:
+        version = self.workspaces.require_version(version_id)
+        base = self.workspaces.require_base(
+            str(version["knowledge_base_id"]),
+            subject_id=self.subject.id,
+        )
+        if version.get("status") != "failed":
+            raise ValueError("只有构建失败的知识库版本可以恢复")
+        document_ids = self.workspaces.documents_for_version(version_id)
+        build_context = self.subject.with_index_target(
+            version_id=version_id,
+            alias_name=str(version["alias_name"]),
+        )
+        runtime_settings = build_context.runtime_settings(self.settings)
+        try:
+            index_result = self.index_builder(
+                runtime_settings,
+                build_context,
+                self.vector_indexes,
+                self.knowledge,
+                resume=True,
+                knowledge_base_version_id=version_id,
+                source_document_ids=document_ids,
+            )
+            persisted_version = self.workspaces.require_version(version_id)
+            if persisted_version.get("status") != "published":
+                raise RuntimeError("知识库版本未发布")
+            return KnowledgeBaseBuildResult(
+                version=persisted_version,
+                index_result=index_result,
+            )
+        except Exception as error:
+            self.workspaces.fail_version(version_id, str(error))
+            raise KnowledgeBaseBuildError(f"{base['name']}恢复失败：{str(error)[:500]}") from error

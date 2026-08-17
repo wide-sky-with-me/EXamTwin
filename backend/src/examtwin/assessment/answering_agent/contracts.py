@@ -69,7 +69,7 @@ def required_diagram_is_present(
 
 @dataclass(frozen=True)
 class QuestionImage:
-    """Trusted paper page pixels loaded by PaperWorker, never a caller-supplied path."""
+    """Trusted paper pixels loaded by PaperWorker, never a caller-supplied path."""
 
     page_number: int
     content: bytes

@@ -53,12 +53,14 @@ export function Grading({
   onCreated,
   initialSubjectId,
   initialPaperUnitId,
+  initialPaperJobId,
 }: {
   subjects?: SubjectPack[];
   subject?: SubjectPack | null;
   onCreated: () => Promise<void>;
   initialSubjectId?: string;
   initialPaperUnitId?: string;
+  initialPaperJobId?: string;
 }) {
   const subjects = providedSubjects ?? (legacySubject ? [legacySubject] : []);
   const legacyMode = providedSubjects === undefined;
@@ -268,8 +270,8 @@ export function Grading({
   }, [importJobId, importStorageKey, importStreamVersion, loadPapers, notify, subject]);
 
   const loadDiscoveryLists = useCallback(async () => {
-    await Promise.allSettled([loadPapers(), loadSources()]);
-  }, [loadPapers, loadSources]);
+    await Promise.allSettled([loadPapers(initialPaperJobId), loadSources()]);
+  }, [initialPaperJobId, loadPapers, loadSources]);
 
   const loadOverview = useCallback(async (
     nextPaperId: string,
@@ -1220,12 +1222,6 @@ export function Grading({
 
   return (
     <section className="grading-page" ref={pageRef}>
-      <header className="page-heading">
-        <div>
-          <h1>答案评分</h1>
-        </div>
-      </header>
-
       {legacyMode || routedContext ? (
         <nav aria-label="评分流程" className="grading-journey">
           <button aria-current={step === 1 ? "step" : undefined} className={step === 1 ? "current" : "completed"} disabled={journeyLocked} onClick={() => transitionToStep(1)} type="button">
@@ -1294,6 +1290,7 @@ export function Grading({
 
       {subject && step === 1 && (
         <GradingMaterialsStage
+          allowExternalImport={!initialPaperJobId}
           busy={busy}
           documentId={documentId}
           documents={documents}
@@ -1317,6 +1314,7 @@ export function Grading({
           importJob={importJob}
           importStreamState={importStreamState}
           onReconnectImport={() => setImportStreamVersion((version) => version + 1)}
+          lockPaperSelection={Boolean(initialPaperJobId)}
           sourceBookletRequired={subject.source_booklet_required}
           papersError={papersError}
           papersLoading={papersLoading}

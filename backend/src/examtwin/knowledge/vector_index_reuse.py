@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from llama_index.core.schema import BaseNode, MetadataMode
-from qdrant_client import QdrantClient
+from qdrant_client import QdrantClient, models
 
 from examtwin.knowledge.vector_retrieval import DENSE_VECTOR_NAME
 
@@ -23,6 +23,9 @@ _VOLATILE_EMBED_METADATA = (
     "embedding_identity",
     "node_fingerprint",
     "knowledge_match_confidence",
+    "parent_block_id",
+    "previous_block_id",
+    "next_block_id",
 )
 
 
@@ -73,6 +76,36 @@ def _existing_ids(
     return found
 
 
+def prune_stale_points(
+    client: QdrantClient,
+    collection_name: str,
+    desired_node_ids: list[str],
+) -> int:
+    """Remove orphaned points before validating a resumed immutable build."""
+
+    desired = set(desired_node_ids)
+    stale: list[str] = []
+    offset: Any | None = None
+    while True:
+        records, offset = client.scroll(
+            collection_name,
+            limit=256,
+            offset=offset,
+            with_payload=False,
+            with_vectors=False,
+        )
+        stale.extend(str(record.id) for record in records if str(record.id) not in desired)
+        if offset is None:
+            break
+    for batch in _batches(stale):
+        client.delete(
+            collection_name,
+            points_selector=models.PointIdsList(points=[uuid.UUID(point_id) for point_id in batch]),
+            wait=True,
+        )
+    return len(stale)
+
+
 def _prepare_node_identities(
     nodes: list[BaseNode],
     *,
@@ -82,8 +115,17 @@ def _prepare_node_identities(
 ) -> None:
     occurrences: Counter[str] = Counter()
     for node in nodes:
+        filter_only_metadata = (
+            ("source_role",) if node.metadata.get("node_kind") == "knowledge_point" else ()
+        )
         node.excluded_embed_metadata_keys = list(
-            dict.fromkeys([*node.excluded_embed_metadata_keys, *_VOLATILE_EMBED_METADATA])
+            dict.fromkeys(
+                [
+                    *node.excluded_embed_metadata_keys,
+                    *_VOLATILE_EMBED_METADATA,
+                    *filter_only_metadata,
+                ]
+            )
         )
         embedding_content = node.get_content(metadata_mode=MetadataMode.EMBED)
         embedding_fingerprint = hashlib.sha256(embedding_content.encode("utf-8")).hexdigest()
@@ -179,8 +221,6 @@ def plan_vector_writes(
             node = pending_by_id.get(str(record.id))
             payload = record.payload or {}
             if node is None:
-                continue
-            if payload.get("index_schema_version") != schema_version:
                 continue
             if payload.get("embedding_identity") != embed_identity:
                 continue

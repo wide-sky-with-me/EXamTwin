@@ -1311,6 +1311,15 @@ describe("grading materials UI closure regressions", () => {
     expect(screen.queryByText("上传官方版本")).not.toBeInTheDocument();
   });
 
+  test("locks the answer context when grading from a paper-owned record", () => {
+    render(materialStageElement({ allowExternalImport: false, lockPaperSelection: true }));
+
+    expect(screen.queryByRole("button", { name: "上传答卷" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "管理答卷" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("选择作答记录")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "解析评分标准" })).toBeInTheDocument();
+  });
+
   test("exposes truthful paper and rubric context loading states", () => {
     const mounted = render(materialStageElement({ busy: "loading-paper" }));
     const stage = screen.getByRole("article");
@@ -1358,6 +1367,7 @@ describe("grading materials UI closure regressions", () => {
   test("uses the grading-scoped semantic primary action contract", () => {
     render(materialStageElement());
 
+    expect(screen.getByRole("article")).not.toHaveClass("panel");
     const action = screen.getByRole("button", { name: "解析评分标准" });
     expect(action).toHaveClass("primary", "grading-primary-action");
     expect(action.closest(".grading-page")).toBeInTheDocument();

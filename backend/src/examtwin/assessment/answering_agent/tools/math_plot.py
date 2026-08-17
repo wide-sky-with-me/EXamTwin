@@ -44,7 +44,8 @@ class MathPlotCurve(BaseModel):
         max_length=500,
         description=(
             "Safe SymPy expression in the declared variable. Use *, ^, sin, cos, tan, "
-            "exp, log, sqrt, Abs/abs and pi; example: Abs(10*cos(pi*(x-37)/180))."
+            "asin, acos, atan, exp, log, sqrt, Abs/abs and pi; example: "
+            "Abs(10*cos(pi*(x-37)/180))."
         ),
     )
     variable: str = Field(default="x", pattern=r"^[A-Za-z][A-Za-z0-9_]{0,15}$")

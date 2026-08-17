@@ -583,6 +583,8 @@ class WorkspaceRepository:
             row.status = "failed"
             row.updated_at = utcnow()
             snapshot = json.loads(row.source_snapshot_json)
+            if isinstance(snapshot, dict):
+                snapshot = snapshot.get("documents", [])
             row.source_snapshot_json = json.dumps(
                 {"documents": snapshot, "error": error[:2000]}, ensure_ascii=False
             )

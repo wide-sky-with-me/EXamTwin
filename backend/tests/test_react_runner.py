@@ -16,6 +16,7 @@ from examtwin.assessment.answering_agent.contracts import (
     SubjectSkill,
     ToolReplayPayload,
 )
+from examtwin.assessment.answering_agent.finalization import compact_cited_evidence
 from examtwin.assessment.answering_agent.tools import (
     KnowledgeSearchTool,
     MathCalculateTool,
@@ -40,6 +41,19 @@ from backend.tests.answering_agent_support import (
 )
 
 MATHEMATICS_9660 = get_subject_package("oxfordaqa-mathematics-9660").require_skill()
+
+
+def test_runtime_compacts_public_citations_to_only_answer_used_evidence() -> None:
+    first = _citation(_nodes("first")[0])
+    second = first.model_copy(update={"document_id": "doc-2", "source": "second.md"})
+
+    answer, citations = compact_cited_evidence(
+        "Use the second source [S2], then cite it again [S2].",
+        (first, second),
+    )
+
+    assert answer == "Use the second source [S1], then cite it again [S1]."
+    assert citations == (second,)
 
 
 def test_runtime_refuses_to_mark_an_answer_grounded_without_search_evidence() -> None:
@@ -468,6 +482,7 @@ def test_react_loop_suppresses_an_identical_failed_tool_call() -> None:
         == 1
     )
     assert any("重复失败" in step.message for step in result.steps)
+    assert any("Dunder names are not allowed" in prompt for prompt in llm.prompts)
 
 
 def test_react_loop_forces_finalization_after_iteration_budget() -> None:

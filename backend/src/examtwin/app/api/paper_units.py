@@ -2,7 +2,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 from starlette.concurrency import run_in_threadpool
 
 from examtwin.app.api.dependencies import get_paper_units, get_subject_context
@@ -66,6 +76,30 @@ def list_paper_units(
         limit=limit,
         offset=offset,
     )
+    return PaperUnitListResponse(
+        items=[PaperUnitSummary.model_validate(item) for item in items],
+        total=total,
+        limit=limit,
+        offset=offset,
+        available_units=[str(item) for item in facets["units"]],
+        available_years=[int(item) for item in facets["years"]],
+        available_sessions=[str(item) for item in facets["sessions"]],
+    )
+
+
+@router.get(
+    "/subject-workspaces/{workspace_id}/paper-units/trash",
+    response_model=PaperUnitListResponse,
+)
+def list_trashed_paper_units(
+    workspace_id: str,
+    limit: int = Query(default=100, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    subject: SubjectContext = Depends(get_subject_context),
+    service: PaperUnitService = Depends(get_paper_units),
+) -> PaperUnitListResponse:
+    _require_workspace(workspace_id, subject)
+    items, total, facets = service.list_trash(limit=limit, offset=offset)
     return PaperUnitListResponse(
         items=[PaperUnitSummary.model_validate(item) for item in items],
         total=total,
@@ -156,6 +190,45 @@ def archive_paper_unit(
     _require_workspace(workspace_id, subject)
     try:
         service.archive_unit(paper_unit_id)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/subject-workspaces/{workspace_id}/paper-units/{paper_unit_id}/restore",
+    response_model=PaperUnitSummary,
+)
+def restore_paper_unit(
+    workspace_id: str,
+    paper_unit_id: str,
+    subject: SubjectContext = Depends(get_subject_context),
+    service: PaperUnitService = Depends(get_paper_units),
+) -> PaperUnitSummary:
+    _require_workspace(workspace_id, subject)
+    try:
+        return PaperUnitSummary.model_validate(service.restore_unit(paper_unit_id))
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@router.delete(
+    "/subject-workspaces/{workspace_id}/paper-units/{paper_unit_id}/permanent",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def permanently_delete_paper_unit(
+    workspace_id: str,
+    paper_unit_id: str,
+    subject: SubjectContext = Depends(get_subject_context),
+    service: PaperUnitService = Depends(get_paper_units),
+) -> Response:
+    _require_workspace(workspace_id, subject)
+    try:
+        service.permanently_delete_unit(paper_unit_id)
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     except ValueError as error:

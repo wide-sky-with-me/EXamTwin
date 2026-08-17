@@ -24,7 +24,7 @@ from examtwin.platform.model_json import (
 )
 
 MAX_QUESTION_VISION_OBSERVATION_CHARS = 12_000
-QUESTION_VISION_CONTRACT_VERSION = "question-vision-observation-v1"
+QUESTION_VISION_CONTRACT_VERSION = "question-vision-observation-v2"
 _PLACEHOLDER_OBSERVATIONS = {
     "bounded factual visual inspection",
     "actual visible facts",
@@ -59,8 +59,10 @@ class QuestionVisionProvider(Protocol):
 
 def _vision_instruction(question: str) -> str:
     return (
-        "Inspect the attached original examination-paper page images. "
-        "They are the source of truth for the following extracted question:\n\n"
+        "Inspect the attached trusted examination-paper images. They are either positioned "
+        "figures extracted from the question or, when no positioned figure is available, "
+        "the original question-paper page. They are the source of truth for the following "
+        "extracted question:\n\n"
         f"{question[:20_000]}\n\n"
         "Report only visible facts needed to solve it: exact wording, equations, "
         "tables, graph/diagram geometry, labels, shading, units, subparts and mark "
@@ -112,7 +114,7 @@ class LiteLLMQuestionVisionProvider:
                 (
                     {
                         "type": "text",
-                        "text": f"Original physical PDF page {image.page_number}:",
+                        "text": f"Trusted visual from physical PDF page {image.page_number}:",
                     },
                     {
                         "type": "image_url",
@@ -147,7 +149,7 @@ class LiteLLMQuestionVisionProvider:
 
 
 class QuestionVisionTool:
-    """Read trusted paper page pixels with the configured vision model."""
+    """Read trusted positioned figures or fallback page pixels with the vision model."""
 
     name = "question_vision"
 
@@ -188,7 +190,9 @@ class QuestionVisionTool:
             for image in images:
                 blocks.extend(
                     (
-                        TextBlock(text=f"Original physical PDF page {image.page_number}:"),
+                        TextBlock(
+                            text=f"Trusted visual from physical PDF page {image.page_number}:"
+                        ),
                         ImageBlock(
                             image=image.content,
                             image_mimetype=image.media_type,
@@ -209,8 +213,9 @@ class QuestionVisionTool:
             async_fn=question_vision,
             name=self.name,
             description=(
-                "Inspect trusted original question-paper JPEG pages with the configured "
-                "vision model. The runtime executes this once before mathematical reasoning; "
+                "Inspect trusted positioned figures or fallback question-paper JPEG pages "
+                "with the configured vision model. The runtime executes this once before "
+                "reasoning; "
                 "it is not an optional planning action."
             ),
         )

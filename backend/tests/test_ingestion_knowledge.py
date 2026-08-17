@@ -1,13 +1,18 @@
 import uuid
 
+from examtwin.knowledge.document_block_repository import DocumentBlockRepository
 from examtwin.knowledge.ingestion import (
     TABLE_EMBED_CHAR_LIMIT,
+    _document_block_rows,
     _documents_with_pages,
     _evidence_nodes,
     _knowledge_point_nodes,
     _preembed_oversized_tables,
 )
+from examtwin.platform.database.models import Base
 from llama_index.core import Document
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
 
 
 def _row() -> dict:
@@ -74,6 +79,50 @@ def test_knowledge_point_nodes_use_qdrant_compatible_stable_uuid_ids() -> None:
 
     assert uuid.UUID(first.node_id)
     assert first.node_id == second.node_id
+    assert first.metadata["source_role"] == "core_knowledge"
+
+
+def test_document_blocks_are_scoped_per_build_but_parent_lookup_uses_vector_id() -> None:
+    document = Document(
+        id_="doc-1:section",
+        text="Money acts as a medium of exchange and a store of value.",
+        metadata={
+            "document_id": "doc-1",
+            "subject_code": "9640",
+            "source_role": "core_knowledge",
+            "section": "Functions of money",
+        },
+    )
+    nodes = _evidence_nodes([document])
+    vector_parent_id = str(nodes[0].metadata["parent_block_id"])
+    first_rows = _document_block_rows(
+        [document],
+        nodes,
+        knowledge_base_version_id="version-1",
+        build_id="build-1",
+    )
+    second_rows = _document_block_rows(
+        [document],
+        nodes,
+        knowledge_base_version_id="version-2",
+        build_id="build-2",
+    )
+
+    assert {row["id"] for row in first_rows}.isdisjoint({row["id"] for row in second_rows})
+
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    sessions = sessionmaker(bind=engine, expire_on_commit=False, class_=Session)
+    repository = DocumentBlockRepository(sessions)
+    repository.replace_build("build-1", first_rows)
+    repository.replace_build("build-2", second_rows)
+
+    assert repository.parents("build-1", [vector_parent_id])[vector_parent_id]["content"] == (
+        document.text
+    )
+    assert repository.parents("build-2", [vector_parent_id])[vector_parent_id]["content"] == (
+        document.text
+    )
 
 
 def _oversized_mineru_table() -> str:

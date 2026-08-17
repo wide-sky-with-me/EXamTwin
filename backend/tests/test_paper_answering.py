@@ -11,6 +11,8 @@ import pytest
 from examtwin.assessment.answering_agent.contracts import QuestionImage
 from examtwin.assessment.paper_answering import (
     PaperAnswerService,
+    _align_primary_question_numbers_from_recovery,
+    _drop_covered_recovery_fragments,
     _merge_split_questions,
     _split_markdown_batches,
 )
@@ -46,6 +48,196 @@ def fake_catalog(_unit_code: str | None) -> list[dict[str, Any]]:
             },
         }
     ]
+
+
+def test_primary_question_number_uses_unique_near_identical_recovery_witness() -> None:
+    question = (
+        "According to the Prebisch-Singer hypothesis, explain how a buffer stock stabilises "
+        "commodity prices and calculate the resulting percentage change in export volume. "
+        "Show every step and give the final answer to the nearest whole percentage point."
+    )
+    candidates = [
+        {
+            "number": "1",
+            "question_markdown": (
+                "Which combination of policies is most likely to promote long-run development? "
+                "Select one answer and explain why the remaining policy combination is unsuitable."
+            ),
+            "total_marks": 10,
+            "_split_source": "primary",
+        },
+        {
+            "number": "1",
+            "question_markdown": question,
+            "total_marks": 10,
+            "_split_source": "primary",
+        },
+        {
+            "number": "11",
+            "question_markdown": question.replace("stabilises", "stabilizes"),
+            "total_marks": 10,
+            "_split_source": "recovery",
+        },
+        {"number": "10", "question_markdown": "Previous question.", "_split_source": "primary"},
+        {"number": "12", "question_markdown": "Following question.", "_split_source": "primary"},
+    ]
+
+    aligned = _align_primary_question_numbers_from_recovery(candidates)
+
+    assert aligned[0]["number"] == "1"
+    assert aligned[1]["number"] == "11"
+    assert aligned[1]["question_markdown"] == question
+    assert candidates[1]["number"] == "1"
+
+
+def test_recovery_number_cannot_override_coherent_primary_sequence() -> None:
+    question = "Evaluate whether monetary policy can support economic growth and development. " * 4
+    candidates = [
+        {"number": "13", "question_markdown": "Previous question.", "_split_source": "primary"},
+        {
+            "number": "14",
+            "question_markdown": question,
+            "total_marks": 25,
+            "_split_source": "primary",
+        },
+        {"number": "15", "question_markdown": "Following question.", "_split_source": "primary"},
+        {
+            "number": "24",
+            "question_markdown": question,
+            "total_marks": 25,
+            "_split_source": "recovery",
+        },
+    ]
+
+    aligned = _align_primary_question_numbers_from_recovery(candidates)
+
+    assert aligned[1]["number"] == "14"
+
+
+def test_primary_number_accepts_long_partial_recovery_witness_across_batch_boundary() -> None:
+    shared = (
+        "According to the Prebisch-Singer hypothesis, primary commodities and manufactured "
+        "goods have different income elasticities of demand. Explain how a buffer stock is "
+        "used to stabilise the price of a primary commodity and use the supplied table to "
+        "calculate the change in export volumes. "
+    ) * 3
+    primary = shared + (
+        "Finally, assess whether this price instability constrains economic development."
+    )
+    recovery = shared.replace("stabilise", "stabilize")
+    candidates = [
+        {"number": "10", "question_markdown": "Previous question.", "_split_source": "primary"},
+        {
+            "number": "1",
+            "question_markdown": "A distinct multiple-choice question about development policy. "
+            * 4,
+            "total_marks": 1,
+            "_split_source": "primary",
+        },
+        {
+            "number": "1",
+            "question_markdown": primary,
+            "total_marks": 10,
+            "_split_source": "primary",
+        },
+        {
+            "number": "11",
+            "question_markdown": recovery,
+            "total_marks": 4,
+            "_split_source": "recovery",
+        },
+        {"number": "12", "question_markdown": "Following question.", "_split_source": "primary"},
+    ]
+
+    aligned = _align_primary_question_numbers_from_recovery(candidates)
+
+    assert aligned[2]["number"] == "11"
+    assert aligned[2]["question_markdown"] == primary
+
+
+@pytest.mark.parametrize(
+    "recovery_candidates",
+    [
+        [
+            {
+                "number": "11",
+                "question_markdown": "A short repeated instruction.",
+                "total_marks": 2,
+                "_split_source": "recovery",
+            }
+        ],
+        [
+            {
+                "number": number,
+                "question_markdown": "Explain the same long economic scenario in full. " * 6,
+                "total_marks": 10,
+                "_split_source": "recovery",
+            }
+            for number in ("11", "12")
+        ],
+    ],
+)
+def test_primary_question_number_alias_fails_closed_without_unique_strong_proof(
+    recovery_candidates: list[dict[str, Any]],
+) -> None:
+    primary_text = (
+        "A short repeated instruction."
+        if len(recovery_candidates) == 1
+        else "Explain the same long economic scenario in full. " * 6
+    )
+    candidates = [
+        {
+            "number": "1",
+            "question_markdown": primary_text,
+            "total_marks": 10 if len(recovery_candidates) > 1 else 2,
+            "_split_source": "primary",
+        },
+        *recovery_candidates,
+    ]
+
+    aligned = _align_primary_question_numbers_from_recovery(candidates)
+
+    assert aligned[0]["number"] == "1"
+
+
+def test_recovery_decimal_fragments_already_covered_by_primary_are_dropped() -> None:
+    primary = {
+        "number": "12",
+        "question_markdown": (
+            "Extract A shows labour-force and real-GDP growth.\n\n"
+            "**12.1** Explain why labour-force growth is likely to affect a country's real "
+            "GDP and use the supplied data to support the transmission mechanism. "
+            "**[4 marks]**\n\n"
+            "**12.2** Assess the relationship shown by the data. **[4 marks]**"
+        ),
+        "total_marks": 8,
+        "_split_source": "primary",
+    }
+    covered_recovery = {
+        "number": "121",
+        "question_markdown": (
+            "Extract A shows labour-force and real-GDP growth. Explain why labour-force growth "
+            "is likely to affect a country's real GDP and use the supplied data to support the "
+            "transmission mechanism. [4 marks]"
+        ),
+        "total_marks": 4,
+        "_split_source": "recovery",
+    }
+    unrelated_recovery = {
+        "number": "131",
+        "question_markdown": (
+            "Evaluate a genuinely absent question about exchange-rate policy and economic "
+            "development using the evidence supplied in Extract C. "
+        )
+        * 2,
+        "total_marks": 12,
+        "_split_source": "recovery",
+    }
+
+    retained = _drop_covered_recovery_fragments([primary, covered_recovery, unrelated_recovery])
+
+    assert covered_recovery not in retained
+    assert retained == [primary, unrelated_recovery]
 
 
 def test_long_paper_split_batches_preserve_the_tail_without_silent_truncation() -> None:
@@ -169,6 +361,63 @@ def test_split_batches_are_concurrent_and_resume_from_digest_checkpoints(
     assert completed_before_retry > 0
     assert calls - calls_before_retry == batch_count - completed_before_retry
     assert [item["number"] for item in result] == ["1", "2", "3", "4"]
+
+
+def test_split_batch_retries_malformed_json_before_failing_the_paper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    markdown = format_physical_page_markdown([(1, "1 Find x. [2 marks]")])
+    calls = 0
+
+    class FakeLLM:
+        def complete(self, prompt: str) -> SimpleNamespace:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return SimpleNamespace(text='{"questions" [{"number": "1"}]}')
+            assert "previous response was not valid JSON" in prompt
+            return SimpleNamespace(
+                text=json.dumps(
+                    {
+                        "questions": [
+                            {
+                                "number": "1",
+                                "question_markdown": "1 Find x. [2 marks]",
+                                "source_pages": [1],
+                                "requires_visual_context": False,
+                                "total_marks": 2,
+                                "answer_requirements": [
+                                    {
+                                        "label": "whole",
+                                        "marks": 2,
+                                        "answer_kind": "numeric",
+                                        "units": [],
+                                        "required_tool": None,
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+                )
+            )
+
+    monkeypatch.setattr(
+        "examtwin.assessment.paper_answering.build_llm",
+        lambda *_args, **_kwargs: FakeLLM(),
+    )
+    settings = Settings(paper_split_max_attempts=2)
+    service = PaperAnswerService(
+        settings,
+        subject_context(settings),
+        catalog_loader=fake_catalog,
+        rag=object(),
+    )
+
+    [question] = service.split_questions(markdown, unit_code="P2")
+
+    assert calls == 2
+    assert question["number"] == "1"
+    assert question["source_pages"] == [1]
 
 
 def test_split_recovery_appendix_does_not_duplicate_source_page_provenance() -> None:
@@ -332,6 +581,146 @@ def test_source_structure_reads_subparts_prefixed_by_question_number() -> None:
     assert structure.marks == (1, 3, 3)
 
 
+def test_source_structure_does_not_promote_letter_subpart_or_leak_next_stem() -> None:
+    source = format_physical_page_markdown(
+        [
+            (3, "## 2\n\nDescribe two transformations. [4 marks]"),
+            (
+                4,
+                "Turn over for the next question\n\n"
+                "## 3\n\nThe functions $f$ and $g$ are defined below.\n\n"
+                "### 3 (a)\n\nFind the range of $f$. [2 marks]",
+            ),
+            (5, "### 3 (b)\n\nFind $f^{-1}(x)$. [3 marks]"),
+        ]
+    )
+
+    structures = question_source_structures(source)
+
+    assert [structure.number for structure in structures] == ["2", "3"]
+    assert "functions $f$ and $g$" not in structures[0].question_markdown
+    assert structures[1].question_markdown.startswith(
+        "The functions $f$ and $g$ are defined below."
+    )
+    assert "### 3 (a)" in structures[1].question_markdown
+    assert structures[1].subpart_labels == ("(a)", "(b)")
+
+
+def test_source_structure_keeps_marked_subpart_before_turn_over_instruction() -> None:
+    source = format_physical_page_markdown(
+        [
+            (
+                6,
+                "## 4\n\nA pair of lines intersect.\n\n"
+                "**4 (a)** Find the value of $p$. **[5 marks]**",
+            ),
+            (
+                7,
+                "**4 (b)** Find the value of $q$. **[3 marks]**\n\nTurn over for the next question",
+            ),
+            (8, "## 5\n\nFind the polynomial. **[4 marks]**"),
+        ]
+    )
+
+    structures = question_source_structures(source)
+
+    assert [structure.number for structure in structures] == ["4", "5"]
+    assert structures[0].subpart_labels == ("(a)", "(b)")
+    assert structures[0].marks == (5, 3)
+    assert structures[0].source_pages == (6, 7)
+
+
+def test_source_structure_accepts_unicode_space_after_subpart_label() -> None:
+    source = format_physical_page_markdown(
+        [
+            (
+                6,
+                "## 4\n\nA pair of lines intersect.\n\n4 (a)\u2003Find the value of $p$. [5 marks]",
+            ),
+            (7, "## 4 (b)\n\nFind the value of $q$. [3 marks]"),
+        ]
+    )
+
+    [structure] = question_source_structures(source)
+
+    assert structure.subpart_labels == ("(a)", "(b)")
+    assert structure.marks == (5, 3)
+
+
+def test_source_structure_repairs_dropped_leading_digit_with_adjacent_subpart_proof() -> None:
+    source = format_physical_page_markdown(
+        [
+            (2, "## 01\n\nChoose one answer. **[1 mark]**"),
+            (9, "## 10\n\nChoose another answer. **[1 mark]**"),
+            (
+                10,
+                "## Section B\n\n### 1\n\nA commodity-price scenario.\n\n"
+                "#### 1.1\n\nState two uses. **[2 marks]**\n\n"
+                "#### 1.2\n\nCalculate the change. **[2 marks]**",
+            ),
+            (11, "### 11.3\n\nExplain the effect. **[6 marks]**"),
+            (
+                12,
+                "**Section C**\n\nAnswer all questions.\n\n**12** Use Extract A. **[4 marks]**",
+            ),
+        ]
+    )
+
+    structures = question_source_structures(source)
+
+    assert [structure.number for structure in structures] == ["1", "10", "11", "12"]
+    assert structures[2].subpart_labels == (".1", ".2", ".3")
+    assert structures[2].marks == (2, 2, 6)
+    assert structures[2].source_pages == (10, 11)
+    assert "### 11.1" in structures[2].question_markdown
+    assert "### 11.2" in structures[2].question_markdown
+
+
+def test_source_structure_repairs_redundant_decimal_prefix_sequence() -> None:
+    source = format_physical_page_markdown(
+        [
+            (
+                10,
+                "**11** Commodity prices are unstable.\n\n"
+                "**11.1.1** State two buffer-stock operations. **[2 marks]**\n\n"
+                "**11.1.2** Calculate the percentage difference. **[2 marks]**",
+            ),
+            (
+                11,
+                "**11.3** Explain the effect using a demand and supply diagram. **[6 marks]**",
+            ),
+        ]
+    )
+    questions = [
+        {
+            "number": "11",
+            "question_markdown": "Complete question 11.",
+            "answer_requirements": [
+                {"label": "**11.1.1**", "marks": 2, "answer_kind": "text"},
+                {"label": "**11.1.2**", "marks": 2, "answer_kind": "numeric"},
+                {
+                    "label": "**11.3**",
+                    "marks": 6,
+                    "answer_kind": "economics_diagram",
+                },
+            ],
+            "total_marks": 10,
+        }
+    ]
+
+    [structure] = question_source_structures(source)
+    [validated] = validate_question_source_structure(source, questions)
+
+    assert structure.subpart_labels == (".1", ".2", ".3")
+    assert "**11.1**" in structure.question_markdown
+    assert "**11.2**" in structure.question_markdown
+    assert [part["label"] for part in validated["answer_requirements"]] == [
+        ".1",
+        ".2",
+        ".3",
+    ]
+
+
 def test_source_structure_normalizes_escaped_breaks_and_stops_at_paper_end() -> None:
     source = format_physical_page_markdown(
         [
@@ -355,6 +744,54 @@ def test_source_structure_normalizes_escaped_breaks_and_stops_at_paper_end() -> 
     assert structure.subpart_labels == ("(a)", "(b)", "(c)", "(d)")
     assert structure.marks == (2, 2, 2, 3)
     assert structure.source_pages == (10, 11)
+
+
+def test_source_structure_stops_before_next_section_selection_panel() -> None:
+    source = format_physical_page_markdown(
+        [
+            (
+                16,
+                "## 14\n\nAssess the contribution of monetary policy. [25 marks]",
+            ),
+            (
+                19,
+                "## Section D\n\nAnswer **EITHER** Question 15 **OR** Question 16.\n\n"
+                "Shade the circle below to indicate your choice.\n\n"
+                "Question 15\n\nQuestion 16\n\n"
+                "## 15\n\nAssess the benefits of trade. [25 marks]\n\n"
+                "## 16\n\nAssess the effects of globalisation. [25 marks]",
+            ),
+        ]
+    )
+
+    structures = question_source_structures(source)
+
+    assert [structure.number for structure in structures] == ["14", "15", "16"]
+    assert structures[0].question_markdown == (
+        "Assess the contribution of monetary policy. [25 marks]"
+    )
+    assert structures[0].source_pages == (16,)
+    assert structures[0].requires_visual_context is False
+
+
+def test_source_structure_stops_last_question_before_additional_page() -> None:
+    source = format_physical_page_markdown(
+        [
+            (19, "## 16\n\nAssess the effects of globalisation. [25 marks]"),
+            (20, ""),
+            (
+                24,
+                "Question number\nAdditional page, if required.\n"
+                "Write the question numbers in the left-hand margin.",
+            ),
+            (25, ""),
+        ]
+    )
+
+    [structure] = question_source_structures(source)
+
+    assert structure.question_markdown == "Assess the effects of globalisation. [25 marks]"
+    assert structure.source_pages == (19,)
 
 
 def test_source_structure_ignores_clock_header_before_question_eight() -> None:
@@ -427,6 +864,92 @@ def test_source_structure_reads_decimal_subparts() -> None:
     assert structure.number == "16"
     assert structure.subpart_labels == (".1", ".2")
     assert structure.marks == (3, 3)
+    assert "**16.1**" in structure.question_markdown
+    assert "**16.2**" in structure.question_markdown
+
+
+def test_source_structure_reads_spaced_ocr_decimal_subparts() -> None:
+    source = format_physical_page_markdown(
+        [
+            (
+                10,
+                "**1 1** A commodity-price scenario.\n\n"
+                "**1 1 . 1** State two uses of a buffer stock. **[2 marks]**\n\n"
+                "**1 1 . 2** Calculate the percentage change. **[2 marks]**",
+            ),
+            (11, "**11.3** Explain the effect using a diagram. **[6 marks]**"),
+        ]
+    )
+
+    [structure] = question_source_structures(source)
+
+    assert structure.number == "11"
+    assert structure.subpart_labels == (".1", ".2", ".3")
+    assert structure.marks == (2, 2, 6)
+    assert "**11.1**" in structure.question_markdown
+    assert "**11.2**" in structure.question_markdown
+    assert "**11.3**" in structure.question_markdown
+
+
+def test_source_structure_keeps_explicit_heading_before_marked_decimal_subpart() -> None:
+    source = format_physical_page_markdown(
+        [
+            (
+                12,
+                "**12** Extract A shows labour-force growth.\n\n"
+                "**12.1** Explain why labour-force growth affects real GDP. "
+                "**[4 marks]**",
+            ),
+            (
+                13,
+                "### 12.2\n\nUse Extract A to assess the effect. **[4 marks]**",
+            ),
+        ]
+    )
+
+    [structure] = question_source_structures(source)
+
+    assert structure.number == "12"
+    assert structure.subpart_labels == (".1", ".2")
+    assert structure.marks == (4, 4)
+    assert structure.question_markdown.startswith(
+        "Extract A shows labour-force growth.\n\n**12.1**"
+    )
+    assert "### 12.2" in structure.question_markdown
+
+
+def test_source_structure_accepts_question_prefixed_decimal_labels_in_parentheses() -> None:
+    source = format_physical_page_markdown(
+        [
+            (
+                10,
+                "## 11\n\n11.1 State one reason. [2 marks]\n\n"
+                "11.2 Calculate the value. [2 marks]\n\n"
+                "11.3 Explain the effect. [6 marks]\n\nEND OF QUESTIONS",
+            )
+        ]
+    )
+    questions = [
+        {
+            "number": "11",
+            "question_markdown": "Complete question 11.",
+            "answer_requirements": [
+                {"label": "(11.1)", "marks": 2, "answer_kind": "text"},
+                {"label": "(11.2)", "marks": 2, "answer_kind": "numeric"},
+                {"label": "(11.3)", "marks": 6, "answer_kind": "text"},
+            ],
+            "total_marks": 10,
+        }
+    ]
+
+    [validated] = validate_question_source_structure(source, questions)
+
+    assert [part["label"] for part in validated["answer_requirements"]] == [
+        ".1",
+        ".2",
+        ".3",
+    ]
+    assert validated["total_marks"] == 10
 
 
 def test_source_structure_accepts_equivalent_letter_aliases_for_decimal_subparts() -> None:
@@ -705,6 +1228,78 @@ def test_split_merge_normalizes_question_number_prefixed_subpart_labels() -> Non
     assert merged["total_marks"] == 8
 
 
+def test_split_merge_drops_whole_labeled_fragment_contained_in_complete_question() -> None:
+    complete = {
+        "number": "11",
+        "question_markdown": (
+            "According to the Prebisch-Singer hypothesis, primary commodity prices vary.\n\n"
+            "(a) State the two ways in which a buffer stock is used to stabilise the price "
+            "of a primary commodity.\n\n"
+            "(b) Calculate the difference between the percentage changes."
+        ),
+        "source_pages": [10],
+        "total_marks": 4,
+        "answer_requirements": [
+            {"label": "(a)", "marks": 2, "answer_kind": "text"},
+            {"label": "(b)", "marks": 2, "answer_kind": "numeric"},
+        ],
+        "_split_source": "primary",
+        "_split_source_digest": "trusted-source",
+        "_split_batch_index": 8,
+    }
+    overlap_fragment = {
+        "number": "11",
+        "question_markdown": (
+            "State the two ways in which a buffer stock is used to stabilise the price "
+            "of a primary commodity. [2 marks]"
+        ),
+        "source_pages": [10],
+        "total_marks": 2,
+        "answer_requirements": [{"label": "whole", "marks": 2, "answer_kind": "text"}],
+        "_split_source": "primary",
+        "_split_source_digest": "trusted-source",
+        "_split_batch_index": 9,
+    }
+
+    [merged] = _merge_split_questions([complete, overlap_fragment])
+
+    assert merged["question_markdown"] == complete["question_markdown"]
+    assert [part["label"] for part in merged["answer_requirements"]] == ["(a)", "(b)"]
+    assert merged["total_marks"] == 4
+
+
+def test_split_merge_accepts_duplicate_stems_that_only_differ_by_mark_annotation() -> None:
+    base = {
+        "number": "02",
+        "source_pages": [3],
+        "total_marks": 1,
+        "answer_requirements": [{"label": "whole", "marks": 1, "answer_kind": "text"}],
+        "_split_source": "primary",
+        "_split_source_digest": "trusted-source",
+    }
+    without_annotation = {
+        **base,
+        "question_markdown": (
+            "Which statement about the terms of trade is correct?\n\n"
+            "A Exports rose.\n\nB Imports fell."
+        ),
+        "_split_batch_index": 0,
+    }
+    with_annotation = {
+        **base,
+        "question_markdown": (
+            "Which statement about the terms of trade is correct?\n\n"
+            "**[1 mark]**\n\nA Exports rose.\n\nB Imports fell."
+        ),
+        "_split_batch_index": 1,
+    }
+
+    [merged] = _merge_split_questions([without_annotation, with_annotation])
+
+    assert "**[1 mark]**" in merged["question_markdown"]
+    assert merged["total_marks"] == 1
+
+
 def test_split_contract_rejects_silent_subpart_omission() -> None:
     source = format_physical_page_markdown(
         [
@@ -885,6 +1480,28 @@ class FakeQuestionRepairModel:
         return response_model.model_validate({"groups": self.groups})
 
 
+class SequencedQuestionRepairModel:
+    model_name = "question-repair-test"
+
+    def __init__(self, plans: list[list[dict[str, Any]]]) -> None:
+        self.plans = plans
+        self.calls = 0
+        self.messages: list[Any] = []
+
+    def complete(
+        self,
+        messages: Any,
+        response_model: Any,
+        *,
+        timeout: float,
+    ) -> Any:
+        assert timeout > 0
+        self.messages.append(messages)
+        plan = self.plans[min(self.calls, len(self.plans) - 1)]
+        self.calls += 1
+        return response_model.model_validate({"groups": plan})
+
+
 def test_split_uses_structured_repair_only_after_source_reconciliation_fails() -> None:
     source_markdown = format_physical_page_markdown(
         [
@@ -981,6 +1598,59 @@ def test_split_rejects_structured_repair_that_drops_a_candidate() -> None:
 
     with pytest.raises(ValueError, match="恰好使用一次"):
         service.split_questions(source_markdown, unit_code="P2")
+
+    assert model.calls == 2
+
+
+def test_split_retries_once_with_deterministic_candidate_feedback() -> None:
+    source_markdown = format_physical_page_markdown(
+        [
+            (1, "1 Evaluate the alpha integral."),
+            (2, "2 Calculate the Latvian median flood payment."),
+            (3, "3 Draw an equilibrium supply diagram."),
+        ]
+    )
+    candidates = [
+        {"number": "1", "question_markdown": "Evaluate the alpha integral."},
+        {"number": "3", "question_markdown": "Draw an equilibrium supply diagram."},
+        {
+            "number": "2",
+            "question_markdown": "Calculate the Latvian median flood payment.",
+        },
+    ]
+    model = SequencedQuestionRepairModel(
+        [
+            [
+                {"number": "1", "candidate_indexes": [0]},
+                {"number": "3", "candidate_indexes": [1]},
+            ],
+            [
+                {"number": "1", "candidate_indexes": [0]},
+                {"number": "2", "candidate_indexes": [2]},
+                {"number": "3", "candidate_indexes": [1]},
+            ],
+        ]
+    )
+    service = PaperAnswerService(
+        Settings(),
+        subject_context(Settings()),
+        splitter=lambda _markdown, _catalog: candidates,
+        catalog_loader=fake_catalog,
+        rag=object(),
+        structured_model=model,
+    )
+
+    result = service.split_questions(source_markdown, unit_code="P2")
+
+    assert model.calls == 2
+    assert [item["number"] for item in result] == ["1", "2", "3"]
+    correction_payload = json.loads(model.messages[1][1].content)
+    assert correction_payload["missing_candidate_indexes"] == [2]
+    assert correction_payload["duplicate_candidate_indexes"] == []
+    assert correction_payload["invalid_candidate_indexes"] == []
+    assert correction_payload["deterministic_validation_error"] == (
+        "结构修复模型必须将每个候选题恰好使用一次"
+    )
 
 
 def test_split_uses_model_selected_candidate_for_overlapping_primary_conflicts(
@@ -1404,6 +2074,93 @@ def test_empty_split_codes_are_mapped_from_cited_evidence_in_answer_order() -> N
     ]
 
 
+def test_splitter_guessed_code_does_not_bias_answer_retrieval() -> None:
+    catalog = [
+        *fake_catalog(None),
+        {
+            "id": "9660:P2.7.O04",
+            "code": "P2.7.O04",
+            "title": "Definite integration.",
+            "source_ref": "spec.pdf#page=23",
+            "difficulty_score": 0.64,
+            "difficulty_label": "medium",
+            "difficulty_confidence": 0.3,
+            "evidence_level": "D",
+            "references": [],
+            "features": {
+                "node_type": "learning_objective",
+                "description": "Evaluate a definite integral using its limits.",
+            },
+        },
+    ]
+
+    class CitationMappedRag:
+        request: Any | None = None
+
+        def ask(self, request: Any, **_kwargs: Any) -> AskResponse:
+            self.request = request
+            return AskResponse(
+                answer_markdown="Apply the limits [S1].",
+                citations=[
+                    Citation(
+                        source="definite-integration.pdf",
+                        excerpt="Apply the upper and lower limits.",
+                        knowledge_code="P2.7.O04",
+                    )
+                ],
+                confidence=0.9,
+                grounded=True,
+            )
+
+    rag = CitationMappedRag()
+    settings = Settings()
+    service = PaperAnswerService(
+        settings,
+        subject_context(settings),
+        rag=rag,
+        catalog_loader=lambda _unit_code: catalog,
+    )
+
+    result = service.answer_question(
+        {
+            "number": "1",
+            "question_markdown": "Evaluate this definite integral.",
+            "knowledge_codes": ["P2.7.O03"],
+        },
+        unit_code="P2",
+    )
+
+    assert rag.request is not None
+    assert "Relevant knowledge:" not in rag.request.question
+    assert [point.code for point in result.knowledge_points] == ["P2.7.O04"]
+
+
+def test_catalog_keeps_subject_scope_for_synoptic_papers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def load_points(_repository: Any, **filters: Any) -> list[dict[str, Any]]:
+        captured.update(filters)
+        return fake_catalog(None)
+
+    monkeypatch.setattr(
+        "examtwin.assessment.paper_answering.list_knowledge_points",
+        load_points,
+    )
+    settings = Settings()
+    service = PaperAnswerService(
+        settings,
+        subject_context(settings),
+        knowledge_repository=object(),  # type: ignore[arg-type]
+        rag=object(),
+    )
+
+    service._load_catalog("P2")
+
+    assert captured == {"subject_code": "9660", "unit_code": None}
+
+
 def test_uncoded_citation_does_not_trigger_lexical_knowledge_fallback() -> None:
     class UncodedRag:
         def ask(self, _request: Any, **_kwargs: Any) -> AskResponse:
@@ -1496,6 +2253,12 @@ def test_visual_context_classification_skips_text_probability_but_keeps_graphs()
     )
     assert question_requires_visual_context(
         "Figure 5 shows two curves and a finite shaded region. Find its area."
+    )
+    assert (
+        question_requires_visual_context(
+            "Explain, using a demand and supply diagram, the effect on total revenue."
+        )
+        is False
     )
 
 

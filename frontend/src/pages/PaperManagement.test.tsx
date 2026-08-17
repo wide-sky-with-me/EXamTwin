@@ -30,6 +30,18 @@ const subject: SubjectStatus = {
   color: "#2F6FED",
 };
 
+const economicsSubject: SubjectStatus = {
+  ...subject,
+  id: "oxfordaqa-economics-9640",
+  subject_code: "9640",
+  title: "OxfordAQA Economics",
+  capability_profile_id: "oxfordaqa-economics-9640",
+  units: [{ code: "U1", title: "Markets", strand: "Economics" }],
+  source_booklet_required: true,
+  vector_alias: "test-economics",
+  color: "#0F766E",
+};
+
 function source(overrides: Partial<SourceDocument> = {}): SourceDocument {
   return {
     id: "qp-1", filename: "QP-202406-P1.pdf", display_name: "June paper", source_type: "question_paper",
@@ -57,6 +69,17 @@ function render(ui: ReactElement) {
   return testingLibraryRender(ui, { wrapper: DesignSystemProvider });
 }
 
+async function visibleModal(title: string) {
+  let modal: HTMLElement | undefined;
+  await waitFor(() => {
+    modal = screen.queryAllByText(title, { exact: true })
+      .map((element) => element.closest<HTMLElement>("[role='dialog']") ?? element.closest<HTMLElement>(".ant-modal") ?? element.parentElement)
+      .find((candidate): candidate is HTMLElement => Boolean(candidate));
+    expect(modal).toBeInTheDocument();
+  });
+  return modal!;
+}
+
 function json(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), { status, headers: { "Content-Type": "application/json" } });
 }
@@ -64,8 +87,10 @@ function json(payload: unknown, status = 200) {
 function installServer(
   initialRows: PaperUnitSummary[] = [paper()],
   initialDocuments: SourceDocument[] = [source(), source({ id: "ms-1", filename: "MS-202406-P1.pdf", display_name: null, source_type: "mark_scheme", checksum: "ms" }), source({ id: "insert-1", filename: "Insert-202406-P1.pdf", display_name: null, source_type: "insert", checksum: "insert" })],
+  conversionDelay = 80,
 ) {
   let rows = [...initialRows];
+  let trashedRows: PaperUnitSummary[] = [];
   let documents = [...initialDocuments];
   const requests: Request[] = [];
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -74,12 +99,13 @@ function installServer(
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname.endsWith("/documents")) return json(documents);
     if (request.method === "GET" && url.pathname.endsWith("/papers/jobs")) return json({ items: [], total: 0, limit: 10, offset: 0 });
+    if (request.method === "GET" && url.pathname.endsWith("/paper-units/trash")) return json({ items: trashedRows, total: trashedRows.length, limit: 100, offset: 0, available_units: [], available_years: [], available_sessions: [] });
     if (request.method === "GET" && url.pathname.endsWith("/paper-units")) return json({ items: rows, total: rows.length, limit: 12, offset: 0, available_units: ["P1"], available_years: [2024], available_sessions: ["JUN"] });
     if (request.method === "GET" && url.pathname.includes("/paper-units/")) return json(paper());
     if (request.method === "POST" && url.pathname.endsWith("/corpus/convert")) {
       const body = await request.json() as { document_ids: string[] };
       documents = documents.map((item) => body.document_ids.includes(item.id) ? { ...item, status: "converting" } : item);
-      await new Promise((resolve) => setTimeout(resolve, 80));
+      await new Promise((resolve) => setTimeout(resolve, conversionDelay));
       documents = documents.map((item) => body.document_ids.includes(item.id) ? { ...item, status: "converted" } : item);
       return json({ processed: 1, succeeded: 1, skipped: 0, failed: 0, errors: [] });
     }
@@ -92,12 +118,24 @@ function installServer(
     if (request.method === "POST" && url.pathname.endsWith("/import-answer")) {
       return json({ job_id: "job-uploaded", status: "queued", stage: "queued", paper_unit_id: "unit-1", question_paper_document_id: "qp-1" }, 202);
     }
+    if (request.method === "POST" && url.pathname.endsWith("/restore")) {
+      const restored = { ...trashedRows[0], status: "active" as const };
+      trashedRows = trashedRows.filter((item) => item.id !== restored.id);
+      rows = [...rows, restored];
+      return json(restored);
+    }
     if (request.method === "PATCH" && url.pathname.includes("/paper-units/")) {
       const body = await request.json() as { display_name: string | null };
       rows = rows.map((item) => item.id === "unit-1" ? { ...item, display_name: body.display_name } : item);
       return json(rows[0]);
     }
+    if (request.method === "DELETE" && url.pathname.endsWith("/permanent")) {
+      const paperUnitId = url.pathname.split("/").at(-2);
+      trashedRows = trashedRows.filter((item) => item.id !== paperUnitId);
+      return new Response(null, { status: 204 });
+    }
     if (request.method === "DELETE" && url.pathname.includes("/paper-units/")) {
+      trashedRows = [...trashedRows, ...rows.map((item) => ({ ...item, status: "archived" as const }))];
       rows = [];
       return new Response(null, { status: 204 });
     }
@@ -110,6 +148,49 @@ function installServer(
 afterEach(() => { vi.unstubAllGlobals(); window.localStorage.clear(); });
 
 describe("PaperManagement", () => {
+  test("keeps the result geometry stable and ignores stale responses while switching subjects", async () => {
+    let releaseEconomics!: () => void;
+    const economicsReady = new Promise<void>((resolve) => { releaseEconomics = resolve; });
+    const requestedSubjects: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+      if (request.method === "GET" && url.pathname.endsWith("/documents")) return json([]);
+      if (request.method === "GET" && url.pathname.endsWith("/paper-units")) {
+        const requestedSubject = request.headers.get("X-ExamTwin-Subject") ?? "";
+        requestedSubjects.push(requestedSubject);
+        if (requestedSubject === economicsSubject.id) {
+          await economicsReady;
+          return json({ items: [], total: 0, limit: 12, offset: 0, available_units: [], available_years: [], available_sessions: [] });
+        }
+        return json({ items: [paper()], total: 1, limit: 12, offset: 0, available_units: ["P1"], available_years: [2024], available_sessions: ["JUN"] });
+      }
+      return json({ detail: `Unhandled ${request.method} ${url.pathname}` }, 500);
+    }));
+
+    const { rerender } = render(<PaperManagement subjectId={subject.id} subjects={[subject, economicsSubject]} />);
+    expect(await screen.findByText("June paper")).toBeVisible();
+
+    rerender(<PaperManagement subjectId={economicsSubject.id} subjects={[subject, economicsSubject]} />);
+
+    const results = document.querySelector<HTMLElement>(".paper-management-results");
+    const resultContent = document.querySelector<HTMLElement>(".paper-management-results-content");
+    await waitFor(() => expect(results).toHaveClass("is-loading"));
+    expect(resultContent).toHaveAttribute("aria-hidden", "true");
+    expect(document.querySelectorAll(".ant-skeleton")).toHaveLength(0);
+    expect(screen.getByText("正在加载试卷…")).toBeVisible();
+
+    rerender(<PaperManagement subjectId={subject.id} subjects={[subject, economicsSubject]} />);
+    await waitFor(() => expect(results).not.toHaveClass("is-loading"));
+    expect(screen.getByText("June paper")).toBeVisible();
+
+    releaseEconomics();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.getByText("June paper")).toBeVisible();
+    expect(screen.queryByText("当前条件下没有试卷")).not.toBeInTheDocument();
+    expect(requestedSubjects).toEqual([subject.id, economicsSubject.id, subject.id]);
+  });
+
   test("shows canonical bindings, filters, and opens the URL-owned detail", async () => {
     installServer();
     const onOpenPaper = vi.fn();
@@ -126,31 +207,43 @@ describe("PaperManagement", () => {
     await user.click(title.closest("button")!);
     expect(onOpenPaper).toHaveBeenCalledWith(subject.id, "unit-1");
     rerender(<DesignSystemProvider><PaperManagement detail={{ kind: "paper", id: "unit-1" }} subjectId={subject.id} subjects={[subject]} /></DesignSystemProvider>);
-    expect(await screen.findByRole("heading", { name: "June paper", level: 2 })).toBeVisible();
-    expect(screen.getByRole("button", { name: /Mark Scheme/ })).toBeVisible();
-    const summary = document.querySelector<HTMLElement>(".paper-detail-summary");
+    const detailDialog = await visibleModal("试卷详情");
+    expect(within(detailDialog).getByRole("heading", { name: "June paper", level: 2 })).toBeInTheDocument();
+    expect(within(detailDialog).getByRole("button", { name: /Mark Scheme/ })).toBeInTheDocument();
+    const summary = detailDialog.querySelector<HTMLElement>(".paper-detail-summary");
     expect(summary).toBeInTheDocument();
-    expect(within(summary!).getByText("作答记录")).toBeVisible();
-    expect(within(summary!).getByText("试卷状态")).toBeVisible();
-    expect(within(summary!).getByText("最近更新")).toBeVisible();
+    expect(within(summary!).getByText("作答记录")).toBeInTheDocument();
+    expect(within(summary!).getByText("试卷状态")).toBeInTheDocument();
+    expect(within(summary!).getByText("最近更新")).toBeInTheDocument();
   });
 
   test("loads an URL-addressed paper outside the current list page", async () => {
     const { requests } = installServer([]);
     render(<PaperManagement detail={{ kind: "paper", id: "unit-1" }} subjectId={subject.id} subjects={[subject]} />);
-    expect(await screen.findByRole("heading", { name: "June paper", level: 2 })).toBeVisible();
+    const detailDialog = await visibleModal("试卷详情");
+    expect(within(detailDialog).getByRole("heading", { name: "June paper", level: 2 })).toBeInTheDocument();
     expect(requests.some((request) => request.method === "GET" && request.url.endsWith("/paper-units/unit-1"))).toBe(true);
+  });
+
+  test("opens paper-owned answer records as a modal", async () => {
+    installServer();
+    render(<PaperManagement detail={{ kind: "answers", paperId: "unit-1" }} subjectId={subject.id} subjects={[subject]} />);
+
+    const answersDialog = await visibleModal("作答记录 · June paper");
+    expect(within(answersDialog).getByRole("heading", { name: "作答记录" })).toBeInTheDocument();
+    expect(await within(answersDialog).findByText("没有符合当前条件的作答记录。")).toBeInTheDocument();
   });
 
   test("shows a styled document detail with original preview and download actions", async () => {
     installServer();
     render(<PaperManagement detail={{ kind: "document", id: "ms-1" }} subjectId={subject.id} subjects={[subject]} />);
-    expect(await screen.findByRole("heading", { name: "MS-202406-P1.pdf", level: 2 })).toBeVisible();
-    const detail = document.querySelector<HTMLElement>(".paper-document-detail");
+    const documentDialog = await visibleModal("资料详情");
+    expect(within(documentDialog).getByRole("heading", { name: "MS-202406-P1.pdf", level: 2 })).toBeInTheDocument();
+    const detail = documentDialog.querySelector<HTMLElement>(".paper-document-detail");
     expect(detail).toBeInTheDocument();
     expect(within(detail!).getAllByText("Mark Scheme")).toHaveLength(2);
-    expect(within(detail!).getByText("已识别")).toBeVisible();
-    expect(within(detail!).getByText("已解析")).toBeVisible();
+    expect(within(detail!).getByText("已识别")).toBeInTheDocument();
+    expect(within(detail!).getByText("已解析")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "预览原文件" })).toHaveAttribute(
       "href",
       expect.stringContaining("/documents/ms-1/content?subject=oxfordaqa-mathematics-9660"),
@@ -172,16 +265,17 @@ describe("PaperManagement", () => {
       subjectId={subject.id}
       subjects={[subject]}
     />);
-    await user.click(await screen.findByRole("button", { name: "返回试卷详情" }));
+    const documentDialog = await visibleModal("资料详情");
+    await user.click(within(documentDialog).getByRole("button", { name: "返回试卷详情" }));
     expect(onBackDocument).toHaveBeenCalledWith(subject.id, "unit-1");
-    await user.click(screen.getByRole("button", { name: "解析内容" }));
-    expect(screen.getByText("解析中")).toBeVisible();
-    await waitFor(() => expect(screen.getByText("已解析")).toBeVisible(), { timeout: 3000 });
+    await user.click(within(documentDialog).getByRole("button", { name: "解析内容" }));
+    expect(within(documentDialog).getByText("解析中")).toBeInTheDocument();
+    await waitFor(() => expect(within(documentDialog).getByText("已解析")).toBeInTheDocument(), { timeout: 3000 });
     expect(requests.some((request) => request.method === "POST" && request.url.endsWith("/corpus/convert"))).toBe(true);
-    expect(screen.queryByRole("button", { name: "解析内容" })).not.toBeInTheDocument();
+    expect(within(documentDialog).queryByRole("button", { name: "解析内容" })).not.toBeInTheDocument();
   });
 
-  test("updates and deletes the paper aggregate without deleting source documents", async () => {
+  test("moves a paper to trash, restores it, and only permanently deletes from trash", async () => {
     const { requests } = installServer();
     const user = userEvent.setup();
     render(<PaperManagement subjectId={subject.id} subjects={[subject]} />);
@@ -191,6 +285,7 @@ describe("PaperManagement", () => {
     expect(document.querySelectorAll(".paper-editor-current-file")).toHaveLength(3);
     expect(screen.getAllByText("已解析")).toHaveLength(3);
     expect(screen.getAllByRole("button", { name: "更新文件" })).toHaveLength(3);
+    await user.click(screen.getByRole("button", { name: "修改试卷名称" }));
     const name = screen.getByLabelText("试卷名称");
     await user.clear(name);
     await user.type(name, "Mock exam A");
@@ -200,11 +295,29 @@ describe("PaperManagement", () => {
     expect(updateRequest).toBeDefined();
     await expect(updateRequest!.clone().json()).resolves.toEqual({ document_ids: null, display_name: "Mock exam A" });
     await user.click(screen.getByRole("button", { name: "删除 Mock exam A" }));
-    await user.click(screen.getByRole("button", { name: "删除试卷" }));
+    await user.click(screen.getByRole("button", { name: "移入回收站" }));
     await waitFor(() => expect(screen.queryByText("Mock exam A")).not.toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "打开试卷回收站" }));
+    const trash = await visibleModal("试卷回收站");
+    expect(within(trash).getByText("Mock exam A")).toBeInTheDocument();
+    expect(within(trash).getByText(/3 份资料 · 3 条作答/)).toBeInTheDocument();
+    await user.click(within(trash).getByRole("button", { name: "恢复" }));
+    expect(await screen.findByText("Mock exam A")).toBeVisible();
+    expect(within(trash).getByText("回收站为空")).toBeInTheDocument();
+    fireEvent.click(trash.querySelector(".ant-modal-close")!);
+
+    await user.click(screen.getByRole("button", { name: "删除 Mock exam A" }));
+    await user.click(screen.getByRole("button", { name: "移入回收站" }));
+    await user.click(screen.getByRole("button", { name: "打开试卷回收站" }));
+    const reopenedTrash = await visibleModal("试卷回收站");
+    await user.click(within(reopenedTrash).getByRole("button", { name: "永久删除" }));
+    const permanentDialog = screen.getByRole("alertdialog", { name: /永久删除/ });
+    expect(permanentDialog).toHaveTextContent("3 份原始资料、3 条作答");
+    await user.click(within(permanentDialog).getByRole("button", { name: "永久删除" }));
+    await waitFor(() => expect(within(reopenedTrash).getByText("回收站为空")).toBeInTheDocument());
     expect(requests.some((request) => request.method === "PATCH" && request.url.includes("/paper-units/"))).toBe(true);
-    expect(requests.some((request) => request.method === "DELETE" && request.url.includes("/paper-units/"))).toBe(true);
-    expect(requests.some((request) => request.method === "DELETE" && request.url.includes("/documents/"))).toBe(false);
+    expect(requests.some((request) => request.method === "POST" && request.url.endsWith("/restore"))).toBe(true);
+    expect(requests.some((request) => request.method === "DELETE" && request.url.endsWith("/permanent"))).toBe(true);
   });
 
   test("creates a paper with explicit Mark Scheme and Source Booklet membership", async () => {
@@ -213,13 +326,36 @@ describe("PaperManagement", () => {
     render(<PaperManagement subjectId={subject.id} subjects={[subject]} />);
     await screen.findByText("June paper");
     await user.click(screen.getAllByRole("button", { name: "添加试卷" })[0]);
-    const dragger = screen.getByLabelText("上传 Mark Scheme（可选）");
-    expect(dragger.closest(".ant-upload-drag")).not.toBeNull();
-    await user.selectOptions(screen.getByRole("combobox", { name: "Question Paper" }), "qp-1");
-    await user.selectOptions(screen.getByRole("combobox", { name: "Mark Scheme（可选）" }), "ms-1");
-    await user.selectOptions(screen.getByRole("combobox", { name: "Source Booklet（可选）" }), "insert-1");
+    expect(screen.queryByLabelText("试卷名称")).not.toBeInTheDocument();
+    expect(document.querySelector(".paper-editor-material-grid")).toBeInTheDocument();
+    expect(document.querySelectorAll(".paper-editor-material-title-icon")).toHaveLength(3);
+    expect(screen.getAllByText("资料库")).toHaveLength(3);
+    const markSchemeCard = screen.getByText("官方评分标准 · 可选").closest<HTMLElement>(".paper-editor-material");
+    expect(markSchemeCard).toBeInTheDocument();
+    await user.click(within(markSchemeCard!).getByText("上传文件"));
+    expect(within(markSchemeCard!).getByLabelText("上传 Mark Scheme（可选）")).toBeInTheDocument();
+    await user.click(within(markSchemeCard!).getByText("资料库"));
+    expect(within(markSchemeCard!).getByRole("combobox", { name: "Mark Scheme（可选）" })).toBeInTheDocument();
+    async function selectLibraryMaterial(label: string, optionName: RegExp) {
+      fireEvent.mouseDown(screen.getByRole("combobox", { name: label }));
+      let option: HTMLElement | null = null;
+      await waitFor(() => {
+        option = Array.from(document.querySelectorAll<HTMLElement>(".paper-editor-library-option"))
+          .find((item) => optionName.test(item.textContent ?? ""))?.closest<HTMLElement>(".ant-select-item-option") ?? null;
+        expect(option).toBeInTheDocument();
+      });
+      fireEvent.click(option!);
+    }
+    await selectLibraryMaterial("Question Paper", /June paper/);
+    await selectLibraryMaterial("Mark Scheme（可选）", /MS-202406-P1.pdf/);
+    await selectLibraryMaterial("Source Booklet（可选）", /Insert-202406-P1.pdf/);
     expect(screen.getByRole("button", { name: "保存试卷" })).toBeEnabled();
-    await user.type(screen.getByLabelText("试卷名称"), "June mock");
+    const editor = await visibleModal("添加试卷");
+    expect(editor.querySelector(".paper-editor-name-value strong")).toHaveTextContent("June paper");
+    await user.click(within(editor).getByRole("button", { name: "修改试卷名称" }));
+    const name = within(editor).getByLabelText("试卷名称");
+    await user.clear(name);
+    await user.type(name, "June mock");
     await user.click(screen.getByRole("button", { name: "保存试卷" }));
     await waitFor(() => {
       expect(requests.some((request) => request.method === "POST" && request.url.endsWith("/paper-units"))).toBe(true);
@@ -228,6 +364,27 @@ describe("PaperManagement", () => {
     expect(createRequest).toBeDefined();
     await expect(createRequest!.clone().json()).resolves.toMatchObject({ document_ids: ["qp-1", "ms-1", "insert-1"], display_name: "June mock" });
     expect(await screen.findByText("June mock", {}, { timeout: 3000 })).toBeVisible();
+  });
+
+  test("collapses the drop zone and previews a staged Markdown file before saving", async () => {
+    installServer();
+    const user = userEvent.setup();
+    render(<PaperManagement subjectId={subject.id} subjects={[subject]} />);
+    await screen.findByText("June paper");
+    await user.click(screen.getAllByRole("button", { name: "添加试卷" })[0]);
+    const markSchemeCard = screen.getByText("官方评分标准 · 可选").closest<HTMLElement>(".paper-editor-material");
+    expect(markSchemeCard).toBeInTheDocument();
+    await user.click(within(markSchemeCard!).getByText("上传文件"));
+    const uploadInput = markSchemeCard!.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(uploadInput).toBeInTheDocument();
+    await user.upload(uploadInput!, new File(["# Local preview\n\nScoring guidance."], "local-mark-scheme.md", { type: "text/markdown" }));
+
+    expect(within(markSchemeCard!).queryByText("点击或拖拽文件到这里")).not.toBeInTheDocument();
+    expect(within(markSchemeCard!).getByText("local-mark-scheme.md")).toBeInTheDocument();
+    expect(screen.queryByText("我确认有权在本系统中使用以上考试资料。")).not.toBeInTheDocument();
+    await user.click(within(markSchemeCard!).getByRole("button", { name: "预览" }));
+    const preview = await visibleModal("文件预览 · local-mark-scheme.md");
+    expect(within(preview).getByText(/Local preview/)).toHaveTextContent("Scoring guidance.");
   });
 
   test("parses an existing material in the editor and only reveals upload when updating", async () => {
@@ -250,6 +407,40 @@ describe("PaperManagement", () => {
     await user.click(within(refreshedSchemeCard!).getByRole("button", { name: "更新文件" }));
     expect(within(refreshedSchemeCard!).getByLabelText("上传 Mark Scheme（可选）")).toBeInTheDocument();
     expect(requests.some((request) => request.method === "POST" && request.url.endsWith("/corpus/convert"))).toBe(true);
+  });
+
+  test("queues additional paper materials while one document is being parsed", async () => {
+    const pendingQuestionPaper = source({ status: "discovered" });
+    const pendingScheme = source({ id: "ms-1", filename: "MS-202406-P1.pdf", display_name: null, source_type: "mark_scheme", checksum: "ms", status: "discovered" });
+    const pendingPaper = paper({
+      documents: paper().documents.map((item) => item.id === "qp-1" || item.id === "ms-1" ? { ...item, status: "discovered" } : item),
+    });
+    const { requests } = installServer(
+      [pendingPaper],
+      [pendingQuestionPaper, pendingScheme, source({ id: "insert-1", filename: "Insert-202406-P1.pdf", display_name: null, source_type: "insert", checksum: "insert" })],
+      1000,
+    );
+    const user = userEvent.setup();
+    render(<PaperManagement subjectId={subject.id} subjects={[subject]} />);
+    await screen.findByText("June paper");
+    await user.click(screen.getByRole("button", { name: "编辑 June paper" }));
+
+    const questionCard = screen.getByText("June paper", { selector: ".paper-editor-current-file strong" }).closest<HTMLElement>(".paper-editor-material");
+    const schemeCard = screen.getByText("MS-202406-P1.pdf").closest<HTMLElement>(".paper-editor-material");
+    expect(questionCard).not.toBeNull();
+    expect(schemeCard).not.toBeNull();
+    await user.click(within(questionCard!).getByRole("button", { name: "解析" }));
+    expect(within(questionCard!).getByText("解析中", { selector: ".ant-tag" })).toBeInTheDocument();
+    await user.click(within(schemeCard!).getByRole("button", { name: "解析" }));
+
+    expect(within(schemeCard!).getByRole("button", { name: "排队中" })).toBeDisabled();
+    expect(within(schemeCard!).getByText("排队中", { selector: ".ant-tag" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getAllByText("已解析").length).toBeGreaterThanOrEqual(3), { timeout: 4000 });
+
+    const conversionRequests = requests.filter((request) => request.method === "POST" && request.url.endsWith("/corpus/convert"));
+    expect(conversionRequests).toHaveLength(2);
+    const conversionBodies = await Promise.all(conversionRequests.map((request) => request.json() as Promise<{ document_ids: string[] }>));
+    expect(conversionBodies.map((body) => body.document_ids)).toEqual([["qp-1"], ["ms-1"]]);
   });
 
   test("imports an external answer into the current paper and opens its managed result", async () => {

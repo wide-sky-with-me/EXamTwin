@@ -162,12 +162,72 @@ describe("PaperAnswering", () => {
       "src",
       `${imageUrl}?subject=${subject.id}`,
     );
+    fireEvent.click(screen.getByRole("button", { name: "收起题目" }));
+    expect(screen.queryByRole("img", { name: "Equation diagram" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "展开题目" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "展开题目" }));
+    expect(screen.getByRole("img", { name: "Equation diagram" })).toBeInTheDocument();
     const answer = screen.getByRole("heading", { name: "证据化解答" }).closest("section")!;
     const answerText = answer.textContent ?? "";
     expect(answerText.indexOf("x = 1")).toBeLessThan(answerText.indexOf("Part A graph"));
     expect(answerText.indexOf("Part A graph")).toBeLessThan(
       answerText.indexOf("Check by substitution."),
     );
+  });
+
+  test("shows one calm processing state before questions are identified", async () => {
+    const parsingJob: PaperJobResult = {
+      job_id: "job-parsing",
+      filename: "QP-202601-Economics-U4A-Level-AQA经济学-A-Level.pdf",
+      display_name: "QP-202601-Economics-U4A-Level-AQA经济学-A-Level",
+      answer_mode: "generated",
+      paper_unit_id: "paper-1",
+      subject_pack_id: subject.id,
+      subject_code: subject.subject_code,
+      knowledge_base_version_ids: [],
+      graph_version_id: null,
+      unit_code: "U4",
+      status: "parsing",
+      stage: "parsing",
+      total_pages: 28,
+      parsed_pages: 0,
+      total_questions: 0,
+      completed_questions: 0,
+      failed_questions: 0,
+      created_at: "2026-08-13T01:44:16Z",
+      updated_at: "2026-08-13T01:44:16Z",
+      chunks: [],
+      source_integrity_status: "pending",
+      split_contract_version: null,
+      split_source_digest: null,
+      replacement_for_job_id: null,
+      replaced_by_job_id: null,
+      source_booklet_filename: "IN-202601-Economics-U4A-Level-AQA经济学-9640.pdf",
+      questions: [],
+      error: null,
+    };
+    subscribeMock.mockImplementation((options) => {
+      options.onSnapshot(parsingJob);
+      options.onState("live");
+      return () => undefined;
+    });
+
+    const { container } = render(
+      <PaperAnswering embedded enabled initialJobId={parsingJob.job_id} initialPaperUnitId="paper-1" onBack={vi.fn()} subject={subject} />,
+    );
+
+    expect(await screen.findByText("正在识别试卷题目")).toBeInTheDocument();
+    expect(screen.getByText("完成后将自动展示逐题结果，你可以关闭弹窗继续处理其他工作。")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "返回作答记录" })).toBeInTheDocument();
+    expect(screen.getByText("实时进度已连接", { exact: false })).toBeInTheDocument();
+    expect(container.querySelectorAll(".paper-processing-empty")).toHaveLength(1);
+    expect(container.querySelector(".question-nav")).not.toBeInTheDocument();
+    expect(container.querySelector(".paper-answer")).not.toBeInTheDocument();
+    expect(screen.queryByText("解析完成后将在这里逐题出现。")).not.toBeInTheDocument();
+    expect(screen.queryByText("等待题目识别结果")).not.toBeInTheDocument();
   });
 
   test("presents a recoverable parsing failure without an indefinite waiting workspace", async () => {

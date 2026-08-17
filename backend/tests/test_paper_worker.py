@@ -111,6 +111,55 @@ def test_worker_persists_mineru_images_and_keeps_their_markdown_position(
         )
 
 
+@pytest.mark.parametrize("subject_selector", ["9660", "9640"])
+def test_worker_persists_page_scoped_mineru_markdown_for_vision(
+    tmp_path: Path,
+    subject_selector: str,
+) -> None:
+    class AssetFiles:
+        def write_file(self, relative_path: str, content: bytes | str) -> None:
+            path = tmp_path / relative_path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(content if isinstance(content, bytes) else content.encode())
+
+    content = b"page-two-figure"
+    parsed = ParsedPaperChunk(
+        markdown="All pages repeated in one fallback chunk.",
+        images=(
+            ExtractedPaperImage(
+                name="figure.png",
+                path="images/figure.png",
+                content=content,
+                page_index=1,
+            ),
+        ),
+        page_markdown=(
+            "1 First page question. [1 mark]",
+            "2 Second page.\n\n![Figure](images/figure.png)",
+            "",
+        ),
+    )
+    settings = Settings(object_store_local_root=tmp_path)
+    worker = PaperWorker(
+        settings,
+        subject_context(settings, subject_selector),
+        jobs=AssetFiles(),  # type: ignore[arg-type]
+        answer_service=FakeAnswerService(),  # type: ignore[arg-type]
+    )
+
+    markdown = worker._persist_chunk_images("job-1", 6, 8, parsed)
+
+    digest = hashlib.sha256(content).hexdigest()
+    image_url = f"/api/v1/papers/jobs/job-1/question-images/p0007-{digest}.png"
+    assert markdown == (
+        "<!-- examtwin:physical-page=6 -->\n"
+        "1 First page question. [1 mark]\n\n"
+        "<!-- examtwin:physical-page=7 -->\n"
+        f"2 Second page.\n\n![Figure]({image_url})\n\n"
+        "<!-- examtwin:physical-page=8 -->"
+    )
+
+
 def test_worker_maps_unpositioned_mineru_images_when_only_one_pdf_page_has_images(
     tmp_path: Path,
 ) -> None:
@@ -183,7 +232,7 @@ def test_worker_maps_unpositioned_mineru_images_when_only_one_pdf_page_has_image
         )
 
 
-def test_worker_recovers_unreferenced_figure_but_not_tiny_print_glyph(
+def test_worker_does_not_promote_unreferenced_mineru_images_into_question_layout(
     tmp_path: Path,
 ) -> None:
     class AssetFiles:
@@ -225,14 +274,62 @@ def test_worker_recovers_unreferenced_figure_but_not_tiny_print_glyph(
 
     markdown = worker._persist_chunk_images("job-1", 4, 4, parsed)
 
-    figure_name = f"p0004-{hashlib.sha256(figure_bytes).hexdigest()}.png"
-    glyph_name = f"p0004-{hashlib.sha256(glyph_bytes).hexdigest()}.png"
-    assert markdown == (
-        "1 Figure 1 shows the market equilibrium. [1 mark]\n\n"
-        f"![](/api/v1/papers/jobs/job-1/question-images/{figure_name})"
+    assert markdown == "1 Figure 1 shows the market equilibrium. [1 mark]"
+    assert not (tmp_path / "job-1" / "question-images").exists()
+
+
+def test_worker_filters_referenced_glyph_crop_but_keeps_substantive_figure(
+    tmp_path: Path,
+) -> None:
+    class AssetFiles:
+        def write_file(self, relative_path: str, content: bytes | str) -> None:
+            path = tmp_path / relative_path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(content if isinstance(content, bytes) else content.encode())
+
+    figure = pymupdf.Pixmap(pymupdf.csGRAY, pymupdf.IRect(0, 0, 320, 180), 0)
+    figure.clear_with(255)
+    figure_bytes = figure.tobytes("png")
+    glyph = pymupdf.Pixmap(pymupdf.csGRAY, pymupdf.IRect(0, 0, 76, 51), 0)
+    glyph.clear_with(255)
+    glyph_bytes = glyph.tobytes("png")
+    worker = PaperWorker(
+        Settings(object_store_local_root=tmp_path),
+        subject_context(Settings(object_store_local_root=tmp_path)),
+        jobs=AssetFiles(),  # type: ignore[arg-type]
+        answer_service=FakeAnswerService(),  # type: ignore[arg-type]
     )
-    assert (tmp_path / "job-1" / "question-images" / figure_name).read_bytes() == figure_bytes
-    assert not (tmp_path / "job-1" / "question-images" / glyph_name).exists()
+
+    markdown = worker._persist_chunk_images(
+        "job-1",
+        8,
+        8,
+        ParsedPaperChunk(
+            markdown=(
+                "A\n\n![Market diagram](images/figure.png)\n\n![Option marker](images/glyph.png)"
+            ),
+            images=(
+                ExtractedPaperImage(
+                    "figure.png",
+                    "images/figure.png",
+                    figure_bytes,
+                    page_index=0,
+                ),
+                ExtractedPaperImage(
+                    "glyph.png",
+                    "images/glyph.png",
+                    glyph_bytes,
+                    page_index=0,
+                ),
+            ),
+        ),
+    )
+
+    figure_name = f"p0008-{hashlib.sha256(figure_bytes).hexdigest()}.png"
+    assert markdown == (
+        f"A\n\n![Market diagram](/api/v1/papers/jobs/job-1/question-images/{figure_name})"
+    )
+    assert (tmp_path / "job-1" / "question-images" / figure_name).is_file()
 
 
 def test_paper_chunk_extraction_retains_mineru_image_bytes(
@@ -270,10 +367,22 @@ def test_paper_chunk_extraction_retains_mineru_image_bytes(
                 ],
                 content_list=[
                     {
+                        "type": "text",
+                        "text": "Question",
+                        "page_idx": 0,
+                    },
+                    {
+                        "type": "table",
+                        "table_caption": ["Table 1"],
+                        "table_body": "<table><tr><td>Value</td></tr></table>",
+                        "table_footnote": [],
+                        "page_idx": 1,
+                    },
+                    {
                         "type": "image",
                         "img_path": "images/graph.png",
                         "page_idx": 2,
-                    }
+                    },
                 ],
             )
 
@@ -294,6 +403,11 @@ def test_paper_chunk_extraction_retains_mineru_image_bytes(
             content=b"graph-bytes",
             page_index=2,
         ),
+    )
+    assert result.page_markdown == (
+        "Question",
+        "Table 1\n\n<table><tr><td>Value</td></tr></table>",
+        "![Image](images/graph.png)",
     )
     assert calls["token"] == "secret"
     assert calls["source"] == "examtwin-paper"
@@ -510,6 +624,54 @@ def test_worker_carries_source_pages_and_trusted_jpegs_into_answer_service(
         (2, b"\xff\xd8page-2"),
         (3, b"\xff\xd8page-3"),
     ]
+
+
+def test_worker_uses_positioned_question_assets_instead_of_full_page_pixels(
+    tmp_path: Path,
+) -> None:
+    job_id = "job-with-positioned-image"
+    asset_name = f"p0008-{'a' * 64}.png"
+    figure = pymupdf.Pixmap(pymupdf.csGRAY, pymupdf.IRect(0, 0, 320, 180), 0)
+    figure.clear_with(255)
+    asset_path = tmp_path / job_id / "question-images" / asset_name
+    asset_path.parent.mkdir(parents=True)
+    asset_path.write_bytes(figure.tobytes("png"))
+
+    class ImageJobs:
+        def source_file(self, requested_job_id: str) -> tuple[Path, str, str]:
+            assert requested_job_id == job_id
+            return tmp_path / job_id / "source.pdf", "source.pdf", ".pdf"
+
+        def question_image(self, requested_job_id: str, requested_asset: str) -> Path:
+            assert requested_job_id == job_id
+            assert requested_asset == asset_name
+            return asset_path
+
+        def source_page(self, _job_id: str, _page_number: int) -> Path:
+            raise AssertionError("positioned question assets should avoid full-page vision input")
+
+    worker = PaperWorker(
+        Settings(object_store_local_root=tmp_path),
+        subject_context(Settings(object_store_local_root=tmp_path)),
+        jobs=ImageJobs(),  # type: ignore[arg-type]
+        answer_service=FakeAnswerService(),  # type: ignore[arg-type]
+    )
+
+    pages, images = worker._load_question_images(
+        {
+            "job_id": job_id,
+            "question_markdown": (
+                f"Use the graph.\n\n![](/api/v1/papers/jobs/{job_id}/question-images/{asset_name})"
+            ),
+            "source_pages_json": "[8]",
+            "requires_visual_context": True,
+        }
+    )
+
+    assert pages == [8]
+    assert len(images) == 1
+    assert images[0].page_number == 8
+    assert images[0].content.startswith(b"\xff\xd8")
 
 
 def test_worker_skips_page_pixels_for_text_only_pdf_question(tmp_path: Path) -> None:

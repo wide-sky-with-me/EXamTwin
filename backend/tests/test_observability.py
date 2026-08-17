@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 
@@ -8,6 +9,20 @@ from examtwin.platform.database.migrations import upgrade_database
 from examtwin.platform.observability import JsonLogFormatter, configure_logging
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+
+
+def test_structured_log_keeps_page_scoped_markdown_size() -> None:
+    record = logging.makeLogRecord(
+        {
+            "msg": "paper vision request completed",
+            "event": "paper_vision_request_completed",
+            "source_markdown_chars": 417,
+        }
+    )
+
+    payload = json.loads(JsonLogFormatter().format(record))
+
+    assert payload["source_markdown_chars"] == 417
 
 
 def _failing_app() -> FastAPI:

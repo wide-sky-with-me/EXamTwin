@@ -273,6 +273,37 @@ export async function archivePaperUnit(
   );
 }
 
+export async function listTrashedPaperUnits(workspaceId: string): Promise<PaperUnitList> {
+  const response = await checkedFetch(
+    workspaceId,
+    `/subject-workspaces/${encodeURIComponent(workspaceId)}/paper-units/trash?limit=100&offset=0`,
+  );
+  return response.json() as Promise<PaperUnitList>;
+}
+
+export async function restorePaperUnit(
+  workspaceId: string,
+  paperUnitId: string,
+): Promise<PaperUnitSummary> {
+  const response = await checkedFetch(
+    workspaceId,
+    `/subject-workspaces/${encodeURIComponent(workspaceId)}/paper-units/${encodeURIComponent(paperUnitId)}/restore`,
+    { method: "POST", body: "{}" },
+  );
+  return response.json() as Promise<PaperUnitSummary>;
+}
+
+export async function permanentlyDeletePaperUnit(
+  workspaceId: string,
+  paperUnitId: string,
+): Promise<void> {
+  await checkedFetch(
+    workspaceId,
+    `/subject-workspaces/${encodeURIComponent(workspaceId)}/paper-units/${encodeURIComponent(paperUnitId)}/permanent`,
+    { method: "DELETE" },
+  );
+}
+
 export async function answerPaperUnit(
   workspaceId: string,
   paperUnitId: string,

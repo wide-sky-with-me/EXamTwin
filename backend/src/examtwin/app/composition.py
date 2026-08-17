@@ -214,6 +214,7 @@ def build_paper_job_service(
             build_object_store(settings),
             retention_days=settings.paper_object_retention_days,
         ),
+        documents=CorpusRepository(create_session_factory(settings.database_url)),
     )
 
 

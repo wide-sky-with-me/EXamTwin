@@ -22,7 +22,7 @@ from examtwin.assessment.paper_jobs import (
     _question_source_warnings,
 )
 from examtwin.assessment.task_events import PostgresTaskEvents
-from examtwin.contracts import PaperJobBulkDeleteRequest
+from examtwin.contracts import PaperJobBulkDeleteRequest, PaperJobCreated
 from examtwin.platform.config import Settings
 from examtwin.subjects.public import subject_context
 
@@ -150,6 +150,93 @@ def test_economics_job_rejects_nearby_source_booklet_pair(tmp_path: Path) -> Non
         )
 
     assert repository.values is None
+
+
+def test_managed_economics_replacement_forwards_exact_paper_bindings(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source_path = tmp_path / "source.pdf"
+    source_path.write_bytes(b"%PDF-1.7")
+    job = {
+        "id": "legacy-job",
+        "subject_code": "9640",
+        "status": "completed",
+        "source_integrity_status": "verified",
+        "split_contract_version": "paper-question-split-v1",
+        "unit_code": "U1",
+        "paper_unit_id": "paper-unit-1",
+        "question_paper_document_id": "question-paper-1",
+        "source_booklet_document_id": "insert-1",
+    }
+
+    class Repository:
+        linked: tuple[str, str] | None = None
+
+        def get(self, job_id: str) -> dict[str, object]:
+            assert job_id == "legacy-job"
+            return job
+
+        def replacement_id(self, job_id: str) -> None:
+            assert job_id == "legacy-job"
+            return None
+
+        def source_record(self, job_id: str) -> dict[str, object]:
+            assert job_id == "legacy-job"
+            return job
+
+        def link_replacement(self, job_id: str, replacement_id: str) -> None:
+            self.linked = (job_id, replacement_id)
+
+    class Files:
+        def source_file(self, _job: dict[str, object]) -> tuple[Path, str, str]:
+            return source_path, "qp-202401-economics-u1.pdf", ".pdf"
+
+    booklet = {
+        "id": "insert-1",
+        "subject_code": "9640",
+        "source_type": "insert",
+        "identity_status": "complete",
+        "pair_key": "9640:2024:JAN:U1",
+        "checksum": "abc123",
+        "converted_source_checksum": "abc123",
+        "status": "converted",
+    }
+
+    class Documents:
+        def get_active(self, document_id: str) -> dict[str, object]:
+            assert document_id == "insert-1"
+            return booklet
+
+    settings = Settings(object_store_local_root=tmp_path)
+    subject = subject_context(settings, "oxfordaqa-economics-9640").with_retrieval_snapshot(
+        version_ids=("version-1",),
+        collections=("collection-1",),
+        graph_version_id=None,
+    )
+    repository = Repository()
+    jobs = PaperJobService(
+        settings,
+        subject,
+        repository=repository,  # type: ignore[arg-type]
+        files=Files(),  # type: ignore[arg-type]
+        documents=Documents(),  # type: ignore[arg-type]
+    )
+    captured: dict[str, object] = {}
+
+    def create_job(_filename: str, _stream: object, **kwargs: object) -> PaperJobCreated:
+        captured.update(kwargs)
+        return PaperJobCreated(job_id="replacement-job", status="queued", stage="queued")
+
+    monkeypatch.setattr(jobs, "create_job_from_stream", create_job)
+
+    replacement = jobs.create_replacement("legacy-job")
+
+    assert replacement.job_id == "replacement-job"
+    assert captured["source_booklet"] == booklet
+    assert captured["paper_unit_id"] == "paper-unit-1"
+    assert captured["question_paper_document_id"] == "question-paper-1"
+    assert repository.linked == ("legacy-job", "replacement-job")
 
 
 async def test_paper_upload_api_returns_a_persistent_job_receipt(

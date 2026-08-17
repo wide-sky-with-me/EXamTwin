@@ -15,7 +15,10 @@ from llama_index.core.schema import BaseNode, TextNode
 from qdrant_client import QdrantClient
 
 from examtwin.contracts.common import JobResult
-from examtwin.knowledge.document_block_repository import DocumentBlockRepository
+from examtwin.knowledge.document_block_repository import (
+    DocumentBlockRepository,
+    build_scoped_block_id,
+)
 from examtwin.knowledge.knowledge_repository import KnowledgeRepository
 from examtwin.knowledge.queries import (
     evidence_role_for_source,
@@ -24,7 +27,11 @@ from examtwin.knowledge.queries import (
 )
 from examtwin.knowledge.vector_index_publication import QdrantIndexPublisher
 from examtwin.knowledge.vector_index_repository import VectorIndexRepository
-from examtwin.knowledge.vector_index_reuse import embedding_identity, plan_vector_writes
+from examtwin.knowledge.vector_index_reuse import (
+    embedding_identity,
+    plan_vector_writes,
+    prune_stale_points,
+)
 from examtwin.knowledge.vector_retrieval import (
     HYBRID_INDEX_SCHEMA_VERSION,
     collection_supports_hybrid,
@@ -362,6 +369,7 @@ def _knowledge_point_nodes(catalog: list[dict[str, Any]]) -> list[TextNode]:
         )
         metadata = {
             "node_kind": "knowledge_point",
+            "source_role": "core_knowledge",
             "knowledge_code": point["code"],
             "knowledge_codes": [point["code"]],
             "knowledge_title": point["title"],
@@ -658,6 +666,21 @@ def build_vector_index(
                 show_progress=True,
             )
 
+        pruned_points = prune_stale_points(
+            client,
+            staging_collection,
+            [node.node_id for node in nodes],
+        )
+        if pruned_points:
+            logger.info(
+                "vector_index_stale_points_pruned",
+                extra={
+                    "subject_code": subject_code,
+                    "build_id": run_id,
+                    "pruned_points": pruned_points,
+                },
+            )
+
         gate = publisher.validate(staging_collection, len(nodes))
         repository.update_run(
             run_id,
@@ -726,6 +749,10 @@ def _document_block_rows(
     build_id: str,
 ) -> list[dict[str, Any]]:
     now = utcnow()
+
+    def scoped_id(source_id: object) -> str:
+        return build_scoped_block_id(build_id, str(source_id))
+
     parent_children: dict[str, list[BaseNode]] = {}
     for node in nodes:
         parent_children.setdefault(str(node.metadata.get("parent_block_id") or ""), []).append(node)
@@ -744,7 +771,7 @@ def _document_block_rows(
         metadata = dict(document.metadata)
         rows.append(
             {
-                "id": parent_id,
+                "id": scoped_id(parent_id),
                 "document_id": str(metadata["document_id"]),
                 "knowledge_base_version_id": knowledge_base_version_id,
                 "build_id": build_id,
@@ -778,13 +805,23 @@ def _document_block_rows(
         content = node.get_content()
         rows.append(
             {
-                "id": node.node_id,
+                "id": scoped_id(node.node_id),
                 "document_id": str(metadata["document_id"]),
                 "knowledge_base_version_id": knowledge_base_version_id,
                 "build_id": build_id,
-                "parent_block_id": metadata.get("parent_block_id"),
-                "previous_block_id": metadata.get("previous_block_id"),
-                "next_block_id": metadata.get("next_block_id"),
+                "parent_block_id": (
+                    scoped_id(metadata["parent_block_id"])
+                    if metadata.get("parent_block_id")
+                    else None
+                ),
+                "previous_block_id": (
+                    scoped_id(metadata["previous_block_id"])
+                    if metadata.get("previous_block_id")
+                    else None
+                ),
+                "next_block_id": (
+                    scoped_id(metadata["next_block_id"]) if metadata.get("next_block_id") else None
+                ),
                 "page": metadata.get("page"),
                 "section": metadata.get("section"),
                 "section_path_json": json.dumps(

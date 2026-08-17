@@ -129,7 +129,7 @@ const markdownComponents: Components = {
   },
 };
 
-type QuestionSourceImageLayout = "pending" | "compact" | "figure" | "error";
+type QuestionSourceImageLayout = "pending" | "figure" | "noise" | "error";
 
 function QuestionSourceImage({
   alt = "",
@@ -145,8 +145,9 @@ function QuestionSourceImage({
     onLoad?.(event);
     const image = event.currentTarget;
     setLayout(
-      image.naturalWidth <= 128 && image.naturalHeight <= 96
-        ? "compact"
+      image.naturalWidth * image.naturalHeight < 16_384
+        || Math.max(image.naturalWidth, image.naturalHeight) < 160
+        ? "noise"
         : "figure",
     );
   }
@@ -163,6 +164,7 @@ function QuestionSourceImage({
       </a>
     );
   }
+  if (layout === "noise") return null;
 
   return (
     <img

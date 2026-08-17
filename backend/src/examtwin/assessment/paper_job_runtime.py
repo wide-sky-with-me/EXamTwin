@@ -36,6 +36,9 @@ class PaperJobRuntime:
     def source_page_root(self, job_id: str) -> Path:
         return self.files.resolve(f"{job_id}/source-pages")
 
+    def question_image(self, job_id: str, asset_name: str) -> Path:
+        return self.files.question_image(job_id, asset_name)
+
     def source_file(self, job_id: str) -> tuple[Path, str, str]:
         record = self.repository.source_record(job_id)
         if not record:

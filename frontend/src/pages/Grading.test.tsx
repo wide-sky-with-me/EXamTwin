@@ -575,6 +575,8 @@ describe("Grading", () => {
     const { container } = render(<Grading subject={subject} onCreated={vi.fn()} />);
 
     expect(container.querySelector(".grading-page")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "答案评分" })).not.toBeInTheDocument();
+    expect(container.querySelector(".grading-materials-stage")).not.toHaveClass("panel");
     expect(screen.getByText("正在查找可评分的作答记录…")).toHaveClass(
       "grading-discovery-state",
       "is-loading",

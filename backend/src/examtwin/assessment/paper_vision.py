@@ -16,7 +16,7 @@ from examtwin.platform.model_json import parse_json_response
 
 logger = logging.getLogger(__name__)
 
-VISION_REVIEW_CONTRACT_VERSION = "paper-vision-review-v5"
+VISION_REVIEW_CONTRACT_VERSION = "paper-vision-review-v6"
 PHYSICAL_PAGE_MARKER_TEMPLATE = "<!-- examtwin:physical-page={page_number} -->"
 _PHYSICAL_PAGE_MARKER_RE = re.compile(
     r"(?m)^[ \t]*<!--\s*examtwin:physical-page=(\d+)\s*-->[ \t]*$"
@@ -338,6 +338,7 @@ class PaperVisionReviewer:
         page_end: int,
         _allow_empty: bool = False,
         _source_is_page_scoped: bool = True,
+        _client: httpx.Client | None = None,
     ) -> VisionReviewResult:
         if page_start != page_end:
             parsed_pages = parse_physical_page_markdown(markdown)
@@ -346,17 +347,26 @@ class PaperVisionReviewer:
                 if parsed_pages
                 else [(page_number, markdown) for page_number in range(page_start, page_end + 1)]
             )
-            results = [
-                self.review_chunk(
-                    source_path,
-                    body,
-                    page_number,
-                    page_number,
-                    _allow_empty=True,
-                    _source_is_page_scoped=bool(parsed_pages),
-                )
-                for page_number, body in page_inputs
-            ]
+            own_client = _client is None and self.client is None
+            client = (
+                _client or self.client or httpx.Client(timeout=self.settings.paper_vision_timeout)
+            )
+            try:
+                results = [
+                    self.review_chunk(
+                        source_path,
+                        body,
+                        page_number,
+                        page_number,
+                        _allow_empty=True,
+                        _source_is_page_scoped=bool(parsed_pages),
+                        _client=client,
+                    )
+                    for page_number, body in page_inputs
+                ]
+            finally:
+                if own_client:
+                    client.close()
             combined_markdown = "\n\n".join(result.markdown for result in results)
             combined_length = sum(
                 len(body.strip()) for _page, body in parse_physical_page_markdown(combined_markdown)
@@ -418,6 +428,7 @@ class PaperVisionReviewer:
                     if int(match.group("page")) == page_start
                 )
             ),
+            client=_client,
         )
         reviewed_length = sum(
             len(body.strip()) for _page, body in parse_physical_page_markdown(reviewed)
@@ -457,6 +468,7 @@ class PaperVisionReviewer:
         source_markdown: str,
         source_is_page_scoped: bool,
         required_image_urls: tuple[str, ...],
+        client: httpx.Client | None = None,
     ) -> tuple[dict[str, Any], str, dict[int, VisionPageClassification]]:
         provider_api_key = self.settings.llm_provider_api_key
         api_key = provider_api_key.get_secret_value() if provider_api_key else None
@@ -469,14 +481,34 @@ class PaperVisionReviewer:
             "max_tokens": 12000,
             "enable_thinking": False,
         }
-        own_client = self.client is None
-        client = self.client or httpx.Client(timeout=self.settings.paper_vision_timeout)
+        own_client = client is None and self.client is None
+        request_client = (
+            client or self.client or httpx.Client(timeout=self.settings.paper_vision_timeout)
+        )
+
+        def log_completed(attempt: int, attempt_started: float) -> None:
+            logger.info(
+                "paper vision request completed",
+                extra={
+                    "event": "paper_vision_request_completed",
+                    "stage": "vision_review",
+                    "page_start": page_start,
+                    "page_end": page_end,
+                    "attempt": attempt,
+                    "duration_ms": round(
+                        (time.monotonic() - attempt_started) * 1000,
+                        2,
+                    ),
+                    "source_markdown_chars": len(source_markdown),
+                },
+            )
+
         last_error: Exception | None = None
         try:
             for attempt in range(1, self.settings.paper_vision_max_attempts + 1):
                 attempt_started = time.monotonic()
                 try:
-                    response = client.post(
+                    response = request_client.post(
                         f"{self.settings.llm_provider_base_url}/chat/completions",
                         headers={"Authorization": f"Bearer {api_key}"},
                         json=request,
@@ -510,6 +542,7 @@ class PaperVisionReviewer:
                         page_start,
                         page_end,
                     )
+                    unsafe_discard_ignored = False
                     try:
                         discarded_images = _discarded_non_question_image_urls(
                             payload,
@@ -517,14 +550,13 @@ class PaperVisionReviewer:
                             page_classifications=page_classifications,
                         )
                     except ValueError as discard_error:
-                        if attempt < self.settings.paper_vision_max_attempts:
-                            raise
                         # discarded_images is only a model request. If it conflicts with
                         # the independently validated page semantics, ignore it and let
                         # the required-image gate below retain or restore the source page.
                         # This fails closed on content loss without turning a safe source
                         # fallback into a terminal whole-paper failure.
                         discarded_images = set()
+                        unsafe_discard_ignored = True
                         raw_repairs = payload.get("repairs")
                         repairs = (
                             [str(item) for item in raw_repairs]
@@ -550,7 +582,10 @@ class PaperVisionReviewer:
                         if url not in reviewed and url not in discarded_images
                     ]
                     if missing_images:
-                        if attempt >= self.settings.paper_vision_max_attempts:
+                        if (
+                            unsafe_discard_ignored
+                            or attempt >= self.settings.paper_vision_max_attempts
+                        ):
                             if source_is_page_scoped:
                                 source_pages = parse_physical_page_markdown(source_markdown)
                                 if source_pages:
@@ -618,10 +653,12 @@ class PaperVisionReviewer:
                                     "source_is_page_scoped": source_is_page_scoped,
                                 },
                             )
+                            log_completed(attempt, attempt_started)
                             return payload, reviewed, page_classifications
                         raise ValueError(
                             "视觉复核丢失 MinerU 题目图片位置引用：" + ", ".join(missing_images)
                         )
+                    log_completed(attempt, attempt_started)
                     return payload, reviewed, page_classifications
                 except (httpx.HTTPError, KeyError, TypeError, ValueError) as error:
                     last_error = error
@@ -652,7 +689,7 @@ class PaperVisionReviewer:
                         time.sleep(delay)
         finally:
             if own_client:
-                client.close()
+                request_client.close()
         assert last_error is not None
         raise last_error
 

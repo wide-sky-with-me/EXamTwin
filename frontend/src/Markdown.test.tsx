@@ -114,7 +114,7 @@ describe("Markdown math", () => {
     ).toEqual(["Before diagram.", "Force diagram", "After diagram."]);
   });
 
-  test("lays out tiny source glyphs inline and full figures as responsive blocks", () => {
+  test("hides tiny source glyph noise and keeps full figures as responsive blocks", () => {
     const { rerender } = render(
       <QuestionMarkdown>{"![Option marker](/api/v1/tiny.png)"}</QuestionMarkdown>,
     );
@@ -124,7 +124,7 @@ describe("Markdown math", () => {
       naturalHeight: { configurable: true, value: 48 },
     });
     fireEvent.load(compact);
-    expect(compact).toHaveClass("is-compact");
+    expect(screen.queryByRole("img", { name: "Option marker" })).not.toBeInTheDocument();
 
     rerender(<QuestionMarkdown>{"![Demand graph](/api/v1/figure.png)"}</QuestionMarkdown>);
     const figure = screen.getByRole("img", { name: "Demand graph" });

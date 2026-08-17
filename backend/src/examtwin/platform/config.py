@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     paper_split_model: str = "gpt-5.6-luna"
     paper_split_reasoning_effort: ReasoningEffort = "none"
     paper_split_timeout: int = Field(default=90, ge=30, le=300)
+    paper_split_max_attempts: int = Field(default=2, ge=1, le=5)
     paper_split_max_chars: int = Field(default=4_000, ge=2_500, le=60_000)
     paper_split_concurrency: int = Field(default=2, ge=1, le=4)
     paper_vision_enabled: bool = True
@@ -79,6 +80,7 @@ class Settings(BaseSettings):
     rerank_model: str = "Qwen/Qwen3-Reranker-8B"
     embedding_timeout: int = Field(default=25, ge=5, le=120)
     rerank_timeout: int = Field(default=30, ge=5, le=120)
+    retrieval_provider_timeout: int = Field(default=15, ge=5, le=60)
 
     database_url: str = "postgresql://examtwin:examtwin_dev@localhost:55432/examtwin"
     qdrant_url: str = "http://localhost:6333"

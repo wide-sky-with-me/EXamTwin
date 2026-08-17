@@ -54,7 +54,7 @@ class KnowledgeSearchTool:
                 card = metadata.get("knowledge_card")
                 if isinstance(card, dict):
                     evidence_lines: list[str] = []
-                    for item in metadata.get("evidence_items") or []:
+                    for item in (metadata.get("evidence_items") or [])[:2]:
                         if not isinstance(item, dict):
                             continue
                         citation = _citation_from_evidence(item)

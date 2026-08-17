@@ -23,6 +23,7 @@ _EXTRA_FIELDS = (
     "stage",
     "page_start",
     "page_end",
+    "source_markdown_chars",
     "attempt",
     "max_attempts",
     "batch_index",

@@ -16,7 +16,7 @@ from llama_index.core.vector_stores import (
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient, models
 
-HYBRID_INDEX_SCHEMA_VERSION = "lexical-hybrid-v1"
+HYBRID_INDEX_SCHEMA_VERSION = "lexical-hybrid-v2"
 DENSE_VECTOR_NAME = "text-dense"
 SPARSE_VECTOR_NAME = "lexical-sparse-v1"
 FILTER_PAYLOAD_FIELDS = (
@@ -26,6 +26,7 @@ FILTER_PAYLOAD_FIELDS = (
     "source_type",
     "authority_tier",
     "source_role",
+    "node_kind",
     "index_build_id",
     "index_schema_version",
     "embedding_identity",
@@ -75,6 +76,7 @@ def retrieval_filters(
     source_types: Sequence[str] = (),
     authority_tiers: Sequence[str] = (),
     source_roles: Sequence[str] = (),
+    node_kinds: Sequence[str] = (),
 ) -> MetadataFilters:
     filters: list[MetadataFilter | MetadataFilters] = [
         MetadataFilter(key="subject_code", value=subject_code)
@@ -83,8 +85,15 @@ def retrieval_filters(
         filters.append(
             MetadataFilters(
                 filters=[
-                    MetadataFilter(key="unit_code", value=unit_code),
-                    MetadataFilter(key="unit_code", value=""),
+                    MetadataFilter(
+                        key="unit_code",
+                        value=[unit_code, ""],
+                        operator=FilterOperator.IN,
+                    ),
+                    # A paper component may be synoptic. Direct curriculum nodes
+                    # are safe to search subject-wide; source evidence remains
+                    # restricted to the requested unit or global documents.
+                    MetadataFilter(key="node_kind", value="knowledge_point"),
                 ],
                 condition=FilterCondition.OR,
             )
@@ -112,6 +121,14 @@ def retrieval_filters(
             MetadataFilter(
                 key="source_role",
                 value=list(dict.fromkeys(source_roles)),
+                operator=FilterOperator.IN,
+            )
+        )
+    if node_kinds:
+        filters.append(
+            MetadataFilter(
+                key="node_kind",
+                value=list(dict.fromkeys(node_kinds)),
                 operator=FilterOperator.IN,
             )
         )
