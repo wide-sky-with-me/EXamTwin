@@ -336,6 +336,38 @@ async def test_math_plot_tool_creates_validated_coordinate_artifact() -> None:
 
 
 @pytest.mark.asyncio
+async def test_math_plot_supports_inverse_trigonometric_curves() -> None:
+    context = AgentRunContext(
+        task=AnswerTask(
+            subject_code="9660",
+            question=r"Sketch y=\frac{1}{2}\sin^{-1}(x+1).",
+        )
+    )
+
+    result = (
+        await MathPlotTool()
+        .bind(context)
+        .acall(
+            title="Sketch of y = 1/2 arcsin(x + 1)",
+            answer_anchor="whole",
+            x_range=[-2, 0],
+            y_range=[-1, 1],
+            curves=[
+                {
+                    "expression": "asin(x + 1) / 2",
+                    "domain": [-2, 0],
+                    "emphasis": True,
+                }
+            ],
+        )
+    )
+
+    assert result.is_error is False
+    assert len(context.diagrams) == 1
+    assert any(element.kind == "polyline" for element in context.diagrams[0].elements)
+
+
+@pytest.mark.asyncio
 async def test_math_plot_snaps_trapezia_to_trusted_curve_grid() -> None:
     page = Image.new("RGB", (800, 1000), "white")
     draw = ImageDraw.Draw(page)

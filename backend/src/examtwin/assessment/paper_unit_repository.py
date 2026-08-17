@@ -1,17 +1,22 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import delete, exists, func, or_, select
+from sqlalchemy import delete, exists, func, or_, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from examtwin.platform.database.models import (
+    AssessmentModel,
     PaperJobModel,
     PaperUnitDocumentModel,
     PaperUnitModel,
+    ReviewModel,
+    SourceDocumentLocationModel,
     SourceDocumentModel,
+    StoredObjectModel,
 )
 from examtwin.platform.database.session import utcnow
 
@@ -96,10 +101,11 @@ class PaperUnitRepository:
         exam_session: str | None = None,
         limit: int = 20,
         offset: int = 0,
+        status: str = "active",
     ) -> tuple[list[dict[str, Any]], int, dict[str, list[Any]]]:
         conditions = [
             PaperUnitModel.subject_id == subject_id,
-            PaperUnitModel.status == "active",
+            PaperUnitModel.status == status,
         ]
         if query and query.strip():
             pattern = f"%{query.strip()}%"
@@ -145,7 +151,7 @@ class PaperUnitRepository:
         )
         active_scope = (
             PaperUnitModel.subject_id == subject_id,
-            PaperUnitModel.status == "active",
+            PaperUnitModel.status == status,
         )
         with self.sessions() as session:
             units = list(session.scalars(statement))
@@ -195,16 +201,23 @@ class PaperUnitRepository:
         rows = self._hydrate((unit,)) if unit is not None else []
         return rows[0] if rows else None
 
-    def find_by_pair(self, *, subject_id: str, pair_key: str) -> dict[str, Any] | None:
+    def find_by_pair(
+        self,
+        *,
+        subject_id: str,
+        pair_key: str,
+        status: str = "active",
+    ) -> dict[str, Any] | None:
         with self.sessions() as session:
-            unit_id = session.scalar(
-                select(PaperUnitModel.id).where(
+            unit = session.scalar(
+                select(PaperUnitModel).where(
                     PaperUnitModel.subject_id == subject_id,
                     PaperUnitModel.pair_key == pair_key,
-                    PaperUnitModel.status == "active",
+                    PaperUnitModel.status == status,
                 )
             )
-        return self.get(str(unit_id), subject_id=subject_id) if unit_id is not None else None
+        rows = self._hydrate((unit,)) if unit is not None else []
+        return rows[0] if rows else None
 
     def create(
         self,
@@ -237,6 +250,10 @@ class PaperUnitRepository:
                     updated_at=now,
                 )
             )
+            # There is intentionally no ORM relationship between the aggregate
+            # root and its document bindings.  Flush the root explicitly so
+            # PostgreSQL cannot insert the bindings before their FK target.
+            session.flush()
             session.add_all(
                 PaperUnitDocumentModel(
                     paper_unit_id=paper_unit_id,
@@ -297,6 +314,176 @@ class PaperUnitRepository:
             raise RuntimeError("试卷单元更新失败")
         return updated
 
+    def restore(
+        self,
+        paper_unit_id: str,
+        *,
+        subject_id: str,
+        display_name: str | None,
+        documents: Sequence[Mapping[str, str]],
+    ) -> dict[str, Any]:
+        """Reactivate a deleted unit while preserving its stable exam identity."""
+
+        with self.sessions.begin() as session:
+            unit = session.scalar(
+                select(PaperUnitModel)
+                .where(
+                    PaperUnitModel.id == paper_unit_id,
+                    PaperUnitModel.subject_id == subject_id,
+                    PaperUnitModel.status == "archived",
+                )
+                .with_for_update()
+            )
+            if unit is None:
+                raise LookupError("已删除的试卷单元不存在")
+            job_count = int(
+                session.scalar(
+                    select(func.count(PaperJobModel.id)).where(
+                        PaperJobModel.paper_unit_id == paper_unit_id
+                    )
+                )
+                or 0
+            )
+            if job_count:
+                raise ValueError("试卷单元存在历史作答或评分记录，不能恢复并替换资料")
+            self._require_documents_available(session, paper_unit_id, documents)
+            session.execute(
+                delete(PaperUnitDocumentModel).where(
+                    PaperUnitDocumentModel.paper_unit_id == paper_unit_id
+                )
+            )
+            now = utcnow()
+            session.add_all(
+                PaperUnitDocumentModel(
+                    paper_unit_id=paper_unit_id,
+                    document_id=document["document_id"],
+                    role=document["role"],
+                    created_at=now,
+                )
+                for document in documents
+            )
+            unit.display_name = display_name
+            unit.status = "active"
+            unit.updated_at = now
+        restored = self.get(paper_unit_id, subject_id=subject_id)
+        if restored is None:
+            raise RuntimeError("试卷单元恢复失败")
+        return restored
+
+    def restore_archived(self, paper_unit_id: str, *, subject_id: str) -> dict[str, Any]:
+        with self.sessions.begin() as session:
+            unit = session.scalar(
+                select(PaperUnitModel)
+                .where(
+                    PaperUnitModel.id == paper_unit_id,
+                    PaperUnitModel.subject_id == subject_id,
+                    PaperUnitModel.status == "archived",
+                )
+                .with_for_update()
+            )
+            if unit is None:
+                raise LookupError("回收站中的试卷不存在")
+            unit.status = "active"
+            unit.updated_at = utcnow()
+        restored = self.get(paper_unit_id, subject_id=subject_id)
+        if restored is None:
+            raise RuntimeError("试卷恢复失败")
+        return restored
+
+    def permanently_delete(self, paper_unit_id: str, *, subject_id: str) -> None:
+        """Delete an archived paper and all workflow lineage in one transaction."""
+
+        with self.sessions.begin() as session:
+            unit = session.scalar(
+                select(PaperUnitModel)
+                .where(
+                    PaperUnitModel.id == paper_unit_id,
+                    PaperUnitModel.subject_id == subject_id,
+                    PaperUnitModel.status == "archived",
+                )
+                .with_for_update()
+            )
+            if unit is None:
+                raise LookupError("回收站中的试卷不存在")
+            document_ids = tuple(
+                session.scalars(
+                    select(PaperUnitDocumentModel.document_id).where(
+                        PaperUnitDocumentModel.paper_unit_id == paper_unit_id
+                    )
+                )
+            )
+            jobs = list(
+                session.scalars(
+                    select(PaperJobModel)
+                    .where(PaperJobModel.paper_unit_id == paper_unit_id)
+                    .order_by(PaperJobModel.id)
+                    .with_for_update()
+                )
+            )
+            now = datetime.now(UTC)
+            if any(
+                job.lease_token is not None
+                and (job.lease_expires_at is None or job.lease_expires_at > now)
+                for job in jobs
+            ):
+                raise ValueError("试卷仍有任务正在处理，暂时不能永久删除")
+            job_ids = tuple(str(job.id) for job in jobs)
+            if job_ids:
+                external_replacement = session.scalar(
+                    select(func.count(PaperJobModel.id)).where(
+                        PaperJobModel.replacement_for_job_id.in_(job_ids),
+                        PaperJobModel.id.not_in(job_ids),
+                    )
+                )
+                if external_replacement:
+                    raise ValueError("试卷存在跨单元替代审计关系，不能永久删除")
+                assessment_ids = select(AssessmentModel.id).where(
+                    AssessmentModel.paper_job_id.in_(job_ids)
+                )
+                session.execute(
+                    delete(ReviewModel).where(ReviewModel.assessment_id.in_(assessment_ids))
+                )
+                session.execute(
+                    delete(AssessmentModel).where(AssessmentModel.paper_job_id.in_(job_ids))
+                )
+                session.execute(
+                    update(StoredObjectModel)
+                    .where(
+                        StoredObjectModel.owner_type == "paper_job",
+                        StoredObjectModel.owner_id.in_(job_ids),
+                        StoredObjectModel.state == "active",
+                    )
+                    .values(retain_until=now, updated_at=now)
+                )
+                for job in jobs:
+                    job.replacement_for_job_id = None
+                session.flush()
+                for job in jobs:
+                    session.delete(job)
+                session.flush()
+            session.delete(unit)
+            session.flush()
+            if document_ids:
+                session.execute(
+                    update(SourceDocumentModel)
+                    .where(SourceDocumentModel.id.in_(document_ids))
+                    .values(status="deleted", updated_at=now)
+                )
+                session.execute(
+                    update(SourceDocumentLocationModel)
+                    .where(SourceDocumentLocationModel.document_id.in_(document_ids))
+                    .values(present=False, last_seen_at=now)
+                )
+                session.execute(
+                    update(StoredObjectModel)
+                    .where(
+                        StoredObjectModel.owner_type == "source_document",
+                        StoredObjectModel.owner_id.in_(document_ids),
+                        StoredObjectModel.state == "active",
+                    )
+                    .values(retain_until=now, updated_at=now)
+                )
+
     def archive(self, paper_unit_id: str, *, subject_id: str) -> None:
         with self.sessions.begin() as session:
             unit = session.scalar(
@@ -310,16 +497,6 @@ class PaperUnitRepository:
             )
             if unit is None:
                 raise LookupError("试卷单元不存在")
-            job_count = int(
-                session.scalar(
-                    select(func.count(PaperJobModel.id)).where(
-                        PaperJobModel.paper_unit_id == paper_unit_id
-                    )
-                )
-                or 0
-            )
-            if job_count:
-                raise ValueError("试卷单元已有作答或评分记录，不能归档")
             unit.status = "archived"
             unit.updated_at = utcnow()
 

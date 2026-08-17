@@ -335,9 +335,12 @@ def test_vision_review_accepts_empty_multi_page_discardable_chunk(tmp_path: Path
         _classified_page(2, "", role="administrative"),
     ]
     calls = 0
+    prompts: list[str] = []
 
-    def handler(_request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx.Request) -> httpx.Response:
         nonlocal calls
+        request_body = json.loads(request.content)
+        prompts.append(request_body["messages"][0]["content"][0]["text"])
         page = responses[calls]
         calls += 1
         content = json.dumps({"pages": [page], "repairs": [], "confidence": 0.99})
@@ -366,6 +369,10 @@ def test_vision_review_accepts_empty_multi_page_discardable_chunk(tmp_path: Path
         "answer_space",
         "administrative",
     ]
+    assert "Additional answer page." in prompts[0]
+    assert "Copyright information." not in prompts[0]
+    assert "Copyright information." in prompts[1]
+    assert "Additional answer page." not in prompts[1]
 
 
 @pytest.mark.parametrize(
@@ -417,7 +424,7 @@ def test_vision_review_rejects_empty_multi_page_chunk_without_safe_classificatio
         )
 
 
-def test_vision_review_preserves_source_when_model_discards_question_page_image(
+def test_vision_review_preserves_source_without_retry_when_model_discards_question_page_image(
     tmp_path: Path,
 ) -> None:
     source = tmp_path / "paper.pdf"
@@ -458,7 +465,7 @@ def test_vision_review_preserves_source_when_model_discards_question_page_image(
             1,
         )
 
-    assert calls == 2
+    assert calls == 1
     assert result.markdown.endswith(markdown)
     assert image_url in result.markdown
     assert result.confidence == settings.paper_vision_min_confidence

@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
@@ -50,7 +52,9 @@ from examtwin.platform.providers import build_llm
 from examtwin.platform.structured_model import LiteLLMStructuredModel
 from examtwin.subjects.public import SubjectContext
 
-SPLIT_CONTRACT_VERSION = "paper-question-split-v7"
+logger = logging.getLogger(__name__)
+
+SPLIT_CONTRACT_VERSION = "paper-question-split-v12"
 
 PAGE_SECTION = re.compile(
     r"(?=<!--\s*(?:pages?\s+\d+|examtwin:physical-page=\d+))",
@@ -65,6 +69,15 @@ _PROOF_DIRECTIVE = re.compile(
     r"\b(?:show\s+that|prove(?:\s+that)?|demonstrate\s+that|verify\s+that)\b",
     re.IGNORECASE,
 )
+_QUESTION_ALIAS_TEXT = re.compile(r"[^a-z0-9]+")
+_MARK_ANNOTATION = re.compile(
+    r"(?:(?:\*\*|__)\s*)?\[\s*\d+\s*marks?\s*\](?:\s*(?:\*\*|__))?",
+    re.IGNORECASE,
+)
+_QUESTION_NUMBER_ALIAS_MIN_CHARS = 120
+_QUESTION_NUMBER_ALIAS_MIN_SIMILARITY = 0.96
+_QUESTION_NUMBER_PARTIAL_MIN_CHARS = 500
+_QUESTION_NUMBER_PARTIAL_MIN_SIMILARITY = 0.84
 
 SplitCheckpointLoader = Callable[[int, str], list[dict[str, Any]] | None]
 SplitCheckpointSaver = Callable[[int, int, str, list[dict[str, Any]], float], None]
@@ -144,6 +157,9 @@ def _question_number_identity(number: str) -> tuple[str, str | None, bool]:
 
 def _normalized_subpart_label(label: object) -> str:
     normalized = re.sub(r"\s+", "", str(label)).lower()
+    wrapped_decimal = re.fullmatch(r"\(0*\d+\.(\d+)\)", normalized)
+    if wrapped_decimal:
+        return f".{int(wrapped_decimal.group(1))}"
     return re.sub(r"^\d+(?=[.(])", "", normalized)
 
 
@@ -194,6 +210,20 @@ def _merge_compatible_source_text(current: str, candidate: str, *, field: str) -
     normalized_candidate = re.sub(r"\s+", " ", candidate).strip()
     if normalized_current == normalized_candidate:
         return current
+    annotation_free_current = re.sub(
+        r"\s+",
+        " ",
+        _MARK_ANNOTATION.sub("", current),
+    ).strip()
+    annotation_free_candidate = re.sub(
+        r"\s+",
+        " ",
+        _MARK_ANNOTATION.sub("", candidate),
+    ).strip()
+    if annotation_free_current == annotation_free_candidate:
+        current_annotations = len(_MARK_ANNOTATION.findall(current))
+        candidate_annotations = len(_MARK_ANNOTATION.findall(candidate))
+        return candidate if candidate_annotations > current_annotations else current
     if normalized_candidate.startswith(normalized_current):
         return candidate
     if normalized_current.startswith(normalized_candidate):
@@ -240,15 +270,254 @@ def _drop_structurally_dominated_candidates(
     candidates: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     requirement_maps = [_requirement_map(item) for item in candidates]
+
+    def text_is_contained(index: int, other_index: int) -> bool:
+        item = candidates[index]
+        other = candidates[other_index]
+        text = _QUESTION_ALIAS_TEXT.sub(
+            "",
+            _MARK_ANNOTATION.sub("", str(item.get("question_markdown", ""))).lower(),
+        )
+        other_text = _QUESTION_ALIAS_TEXT.sub(
+            "",
+            _MARK_ANNOTATION.sub("", str(other.get("question_markdown", ""))).lower(),
+        )
+        if len(text) < 60 or text == other_text or text not in other_text:
+            return False
+
+        item_pages = {int(page) for page in item.get("source_pages") or []}
+        other_pages = {int(page) for page in other.get("source_pages") or []}
+        if item_pages and other_pages and not item_pages <= other_pages:
+            return False
+        item_marks = item.get("total_marks")
+        other_marks = other.get("total_marks")
+        if (
+            isinstance(item_marks, int)
+            and not isinstance(item_marks, bool)
+            and isinstance(other_marks, int)
+            and not isinstance(other_marks, bool)
+            and item_marks > other_marks
+        ):
+            return False
+
+        requirements = requirement_maps[index]
+        other_requirements = requirement_maps[other_index]
+        common_labels = requirements.keys() & other_requirements.keys()
+        if common_labels and not _requirements_compatible(
+            {label: requirements[label] for label in common_labels},
+            {label: other_requirements[label] for label in common_labels},
+        ):
+            return False
+        return True
+
     retained: list[dict[str, Any]] = []
     for index, item in enumerate(candidates):
         requirements = requirement_maps[index]
-        dominated = bool(requirements) and any(
-            requirements.keys() < other.keys() and _requirements_compatible(requirements, other)
+        dominated = any(
+            (
+                bool(requirements)
+                and requirements.keys() < other.keys()
+                and _requirements_compatible(requirements, other)
+            )
+            or text_is_contained(index, other_index)
             for other_index, other in enumerate(requirement_maps)
             if other_index != index
         )
         if not dominated:
+            retained.append(item)
+    return retained
+
+
+def _align_primary_question_numbers_from_recovery(
+    items: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Correct a truncated primary number only when recovery gives unique strong proof.
+
+    Visual review remains authoritative for wording. The PDF text layer may only supply a
+    different top-level number when a near-identical, equal-mark recovery candidate exists;
+    ambiguous or short matches are left unchanged for the normal fail-closed repair path.
+    """
+
+    aligned = [dict(item) for item in items]
+    primary_texts_by_number: dict[str, list[str]] = {}
+    all_numbers: set[str] = set()
+    for item in aligned:
+        _compact, canonical, is_top_level = _question_number_identity(
+            str(item.get("number", "?")).strip()
+        )
+        if not canonical or not is_top_level:
+            continue
+        all_numbers.add(canonical)
+        if item.get("_split_source", "primary") != "recovery":
+            primary_texts_by_number.setdefault(canonical, []).append(
+                _QUESTION_ALIAS_TEXT.sub(
+                    "",
+                    str(item.get("question_markdown", "")).lower(),
+                )
+            )
+
+    def neighbor_score(number: str) -> int:
+        if not number.isdigit():
+            return 0
+        value = int(number)
+        return int(str(value - 1) in all_numbers) + int(str(value + 1) in all_numbers)
+
+    recovery: list[tuple[dict[str, Any], str, str]] = []
+    for item in aligned:
+        if item.get("_split_source") != "recovery":
+            continue
+        _compact, canonical, is_top_level = _question_number_identity(
+            str(item.get("number", "?")).strip()
+        )
+        text = _QUESTION_ALIAS_TEXT.sub(
+            "",
+            str(item.get("question_markdown", "")).lower(),
+        )
+        if canonical and is_top_level and len(text) >= _QUESTION_NUMBER_ALIAS_MIN_CHARS:
+            recovery.append((item, canonical, text))
+
+    for index, item in enumerate(aligned):
+        if item.get("_split_source", "primary") == "recovery":
+            continue
+        _compact, canonical, is_top_level = _question_number_identity(
+            str(item.get("number", "?")).strip()
+        )
+        primary_text = _QUESTION_ALIAS_TEXT.sub(
+            "",
+            str(item.get("question_markdown", "")).lower(),
+        )
+        if (
+            not canonical
+            or not is_top_level
+            or len(primary_text) < _QUESTION_NUMBER_ALIAS_MIN_CHARS
+        ):
+            continue
+
+        primary_marks = item.get("total_marks")
+        matches: list[tuple[float, dict[str, Any], str]] = []
+        for recovery_item, recovery_number, recovery_text in recovery:
+            if recovery_number == canonical:
+                continue
+            recovery_marks = recovery_item.get("total_marks")
+            marks_match = not (
+                isinstance(primary_marks, int)
+                and not isinstance(primary_marks, bool)
+                and isinstance(recovery_marks, int)
+                and not isinstance(recovery_marks, bool)
+                and primary_marks != recovery_marks
+            )
+            similarity = SequenceMatcher(None, primary_text, recovery_text).ratio()
+            partial_overlap = (
+                min(len(primary_text), len(recovery_text)) >= _QUESTION_NUMBER_PARTIAL_MIN_CHARS
+                and similarity >= _QUESTION_NUMBER_PARTIAL_MIN_SIMILARITY
+            )
+            if (
+                marks_match and similarity >= _QUESTION_NUMBER_ALIAS_MIN_SIMILARITY
+            ) or partial_overlap:
+                matches.append((similarity, recovery_item, recovery_number))
+
+        target_numbers = {number for _similarity, _candidate, number in matches}
+        if len(target_numbers) != 1:
+            continue
+        _similarity, witness, target_number = max(matches, key=lambda match: match[0])
+        same_number_texts = primary_texts_by_number.get(canonical, [])
+        has_distinct_collision = any(
+            other != primary_text and SequenceMatcher(None, primary_text, other).ratio() < 0.5
+            for other in same_number_texts
+        )
+        target_fills_collision_gap = (
+            has_distinct_collision and target_number not in primary_texts_by_number
+        )
+        target_has_stronger_sequence = neighbor_score(target_number) > neighbor_score(canonical)
+        if not target_fills_collision_gap and not target_has_stronger_sequence:
+            continue
+        corrected = dict(item)
+        corrected["number"] = str(witness.get("number") or target_number).strip()
+        aligned[index] = corrected
+    return aligned
+
+
+def _drop_covered_recovery_fragments(
+    items: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Discard lower-authority decimal subparts already present in a primary question.
+
+    PDF text recovery occasionally flattens ``12.1`` to ``121`` and emits it as a new
+    top-level question. Only discard such a candidate when the longest primary-number
+    prefix exists, the flattened number is not itself a primary question, and the
+    recovery wording is strongly covered by that primary question.
+    """
+
+    primary_by_number: dict[str, list[dict[str, Any]]] = {}
+    for item in items:
+        if item.get("_split_source", "primary") == "recovery":
+            continue
+        _compact, canonical, is_top_level = _question_number_identity(
+            str(item.get("number", "?")).strip()
+        )
+        if canonical and is_top_level:
+            primary_by_number.setdefault(canonical, []).append(item)
+
+    retained: list[dict[str, Any]] = []
+    for item in items:
+        if item.get("_split_source") != "recovery":
+            retained.append(item)
+            continue
+        compact, canonical, is_top_level = _question_number_identity(
+            str(item.get("number", "?")).strip()
+        )
+        if not canonical or not is_top_level or canonical in primary_by_number:
+            retained.append(item)
+            continue
+        prefix = max(
+            (
+                number
+                for number in primary_by_number
+                if compact.startswith(number)
+                and len(compact) == len(number) + 1
+                and compact[-1] != "0"
+            ),
+            key=len,
+            default="",
+        )
+        if not prefix:
+            retained.append(item)
+            continue
+
+        recovery_text = _QUESTION_ALIAS_TEXT.sub(
+            "",
+            _MARK_ANNOTATION.sub("", str(item.get("question_markdown", ""))).lower(),
+        )
+        recovery_marks = item.get("total_marks")
+        covered = False
+        if len(recovery_text) >= 120:
+            for primary in primary_by_number[prefix]:
+                primary_marks = primary.get("total_marks")
+                if (
+                    isinstance(recovery_marks, int)
+                    and not isinstance(recovery_marks, bool)
+                    and isinstance(primary_marks, int)
+                    and not isinstance(primary_marks, bool)
+                    and recovery_marks > primary_marks
+                ):
+                    continue
+                primary_text = _QUESTION_ALIAS_TEXT.sub(
+                    "",
+                    _MARK_ANNOTATION.sub("", str(primary.get("question_markdown", ""))).lower(),
+                )
+                matched = sum(
+                    block.size
+                    for block in SequenceMatcher(
+                        None,
+                        recovery_text,
+                        primary_text,
+                        autojunk=False,
+                    ).get_matching_blocks()
+                )
+                if matched / len(recovery_text) >= 0.9:
+                    covered = True
+                    break
+        if not covered:
             retained.append(item)
     return retained
 
@@ -555,12 +824,17 @@ class PaperAnswerService:
         self.structured_model = structured_model
 
     def _load_catalog(self, unit_code: str | None) -> list[dict[str, Any]]:
+        del unit_code
         if self.knowledge_repository is None:
             raise RuntimeError("Knowledge repository is required to load the question catalog")
+        # A paper unit is not a safe knowledge boundary: synoptic papers can
+        # legitimately cite objectives taught in earlier units.  Keep the
+        # subject boundary here and let answer-used evidence decide which
+        # knowledge cards are exposed.
         points = list_knowledge_points(
             self.knowledge_repository,
             subject_code=self.subject.subject_code,
-            unit_code=unit_code,
+            unit_code=None,
         )
         detailed = [
             point for point in points if point["features"].get("node_type") == "learning_objective"
@@ -652,21 +926,41 @@ Return only:
 Paper Markdown:
 {batch}
 """.strip()
-            payload = parse_json_response(
-                build_llm(
-                    self.settings,
-                    model=self.settings.paper_split_model,
-                    timeout=self.settings.paper_split_timeout,
-                    max_retries=1,
-                    reasoning_effort=self.settings.paper_split_reasoning_effort,
-                )
-                .complete(prompt)
-                .text
+            llm = build_llm(
+                self.settings,
+                model=self.settings.paper_split_model,
+                timeout=self.settings.paper_split_timeout,
+                max_retries=1,
+                reasoning_effort=self.settings.paper_split_reasoning_effort,
             )
-            questions = payload.get("questions")
-            if not isinstance(questions, list):
-                raise ValueError("模型没有返回可用的试卷题目列表")
-            return [item for item in questions if isinstance(item, dict)]
+            last_error: Exception | None = None
+            for attempt in range(1, self.settings.paper_split_max_attempts + 1):
+                retry_instruction = (
+                    ""
+                    if attempt == 1
+                    else "\n\nYour previous response was not valid JSON. Return the complete JSON "
+                    "object again, with every key followed by a colon and every string escaped."
+                )
+                try:
+                    payload = parse_json_response(llm.complete(prompt + retry_instruction).text)
+                    questions = payload.get("questions")
+                    if not isinstance(questions, list):
+                        raise ValueError("模型没有返回可用的试卷题目列表")
+                    return [item for item in questions if isinstance(item, dict)]
+                except (TypeError, ValueError, json.JSONDecodeError) as error:
+                    last_error = error
+                    if attempt < self.settings.paper_split_max_attempts:
+                        logger.warning(
+                            "paper split response rejected; retrying",
+                            extra={
+                                "event": "paper_split_response_retry",
+                                "attempt": attempt,
+                                "max_attempts": self.settings.paper_split_max_attempts,
+                                "error_type": type(error).__name__,
+                            },
+                        )
+            assert last_error is not None
+            raise last_error
 
         source_documents: list[tuple[str, str, str]] = [
             (
@@ -853,15 +1147,7 @@ Paper Markdown:
             raise ValueError(f"第 {number} 题原题页图不是可信的 QuestionImage")
         question_images = tuple(raw_images)
         question_spec = question_spec_from_item(item)
-        raw_codes = item.get("knowledge_codes", [])
-        input_codes = [str(code) for code in raw_codes] if isinstance(raw_codes, list) else []
         catalog_by_code = {point["code"]: point for point in catalog}
-        input_codes = [code for code in input_codes if code in catalog_by_code]
-        knowledge_context = "\n".join(
-            f"- {code}: {catalog_by_code[code]['title']} "
-            f"{catalog_by_code[code]['features'].get('description', '')}"
-            for code in input_codes
-        )
         request_parts = [
             (
                 "Solve the following examination question completely. Show all necessary "
@@ -870,8 +1156,6 @@ Paper Markdown:
             ),
             question,
         ]
-        if knowledge_context:
-            request_parts.insert(1, f"Relevant knowledge:\n{knowledge_context}")
         source_types: list[str] = []
         rag_options: dict[str, Any] = {
             "question_images": question_images,
@@ -986,37 +1270,69 @@ Paper Markdown:
             )
         else:
             source_excerpt = source_markdown
+        system_prompt = (
+            "Repair only the grouping and physical order of extracted examination-question "
+            "candidates. Return one group per top-level question in trusted source order. "
+            "Group duplicate candidates and subquestion fragments under their top-level "
+            "question. Use every candidate_index exactly once. Keep each group's number "
+            "within the number family present in that group's candidates. For every group, "
+            "set preferred_candidate_index to the candidate whose wording and subpart/mark "
+            "structure best match the trusted source. Prefer primary over recovery. The "
+            "preferred index must belong to that group's candidate_indexes. Do not solve, "
+            "rewrite, discard, or add questions, and do not infer source page numbers."
+        )
+        request_payload = {
+            "unresolved_numbers": unresolved_numbers,
+            "trusted_source_excerpt": source_excerpt,
+            "candidates": candidates,
+        }
         task = StructuredTask(
-            system_prompt=(
-                "Repair only the grouping and physical order of extracted examination-question "
-                "candidates. Return one group per top-level question in trusted source order. "
-                "Group duplicate candidates and subquestion fragments under their top-level "
-                "question. Use every candidate_index exactly once. Keep each group's number "
-                "within the number family present in that group's candidates. For every group, "
-                "set preferred_candidate_index to the candidate whose wording and subpart/mark "
-                "structure best match the trusted source. Prefer primary over recovery. The "
-                "preferred index must belong to that group's candidate_indexes. Do not solve, "
-                "rewrite, discard, or add questions, and do not infer source page numbers."
-            ),
-            user_content=json.dumps(
-                {
-                    "unresolved_numbers": unresolved_numbers,
-                    "trusted_source_excerpt": source_excerpt,
-                    "candidates": candidates,
-                },
-                ensure_ascii=False,
-            ),
+            system_prompt=system_prompt,
+            user_content=json.dumps(request_payload, ensure_ascii=False),
         )
         model = self.structured_model
         if model is None:
             model = _build_question_repair_model(self.settings)
             self.structured_model = model
-        plan = StructuredTaskRunner(model).run(
+        runner = StructuredTaskRunner(model)
+        plan = runner.run(
             task,
             _QuestionRepairPlan,
             timeout=self.settings.paper_split_timeout,
         )
-        repaired = _apply_question_repair_plan(items, plan)
+        try:
+            repaired = _apply_question_repair_plan(items, plan)
+        except ValueError as first_error:
+            indexes = [index for group in plan.groups for index in group.candidate_indexes]
+            expected_indexes = list(range(len(items)))
+            missing_indexes = sorted(set(expected_indexes) - set(indexes))
+            duplicate_indexes = sorted(index for index in set(indexes) if indexes.count(index) > 1)
+            invalid_indexes = sorted(set(indexes) - set(expected_indexes))
+            correction = StructuredTask(
+                system_prompt=system_prompt,
+                user_content=json.dumps(
+                    {
+                        **request_payload,
+                        "previous_invalid_plan": plan.model_dump(mode="json"),
+                        "deterministic_validation_error": str(first_error),
+                        "required_candidate_indexes": expected_indexes,
+                        "missing_candidate_indexes": missing_indexes,
+                        "duplicate_candidate_indexes": duplicate_indexes,
+                        "invalid_candidate_indexes": invalid_indexes,
+                        "correction_instruction": (
+                            "Return one corrected replacement plan. Fix the deterministic "
+                            "validation error without changing, dropping or inventing candidates."
+                        ),
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+            corrected_plan = runner.run(
+                correction,
+                _QuestionRepairPlan,
+                timeout=self.settings.paper_split_timeout,
+            )
+            repaired = _apply_question_repair_plan(items, corrected_plan)
         for item in repaired:
             spec = question_spec_from_item(item)
             item["answer_requirements"] = [part.model_dump(mode="json") for part in spec.subparts]
@@ -1038,12 +1354,16 @@ Paper Markdown:
         trusted_source = source_markdown or markdown
         repair_candidates: list[dict[str, Any]]
         if self.splitter is None:
-            extracted = self._split_with_llm(
-                markdown,
-                catalog,
-                primary_markdown=source_markdown,
-                load_checkpoint=load_checkpoint,
-                save_checkpoint=save_checkpoint,
+            extracted = _drop_covered_recovery_fragments(
+                _align_primary_question_numbers_from_recovery(
+                    self._split_with_llm(
+                        markdown,
+                        catalog,
+                        primary_markdown=source_markdown,
+                        load_checkpoint=load_checkpoint,
+                        save_checkpoint=save_checkpoint,
+                    )
+                )
             )
             repair_candidates = extracted
             try:

@@ -21,6 +21,7 @@ from examtwin.assessment.answering_agent.contracts import (
 from examtwin.assessment.answering_agent.finalization import (
     AgentFinalPayload,
     citation_ids_in_markdown,
+    compact_cited_evidence,
     validate_citation_contract,
 )
 from examtwin.assessment.answering_agent.llama_index_adapter import LlamaIndexChatModelAdapter
@@ -270,16 +271,22 @@ class AnsweringAgentRuntime:
                     context.images,
                 )
                 grounded = payload.grounded and bool(marker_ids)
+                cited_evidence = ()
                 if not context.citations:
                     answer_markdown = INSUFFICIENT_EVIDENCE
                     confidence = 0
                     grounded = False
                     warnings.append("No knowledge_search evidence was retrieved.")
+                else:
+                    answer_markdown, cited_evidence = compact_cited_evidence(
+                        answer_markdown,
+                        tuple(context.citations),
+                    )
                 context.emit("verifying", "completed", "答案与工具产物校验完成")
                 context.emit("finalizing", "completed", "本题 Agent 作答完成")
                 result = AnswerAgentResult(
                     answer_markdown=answer_markdown,
-                    citations=tuple(context.citations),
+                    citations=cited_evidence,
                     diagrams=tuple(context.diagrams),
                     images=tuple(context.images),
                     confidence=confidence,

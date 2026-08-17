@@ -1,4 +1,5 @@
 import {
+  BookOpenCheck,
   FileClock,
   Check,
   LoaderCircle,
@@ -63,6 +64,7 @@ export function PaperJobHistory({
   currentJobId,
   refreshKey,
   onOpen,
+  onGrade,
   onDeleted,
   onSubjectChange = () => undefined,
   paperUnitId,
@@ -73,6 +75,7 @@ export function PaperJobHistory({
   currentJobId: string | null;
   refreshKey: number;
   onOpen: (jobId: string, paperUnitId?: string | null) => void;
+  onGrade?: (jobId: string, paperUnitId?: string | null) => void;
   onDeleted: (jobId: string) => void;
   onSubjectChange?: (subjectId: string) => void;
   paperUnitId?: string;
@@ -504,6 +507,11 @@ export function PaperJobHistory({
                     <button className="secondary" onClick={() => onOpen(item.job_id, item.paper_unit_id)} type="button">
                       查看
                     </button>
+                    {onGrade && ["completed", "partial_failed"].includes(item.status) && (
+                      <button className="secondary" onClick={() => onGrade(item.job_id, item.paper_unit_id)} type="button">
+                        <BookOpenCheck size={14} />评分
+                      </button>
+                    )}
                     {item.replaced_by_job_id ? (
                       <button
                         className="secondary"

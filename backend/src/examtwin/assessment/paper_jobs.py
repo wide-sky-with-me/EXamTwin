@@ -13,6 +13,7 @@ from pydantic import ValidationError
 from examtwin.assessment.answering_agent.contracts import (
     required_answer_artifacts_are_present,
 )
+from examtwin.assessment.answering_agent.finalization import compact_cited_evidence
 from examtwin.assessment.paper_answering import SPLIT_CONTRACT_VERSION
 from examtwin.assessment.paper_job_repository import PaperJobRepository
 from examtwin.assessment.paper_parsing import (
@@ -34,7 +35,7 @@ from examtwin.contracts.papers import (
     PaperJobSummary,
     PaperQuestionAnswer,
 )
-from examtwin.knowledge.public import classify_source, parse_exam_identity
+from examtwin.knowledge.public import CorpusRepository, classify_source, parse_exam_identity
 from examtwin.platform.config import Settings
 from examtwin.platform.database.session import utcnow
 from examtwin.platform.model_json import repair_markdown_latex
@@ -78,11 +79,13 @@ class PaperJobService:
         *,
         repository: PaperJobRepository,
         files: PaperSourceStore | None = None,
+        documents: CorpusRepository | None = None,
     ):
         self.settings = settings
         self.subject = subject
         self.repository = repository
         self.files = files or PaperSourceStore(settings.object_store_root / "paper-jobs")
+        self.documents = documents
 
     def _require_job(self, job_id: str) -> dict[str, Any]:
         job = self.repository.get(job_id)
@@ -365,6 +368,8 @@ class PaperJobService:
         questions: list[PaperJobQuestion] = []
         for row in rows:
             answer: PaperQuestionAnswer | None = None
+            display_answer_markdown = ""
+            display_citations = []
             answer_error: str | None = None
             source_pages: list[int] = []
             requirements: dict[str, Any] = {}
@@ -387,6 +392,11 @@ class PaperJobService:
             if row["status"] == "completed" and row["answer_json"]:
                 try:
                     answer = PaperQuestionAnswer.model_validate_json(row["answer_json"])
+                    display_answer_markdown, compact_citations = compact_cited_evidence(
+                        answer.answer_markdown,
+                        answer.citations,
+                    )
+                    display_citations = list(compact_citations)
                 except (TypeError, ValueError, ValidationError):
                     answer_error = "保存的题目结果无法解析"
             questions.append(
@@ -407,12 +417,10 @@ class PaperJobService:
                     requires_visual_context=row["requires_visual_context"],
                     answer_requirements=requirements.get("subparts", []),
                     total_marks=requirements.get("total_marks"),
-                    answer_markdown=repair_markdown_latex(
-                        answer.answer_markdown if answer is not None else ""
-                    ),
+                    answer_markdown=repair_markdown_latex(display_answer_markdown),
                     diagrams=answer.diagrams if answer is not None else [],
                     images=answer.images if answer is not None else [],
-                    citations=answer.citations if answer is not None else [],
+                    citations=display_citations,
                     knowledge_points=answer.knowledge_points if answer is not None else [],
                     confidence=answer.confidence if answer is not None else 0,
                     grounded=answer.grounded if answer is not None else False,
@@ -503,12 +511,23 @@ class PaperJobService:
         existing = self.repository.replacement_id(job_id)
         if existing is not None:
             raise ValueError(f"该试卷已有替代任务：{existing}")
+        source_booklet: Mapping[str, Any] | None = None
+        source_booklet_id = str(job.get("source_booklet_document_id") or "")
+        if source_booklet_id:
+            if self.documents is None:
+                raise RuntimeError("替代任务缺少受管资料仓库")
+            source_booklet = self.documents.get_active(source_booklet_id)
+            if source_booklet is None:
+                raise ValueError("原任务配套的 Source Booklet 已删除或不可用")
         source_path, filename, _suffix = self.source_file(job_id)
         with source_path.open("rb") as source:
             replacement = self.create_job_from_stream(
                 filename,
                 source,
                 unit_code=job["unit_code"],
+                source_booklet=source_booklet,
+                paper_unit_id=job.get("paper_unit_id"),
+                question_paper_document_id=job.get("question_paper_document_id"),
             )
         self.repository.link_replacement(job_id, replacement.job_id)
         return replacement

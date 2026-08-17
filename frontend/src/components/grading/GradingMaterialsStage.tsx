@@ -54,6 +54,8 @@ export function GradingMaterialsStage({
   importStreamState = "idle",
   onReconnectImport = () => undefined,
   sourceBookletRequired = false,
+  allowExternalImport = true,
+  lockPaperSelection = false,
   onContinue,
 }: {
   papers: GradingPaper[];
@@ -86,6 +88,8 @@ export function GradingMaterialsStage({
   importStreamState?: TaskStreamState;
   onReconnectImport?: () => void;
   sourceBookletRequired?: boolean;
+  allowExternalImport?: boolean;
+  lockPaperSelection?: boolean;
   onContinue: () => Promise<void>;
 }) {
   const paperSelectRef = useRef<HTMLSelectElement>(null);
@@ -182,17 +186,17 @@ export function GradingMaterialsStage({
   return (
     <article
       aria-busy={contextLoading}
-      className="panel grading-stage grading-materials-stage"
+      className="grading-stage grading-materials-stage"
     >
       <header className="grading-stage-header">
         <div>
-          <h2>评分材料</h2>
+          <h2 id="grading-stage-1-heading" tabIndex={-1}>评分材料</h2>
         </div>
       </header>
-      <div className="segmented-control grading-source-mode" role="group" aria-label="答卷来源">
+      {allowExternalImport && <div className="segmented-control grading-source-mode" role="group" aria-label="答卷来源">
         <button aria-pressed={sourceMode === "system"} onClick={() => setSourceMode("system")} type="button">系统记录</button>
         <button aria-pressed={sourceMode === "upload"} onClick={() => setSourceMode("upload")} type="button">上传答卷</button>
-      </div>
+      </div>}
       {contextLoading && (
         <div
           aria-atomic="true"
@@ -207,7 +211,7 @@ export function GradingMaterialsStage({
         </div>
       )}
 
-      {sourceMode === "system" ? (
+      {sourceMode === "system" || !allowExternalImport ? (
       <div className="grading-source-cards">
         <section aria-busy={papersLoading} className="grading-source-card grading-contrast-boundary">
           <div className="grading-source-heading">
@@ -215,19 +219,19 @@ export function GradingMaterialsStage({
             <div>
               <strong>作答记录</strong>
             </div>
-            <button
+            {!lockPaperSelection && <button
               className="secondary grading-manage-materials"
               disabled={materialSelectionBusy || papersLoading}
               onClick={() => setPaperManagerOpen(true)}
               type="button"
             >
               <Settings2 aria-hidden="true" size={15} />管理答卷
-            </button>
+            </button>}
           </div>
           <select
             aria-label="选择作答记录"
             className="grading-control-boundary grading-material-select-trigger"
-            disabled={materialSelectionBusy || papersLoading || papersError !== null || papers.length === 0}
+            disabled={lockPaperSelection || materialSelectionBusy || papersLoading || papersError !== null || papers.length === 0}
             onChange={(event) => onChoosePaper(event.target.value)}
             ref={paperSelectRef}
             value={paperId}
@@ -398,7 +402,7 @@ export function GradingMaterialsStage({
           )}
         </section>
       )}
-      {sourceMode === "system" && discoveryError && (
+      {(sourceMode === "system" || !allowExternalImport) && discoveryError && (
         <div className="grading-discovery-retry">
           <button
             className="secondary grading-control-boundary"
@@ -424,7 +428,7 @@ export function GradingMaterialsStage({
       </div>
 
       <ErrorBanner message={error} />
-      {sourceMode === "system" && <footer className="grading-stage-actions">
+      {(sourceMode === "system" || !allowExternalImport) && <footer className="grading-stage-actions">
         <button
           className="primary grading-primary-action"
           disabled={

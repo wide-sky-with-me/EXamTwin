@@ -6,7 +6,7 @@ import re
 import threading
 import time
 from collections.abc import Sequence
-from typing import Annotated, Any, Protocol
+from typing import Annotated, Any, Protocol, TypeVar
 
 from litellm import acompletion
 from pydantic import (
@@ -25,6 +25,7 @@ from examtwin.platform.model_json import (
 )
 
 CitationId = Annotated[str, StringConstraints(pattern=r"^S[1-9][0-9]*$")]
+EvidenceT = TypeVar("EvidenceT")
 MAX_ANSWER_MARKDOWN_CHARS = 60_000
 AnswerMarkdown = Annotated[
     str,
@@ -180,6 +181,25 @@ def citation_ids_in_markdown(answer_markdown: str) -> list[str]:
     return list(
         dict.fromkeys(f"S{match.group(1)}" for match in _CITATION_MARKER.finditer(answer_markdown))
     )
+
+
+def compact_cited_evidence(
+    answer_markdown: str,
+    citations: Sequence[EvidenceT],
+) -> tuple[str, tuple[EvidenceT, ...]]:
+    """Keep only answer-used citations and make their public ids contiguous."""
+
+    marker_ids = citation_ids_in_markdown(answer_markdown)
+    old_indexes = [int(marker.removeprefix("S")) for marker in marker_ids]
+    if any(index < 1 or index > len(citations) for index in old_indexes):
+        raise ValueError("answer referenced citation identifiers that were not retrieved")
+    remap = {old_index: new_index for new_index, old_index in enumerate(old_indexes, start=1)}
+    selected = tuple(citations[old_index - 1] for old_index in old_indexes)
+    compacted = _CITATION_MARKER.sub(
+        lambda match: f"[S{remap[int(match.group(1))]}]",
+        answer_markdown,
+    )
+    return compacted, selected
 
 
 def validate_citation_contract(

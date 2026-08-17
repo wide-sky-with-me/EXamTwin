@@ -47,6 +47,19 @@ class PaperUnitService:
             offset=offset,
         )
 
+    def list_trash(
+        self,
+        *,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> tuple[list[dict[str, Any]], int, dict[str, list[Any]]]:
+        return self.units.list_for_subject(
+            self.subject.id,
+            limit=limit,
+            offset=offset,
+            status="archived",
+        )
+
     def get_unit(self, paper_unit_id: str) -> dict[str, Any]:
         unit = self.units.get(paper_unit_id, subject_id=self.subject.id)
         if unit is None:
@@ -61,8 +74,31 @@ class PaperUnitService:
     ) -> dict[str, Any]:
         documents, identity = self._validate_documents(document_ids)
         pair_key = str(identity["pair_key"])
-        if self.units.find_by_pair(subject_id=self.subject.id, pair_key=pair_key) is not None:
+        active = self.units.find_by_pair(subject_id=self.subject.id, pair_key=pair_key)
+        if active is not None:
+            requested_ids = {str(document["id"]) for document in documents}
+            active_ids = {str(document["id"]) for document in active["documents"]}
+            if requested_ids == active_ids:
+                return self.units.update(
+                    str(active["id"]),
+                    subject_id=self.subject.id,
+                    display_name=self._normalize_display_name(display_name),
+                    display_name_set=True,
+                    documents=None,
+                )
             raise ValueError("相同考试身份的试卷单元已存在，请在原单元中更新资料")
+        archived = self.units.find_by_pair(
+            subject_id=self.subject.id,
+            pair_key=pair_key,
+            status="archived",
+        )
+        if archived is not None:
+            return self.units.restore(
+                str(archived["id"]),
+                subject_id=self.subject.id,
+                display_name=self._normalize_display_name(display_name),
+                documents=self._bindings(documents),
+            )
         return self.units.create(
             subject_id=self.subject.id,
             subject_code=self.subject.subject_code,
@@ -100,6 +136,12 @@ class PaperUnitService:
 
     def archive_unit(self, paper_unit_id: str) -> None:
         self.units.archive(paper_unit_id, subject_id=self.subject.id)
+
+    def restore_unit(self, paper_unit_id: str) -> dict[str, Any]:
+        return self.units.restore_archived(paper_unit_id, subject_id=self.subject.id)
+
+    def permanently_delete_unit(self, paper_unit_id: str) -> None:
+        self.units.permanently_delete(paper_unit_id, subject_id=self.subject.id)
 
     def answer_sources(
         self,

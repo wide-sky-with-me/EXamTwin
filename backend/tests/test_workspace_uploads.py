@@ -65,6 +65,7 @@ class WorkspaceRecords:
         assert base_id == self.base["id"]
         self.version = {
             "id": "version-1",
+            "knowledge_base_id": "base-1",
             "alias_name": "kb-version-1",
             "status": "building",
             "vector_build_id": None,
@@ -686,6 +687,72 @@ def test_build_knowledge_base_marks_version_failed_when_conversion_fails(
     assert "broken document" in workspaces.failed_version[1]
 
 
+def test_resume_failed_knowledge_base_reuses_existing_vector_build(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    subject = subject_context(settings)
+    workspaces = WorkspaceRecords(subject.id)
+    workspaces.create_version("base-1")
+    assert workspaces.version is not None
+    workspaces.version["status"] = "failed"
+    vector_indexes = object()
+    knowledge = object()
+    index_call: dict[str, Any] = {}
+
+    def index_builder(*args: object, **kwargs: object) -> JobResult:
+        index_call["args"] = args
+        index_call["kwargs"] = kwargs
+        workspaces.version = {
+            **workspaces.version,
+            "status": "published",
+            "vector_build_id": "build-1",
+            "collection_name": "collection-1",
+        }
+        return JobResult(processed=2, succeeded=2, failed=0)
+
+    service = CorpusWorkspaceService(
+        settings,
+        subject,
+        workspaces=workspaces,
+        documents=cast(Any, None),
+        object_store=cast(Any, None),
+        ingestor=cast(Any, ConversionRunner(JobResult(processed=0, succeeded=0, failed=0))),
+        vector_indexes=cast(Any, vector_indexes),
+        knowledge=cast(Any, knowledge),
+        index_builder=index_builder,
+    )
+
+    result = service.resume_knowledge_base_version("version-1")
+
+    assert len(index_call["args"]) == 4
+    assert index_call["kwargs"] == {
+        "resume": True,
+        "knowledge_base_version_id": "version-1",
+        "source_document_ids": ["document-1"],
+    }
+    assert result.version["status"] == "published"
+    assert result.index_result.succeeded == 2
+
+
+def test_resume_knowledge_base_rejects_non_failed_version(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    subject = subject_context(settings)
+    workspaces = WorkspaceRecords(subject.id)
+    workspaces.create_version("base-1")
+    service = CorpusWorkspaceService(
+        settings,
+        subject,
+        workspaces=workspaces,
+        documents=cast(Any, None),
+        object_store=cast(Any, None),
+        ingestor=cast(Any, None),
+        vector_indexes=cast(Any, object()),
+        knowledge=cast(Any, object()),
+    )
+
+    with pytest.raises(ValueError, match="只有构建失败"):
+        service.resume_knowledge_base_version("version-1")
+
+
 def test_workspace_router_upload_returns_created_response() -> None:
     service = WorkspaceApiService()
 
@@ -761,16 +828,12 @@ def test_workspace_document_content_supports_inline_preview_and_download(
     app.dependency_overrides[get_subject_context] = lambda: subject
 
     with TestClient(app) as client:
-        preview = client.get(
-            f"/subject-workspaces/{subject.id}/documents/document-1/content"
-        )
+        preview = client.get(f"/subject-workspaces/{subject.id}/documents/document-1/content")
         download = client.get(
             f"/subject-workspaces/{subject.id}/documents/document-1/content?download=true"
         )
         row["subject_id"] = "another-workspace"
-        forbidden = client.get(
-            f"/subject-workspaces/{subject.id}/documents/document-1/content"
-        )
+        forbidden = client.get(f"/subject-workspaces/{subject.id}/documents/document-1/content")
 
     assert preview.status_code == 200
     assert preview.content == b"%PDF-1.4 original mark scheme"

@@ -2,10 +2,39 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Protocol
+
+from pydantic import ValidationError
+
+logger = logging.getLogger(__name__)
+MAX_TOOL_ERROR_DETAIL_CHARS = 1_200
+
+
+def safe_tool_error_observation(error: Exception) -> str:
+    """Return bounded repair guidance without echoing raw tool inputs."""
+
+    error_type = type(error).__name__
+    if isinstance(error, ValidationError):
+        detail = json.dumps(
+            error.errors(include_url=False, include_input=False),
+            ensure_ascii=False,
+            separators=(",", ":"),
+            default=str,
+        )
+    elif isinstance(error, (TypeError, ValueError)):
+        detail = " ".join(str(error).split())
+    else:
+        detail = ""
+    if not detail:
+        return f"Tool failed: {error_type}"
+    bounded = detail[:MAX_TOOL_ERROR_DETAIL_CHARS]
+    if len(detail) > MAX_TOOL_ERROR_DETAIL_CHARS:
+        bounded += "..."
+    return f"Tool failed: {error_type}: {bounded}"
 
 
 @dataclass(frozen=True)
@@ -177,8 +206,15 @@ class ToolExecutor:
         try:
             result = await tool.invoke(call.arguments)
         except Exception as error:
+            observation = safe_tool_error_observation(error)
+            logger.warning(
+                "answering_tool_failed tool_name=%s error_type=%s detail=%s",
+                call.tool_name,
+                type(error).__name__,
+                observation,
+            )
             result = ToolCallResult(
-                content=f"Tool failed: {type(error).__name__}",
+                content=observation,
                 is_error=True,
                 error_type=type(error).__name__,
             )

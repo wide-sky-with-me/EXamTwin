@@ -72,6 +72,7 @@ export function PaperAnswering({
   initialPaperUnitId,
   onBack,
   onOpenJob,
+  embedded = false,
 }: {
   enabled: boolean;
   subjects?: SubjectPack[];
@@ -81,6 +82,7 @@ export function PaperAnswering({
   initialPaperUnitId?: string;
   onBack?: (paperUnitId?: string) => void;
   onOpenJob?: (jobId: string, paperUnitId?: string | null) => void;
+  embedded?: boolean;
 }) {
   const subjects = useMemo(
     () => providedSubjects ?? (legacySubject ? [legacySubject] : []),
@@ -101,6 +103,7 @@ export function PaperAnswering({
   );
   const [job, setJob] = useState<PaperJobResult | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [questionExpanded, setQuestionExpanded] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [retrying, setRetrying] = useState(false);
@@ -182,6 +185,7 @@ export function PaperAnswering({
 
   useEffect(() => {
     setSourcePreviewOpen(false);
+    setQuestionExpanded(true);
   }, [jobId, selectedIndex]);
 
   useEffect(() => {
@@ -405,8 +409,8 @@ export function PaperAnswering({
   );
 
   return (
-    <section className="paper-page">
-      <header className="page-heading">
+    <section className={`paper-page${embedded ? " paper-page-embedded" : ""}`}>
+      {!embedded && <header className="page-heading">
         <div>
           <h1>{job ? (job.answer_mode === "uploaded" ? "外部答卷" : "AI 作答") : "作答记录"}</h1>
           {integratedWithPapers && !job && <p>统一查看归属于试卷的 AI 作答和外部答卷。</p>}
@@ -420,7 +424,7 @@ export function PaperAnswering({
             <Plus size={17} />新建作答
           </button>
         )}
-      </header>
+      </header>}
 
       {!job && (
         <PaperJobHistory
@@ -438,20 +442,22 @@ export function PaperAnswering({
       )}
 
       {job && (
-        <div className="selected-context-bar paper-current-context">
-          <div>
-            <span>
-              <b className={`paper-answer-origin ${job.answer_mode === "uploaded" ? "uploaded" : "generated"}`}>
-                {job.answer_mode === "uploaded" ? "外部答卷" : "AI 作答"}
-              </b>
-              {subject?.title ?? job.subject_code} · {PAPER_JOB_STAGE_LABELS[job.stage]}
-            </span>
-            <strong title={job.display_name || job.filename}>{job.display_name || job.filename}</strong>
-            {job.source_booklet_filename && <small>资料册 · {job.source_booklet_filename}</small>}
-          </div>
-          <button className="secondary" onClick={() => integratedWithPapers ? onBack?.(initialPaperUnitId) : resetPaper()} type="button">
-            <ArrowLeft size={15} />{initialPaperUnitId ? "返回试卷详情" : "返回作答记录"}
+        <div className="paper-current-context">
+          <button className="stage-back paper-current-back" onClick={() => integratedWithPapers ? onBack?.(initialPaperUnitId) : resetPaper()} type="button">
+            <ArrowLeft size={15} />{embedded ? "返回作答记录" : initialPaperUnitId ? "返回试卷详情" : "返回作答记录"}
           </button>
+          <div className="paper-current-meta">
+            <b className={`paper-answer-origin ${job.answer_mode === "uploaded" ? "uploaded" : "generated"}`}>
+              {job.answer_mode === "uploaded" ? "外部答卷" : "AI 作答"}
+            </b>
+            <span title={subject?.title ?? job.subject_code}>{subject?.title ?? job.subject_code}</span>
+            <i aria-hidden="true" />
+            <span>{PAPER_JOB_STAGE_LABELS[job.stage]}</span>
+            {!embedded && <strong title={job.display_name || job.filename}>{job.display_name || job.filename}</strong>}
+            {job.source_booklet_filename && (
+              <small title={job.source_booklet_filename}><BookOpen size={13} />资料册 · {job.source_booklet_filename}</small>
+            )}
+          </div>
         </div>
       )}
 
@@ -569,7 +575,7 @@ export function PaperAnswering({
         </div>
       )}
       {job && (
-        <article className={`panel paper-progress ${job.status}`}>
+        <article className={`paper-progress ${job.status}`}>
           <div>
             <span>{PAPER_JOB_STAGE_LABELS[job.stage]}</span>
             <strong>
@@ -668,21 +674,30 @@ export function PaperAnswering({
       )}
       {job && !failedBeforeQuestionDetection && (
         <>
-          <div className="paper-summary">
-            <strong>{job.total_questions}</strong><span>题目</span>
-            <strong>{job.completed_questions}</strong><span>已处理</span>
-            <strong className={job.failed_questions ? "failed" : ""}>{job.failed_questions}</strong><span>处理失败</span>
-            <em>{job.display_name || job.filename}</em>
-            {terminal && (
-              <button className="secondary" onClick={startAnotherPaper} type="button">
-                <UploadCloud size={15} />
-                {job.status === "failed" ? "上传另一份试卷" : "作答另一份试卷"}
-              </button>
-            )}
-          </div>
-          <div className="paper-workspace">
+          {job.questions.length === 0 && (
+            <div className={`paper-processing-empty${terminal ? " is-terminal" : ""}`} role="status">
+              <span className="paper-processing-empty-icon">
+                {terminal ? <FileText size={24} /> : <LoaderCircle className="spin" size={24} />}
+              </span>
+              <strong>{terminal ? "未识别到可作答题目" : "正在识别试卷题目"}</strong>
+              <p>{terminal ? "当前任务已经结束，但没有生成逐题结果。" : "完成后将自动展示逐题结果，你可以关闭弹窗继续处理其他工作。"}</p>
+            </div>
+          )}
+          {job.questions.length > 0 && <>
+            <div className="paper-summary">
+              <strong>{job.total_questions}</strong><span>题目</span>
+              <strong>{job.completed_questions}</strong><span>已处理</span>
+              <strong className={job.failed_questions ? "failed" : ""}>{job.failed_questions}</strong><span>处理失败</span>
+              <em title={job.display_name || job.filename}>{job.display_name || job.filename}</em>
+              {terminal && (
+                <button className="secondary" onClick={startAnotherPaper} type="button">
+                  <UploadCloud size={15} />
+                  {job.status === "failed" ? "上传另一份试卷" : "作答另一份试卷"}
+                </button>
+              )}
+            </div>
+            <div className="paper-workspace">
             <div className="question-nav">
-              {job.questions.length === 0 && <p className="question-waiting">解析完成后将在这里逐题出现。</p>}
               {job.questions.map((item, index) => {
                 const latestStep = item.agent_steps[item.agent_steps.length - 1];
                 return (
@@ -704,8 +719,7 @@ export function PaperAnswering({
                 );
               })}
             </div>
-            <article className="panel paper-answer">
-              {!selected && <div className="empty"><LoaderCircle className={terminal ? "" : "spin"} size={30} /><p>等待题目识别结果</p></div>}
+            <article className="paper-answer">
               {selected && (
                 <>
                   <div className="result-meta">
@@ -742,23 +756,38 @@ export function PaperAnswering({
                         <span>原题</span>
                         <h2 id="current-question-title">Question {selected.number}</h2>
                       </div>
-                      {selected.total_marks != null && <small>{selected.total_marks} marks</small>}
+                      <div className="question-block-actions">
+                        {selected.total_marks != null && <small>{selected.total_marks} marks</small>}
+                        <button
+                          aria-expanded={questionExpanded}
+                          className="question-collapse-button"
+                          onClick={() => setQuestionExpanded((expanded) => !expanded)}
+                          type="button"
+                        >
+                          {questionExpanded ? "收起题目" : "展开题目"}
+                          <ChevronDown aria-hidden="true" className={questionExpanded ? "expanded" : ""} size={15} />
+                        </button>
+                      </div>
                     </div>
-                    {selected.answer_requirements.length > 0 && (
-                      <div className="answer-requirements" aria-label="答案交付要求">
-                        {selected.answer_requirements.map((requirement, index) => (
-                          <span key={`${requirement.label}-${index}`}>
-                            <b>{requirement.label}</b>
-                            {requirement.marks != null ? `${requirement.marks}分` : ""}
-                            {requirement.accuracy ? ` · ${requirement.accuracy}` : ""}
-                            {requirement.required_tool ? " · 需图形产物" : ""}
-                          </span>
-                        ))}
+                    {questionExpanded && (
+                      <div className="question-block-content">
+                        {selected.answer_requirements.length > 0 && (
+                          <div className="answer-requirements" aria-label="答案交付要求">
+                            {selected.answer_requirements.map((requirement, index) => (
+                              <span key={`${requirement.label}-${index}`}>
+                                <b>{requirement.label}</b>
+                                {requirement.marks != null ? `${requirement.marks}分` : ""}
+                                {requirement.accuracy ? ` · ${requirement.accuracy}` : ""}
+                                {requirement.required_tool ? " · 需图形产物" : ""}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        <div className="question-copy">
+                          <QuestionMarkdown subjectId={subjectId}>{selected.question_markdown}</QuestionMarkdown>
+                        </div>
                       </div>
                     )}
-                    <div className="question-copy">
-                      <QuestionMarkdown subjectId={subjectId}>{selected.question_markdown}</QuestionMarkdown>
-                    </div>
                   </section>
                   {selected.source_warnings.length > 0 && (
                     <div className="question-source-warnings">
@@ -898,6 +927,7 @@ export function PaperAnswering({
               )}
             </article>
           </div>
+          </>}
         </>
       )}
     </section>

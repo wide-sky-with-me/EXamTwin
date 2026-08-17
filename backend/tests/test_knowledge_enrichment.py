@@ -5,6 +5,7 @@ from examtwin.knowledge.publication import extract_syllabus_objectives
 from examtwin.knowledge.queries import (
     build_retrieval_cards,
     list_knowledge_points,
+    match_knowledge_points,
 )
 from examtwin.platform.database.models import (
     Base,
@@ -202,6 +203,24 @@ def make_knowledge_repository() -> KnowledgeRepository:
             ),
             "updated_at": now,
         },
+        {
+            "id": "9660:P1.1.O01",
+            "code": "P1.1.O01",
+            "title": "Prior-unit objective",
+            "unit_code": "P1",
+            "strand": "Pure",
+            "parent_id": "9660:ROOT",
+            "difficulty_score": 0.5,
+            "difficulty_label": "medium",
+            "difficulty_confidence": 0.3,
+            "evidence_level": "D",
+            "source_ref": "spec.pdf#page=10",
+            "features_json": (
+                '{"node_type":"learning_objective",'
+                '"description":"Knowledge assessed synoptically in a later paper."}'
+            ),
+            "updated_at": now,
+        },
     ]
     with sessions.begin() as session:
         session.add(
@@ -296,5 +315,142 @@ def test_retrieval_cards_group_evidence_under_real_learning_objective() -> None:
 
     assert [card["code"] for card in cards] == ["P2.7.O01"]
     roles = [reference["evidence_role"] for reference in cards[0]["references"]]
-    assert roles == ["definition", "assessment", "worked_example"]
-    assert cards[0]["references"][2]["content_url"].startswith("/sources/book-1/context?query=")
+    assert roles == ["definition", "assessment"]
+
+
+def test_retrieval_cards_do_not_publish_lexical_only_catalog_matches() -> None:
+    repository = make_knowledge_repository()
+
+    cards = build_retrieval_cards(
+        repository,
+        "Explain integration by parts.",
+        [],
+        subject_code="9660",
+        unit_code="P2",
+        limit=3,
+    )
+
+    assert cards == []
+
+
+def test_retrieval_cards_resolve_explicit_cross_unit_evidence_link() -> None:
+    repository = make_knowledge_repository()
+
+    cards = build_retrieval_cards(
+        repository,
+        "Apply prior-unit knowledge in this synoptic question.",
+        [
+            {
+                "excerpt": "Knowledge assessed synoptically in a later paper.",
+                "score": 0.94,
+                "metadata": {
+                    "document_id": "book-1",
+                    "source": "book.md",
+                    "source_type": "textbook",
+                    "authority_tier": "licensed_core",
+                    "knowledge_codes": ["P1.1.O01"],
+                },
+            }
+        ],
+        subject_code="9660",
+        unit_code="P2",
+        limit=3,
+    )
+
+    assert [card["code"] for card in cards] == ["P1.1.O01"]
+
+
+def test_direct_catalog_scores_favor_question_match_without_exceeding_one() -> None:
+    repository = make_knowledge_repository()
+
+    cards = build_retrieval_cards(
+        repository,
+        "Explain integration by parts as the reverse of the product rule.",
+        [
+            {
+                "excerpt": "Prior-unit objective",
+                "score": 0.99,
+                "metadata": {
+                    "node_kind": "evidence_chunk",
+                    "knowledge_code": "P1.1.O01",
+                    "knowledge_codes": ["P1.1.O01"],
+                    "knowledge_match_confidence": {"P1.1.O01": 0.3},
+                },
+            },
+            {
+                "excerpt": "Integration by parts",
+                # Sparse Qdrant scores are not normalized and may exceed one.
+                "score": 2.5,
+                "metadata": {
+                    "node_kind": "knowledge_point",
+                    "knowledge_code": "P2.7.O01",
+                    "knowledge_codes": ["P2.7.O01"],
+                    "catalog_sparse_rank": 1,
+                },
+            },
+        ],
+        subject_code="9660",
+        unit_code="P2",
+        limit=2,
+    )
+
+    assert [card["code"] for card in cards] == ["P2.7.O01", "P1.1.O01"]
+    assert all(0 <= card["retrieval_score"] <= 1 for card in cards)
+
+
+def test_direct_catalog_question_match_outweighs_incidental_sparse_rank() -> None:
+    repository = make_knowledge_repository()
+
+    cards = build_retrieval_cards(
+        repository,
+        "Explain integration by parts as the reverse of the product rule.",
+        [
+            {
+                "excerpt": "Surds",
+                "score": 3.0,
+                "metadata": {
+                    "node_kind": "knowledge_point",
+                    "knowledge_code": "P1.1.O01",
+                    "catalog_sparse_rank": 1,
+                },
+            },
+            {
+                "excerpt": "Integration by parts",
+                "score": 0.2,
+                "metadata": {
+                    "node_kind": "knowledge_point",
+                    "knowledge_code": "P2.7.O01",
+                    "catalog_sparse_rank": 3,
+                },
+            },
+        ],
+        subject_code="9660",
+        unit_code="P2",
+        limit=2,
+    )
+
+    assert [card["code"] for card in cards] == ["P2.7.O01", "P1.1.O01"]
+
+
+def test_graph_transformation_query_matches_official_inflected_title() -> None:
+    matches = match_knowledge_points(
+        "Transform the graph of y = inverse sine x into y = one half inverse sine of x plus one.",
+        [
+            {
+                "code": "P2.1.O05",
+                "title": "Combinations of the transformations on the graph of y = f(x).",
+                "definition": "Use combinations of transformations on graphs of functions.",
+                "features": {"node_type": "learning_objective"},
+            },
+            {
+                "code": "P2.4.O01",
+                "title": "Knowledge of inverse sine functions and their domains and graphs.",
+                "definition": "Understand the principal inverse trigonometric functions.",
+                "features": {"node_type": "learning_objective"},
+            },
+        ],
+        limit=2,
+    )
+
+    assert [point["code"] for _, point in matches] == ["P2.1.O05", "P2.4.O01"]
+    assert matches[0][0] == 0.92

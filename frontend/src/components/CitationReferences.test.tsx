@@ -46,9 +46,11 @@ describe("CitationMarkdown", () => {
     await user.hover(marker);
     const tooltip = screen.getByRole("tooltip");
     expect(tooltip).toHaveTextContent("Sequences");
+    expect(tooltip).toHaveTextContent("A sequence may satisfy");
     expect(tooltip.querySelectorAll(".katex")).toHaveLength(2);
 
     await user.click(marker);
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
     const dialog = screen.getByRole("dialog");
     expect(dialog).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "关闭参考文献详情" })).toHaveFocus();

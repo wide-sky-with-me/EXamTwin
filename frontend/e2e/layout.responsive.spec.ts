@@ -6,6 +6,22 @@ const infrastructure = {
   object_storage: true,
 };
 
+const economicsPaperUnit = {
+  id: "paper-u1",
+  subject_id: "oxfordaqa-economics-9640",
+  subject_code: "9640",
+  pair_key: "9640:2026:JUN:U1",
+  display_name: "Economics June U1",
+  unit_code: "U1",
+  exam_year: 2026,
+  exam_session: "JUN",
+  status: "active",
+  documents: [],
+  paper_job_count: 2,
+  created_at: "2026-08-13T00:00:00Z",
+  updated_at: "2026-08-13T00:10:00Z",
+};
+
 test("starts in subject management and switches theme in place", async ({
   page,
 }) => {
@@ -192,6 +208,11 @@ test("keeps AI and uploaded answers inside the paper workspace", async ({ page }
       });
     }
     if (url.pathname === "/api/v1/grading/reviews/all") return fulfill([]);
+    if (url.pathname === "/api/v1/subject-workspaces/oxfordaqa-economics-9640/paper-units") {
+      return fulfill({ items: [economicsPaperUnit], total: 1, limit: 12, offset: 0, available_units: ["U1"], available_years: [2026], available_sessions: ["JUN"] });
+    }
+    if (url.pathname === "/api/v1/subject-workspaces/oxfordaqa-economics-9640/paper-units/paper-u1") return fulfill(economicsPaperUnit);
+    if (url.pathname === "/api/v1/subject-workspaces/oxfordaqa-economics-9640/documents") return fulfill([]);
     if (url.pathname === "/api/v1/papers/jobs") {
       requestedAnswerMode = url.searchParams.get("answer_mode") ?? "";
       const items = [
@@ -228,19 +249,24 @@ test("keeps AI and uploaded answers inside the paper workspace", async ({ page }
     return fulfill([]);
   });
 
-  await page.goto("/subjects/oxfordaqa-economics-9640/papers/answers");
+  await page.goto("/subjects/oxfordaqa-economics-9640/papers/paper-u1/answers");
 
   const navigation = page.getByRole("navigation", { name: "主导航" });
-  await expect(navigation.getByRole("menuitem")).toHaveCount(4);
-  await expect(navigation.getByRole("menuitem", { name: "作答" })).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "作答记录", exact: true })).toBeVisible();
-  await expect(page.locator(".paper-history-mode.generated")).toHaveText("AI 作答");
-  await expect(page.locator(".paper-history-mode.uploaded")).toHaveText("外部答卷");
+  await expect(navigation.getByRole("menuitem")).toHaveCount(3);
+  await expect(navigation.getByRole("menuitem", { name: "评分" })).toHaveCount(0);
+  const answerRecords = page.getByRole("dialog", { name: /作答记录 · Economics June U1/ });
+  await expect(answerRecords).toBeVisible();
+  await expect(answerRecords.locator(".paper-history-mode.generated")).toHaveText("AI 作答");
+  await expect(answerRecords.locator(".paper-history-mode.uploaded")).toHaveText("外部答卷");
 
-  await page.getByRole("combobox", { name: "按来源筛选" }).selectOption("uploaded");
+  await answerRecords.getByRole("combobox", { name: "按来源筛选" }).selectOption("uploaded");
   await expect.poll(() => requestedAnswerMode).toBe("uploaded");
-  await expect(page.locator(".paper-history-mode.generated")).toHaveCount(0);
-  await expect(page.locator(".paper-history-mode.uploaded")).toHaveText("外部答卷");
+  await expect(answerRecords.locator(".paper-history-mode.generated")).toHaveCount(0);
+  await expect(answerRecords.locator(".paper-history-mode.uploaded")).toHaveText("外部答卷");
+
+  await answerRecords.getByRole("button", { name: "评分" }).click();
+  await expect(page).toHaveURL(/\/papers\/paper-u1\/jobs\/job-uploaded\/grading$/);
+  await expect(page.getByRole("dialog", { name: /试卷评分 · Economics June U1/ })).toBeVisible();
 });
 
 test("shows rich grading selectors and manages Mark Schemes without leaving the page", async ({
@@ -306,6 +332,11 @@ test("shows rich grading selectors and manages Mark Schemes without leaving the 
       });
     }
     if (url.pathname === "/api/v1/grading/reviews/all") return fulfill([]);
+    if (url.pathname === "/api/v1/subject-workspaces/oxfordaqa-economics-9640/paper-units") {
+      return fulfill({ items: [economicsPaperUnit], total: 1, limit: 12, offset: 0, available_units: ["U1"], available_years: [2026], available_sessions: ["JUN"] });
+    }
+    if (url.pathname === "/api/v1/subject-workspaces/oxfordaqa-economics-9640/paper-units/paper-u1") return fulfill(economicsPaperUnit);
+    if (url.pathname === "/api/v1/subject-workspaces/oxfordaqa-economics-9640/documents") return fulfill([]);
     if (url.pathname === "/api/v1/grading/papers") {
       return fulfill([{
         job_id: "paper-ui",
@@ -367,11 +398,21 @@ test("shows rich grading selectors and manages Mark Schemes without leaving the 
     return fulfill([]);
   });
 
-  await page.goto("/subjects/oxfordaqa-economics-9640/grading");
+  await page.goto("/subjects/oxfordaqa-economics-9640/papers/paper-u1/jobs/paper-ui/grading");
+
+  await expect(page.getByRole("heading", { name: "答案评分" })).toHaveCount(0);
+  const gradingDialog = page.getByRole("dialog", { name: /试卷评分 · Economics June U1/ });
+  await expect(gradingDialog).toBeVisible();
+  const materialsStage = gradingDialog.locator(".grading-materials-stage");
+  await expect(materialsStage).not.toHaveClass(/\bpanel\b/);
+  await expect(materialsStage).toHaveCSS("border-top-width", "0px");
+  await expect(materialsStage).toHaveCSS("box-shadow", "none");
 
   const paperSelector = page.getByLabel("选择作答记录");
   const schemeSelector = page.getByLabel("选择 Mark Scheme");
   await expect(paperSelector).toContainText("Economics-9640-U1-June-2026.pdf");
+  await expect(paperSelector).toBeDisabled();
+  await expect(gradingDialog.getByRole("button", { name: "上传答卷" })).toHaveCount(0);
   await expect(paperSelector).toContainText("U1 · 12/12 题 · 作答完整");
   await expect(schemeSelector).toContainText("官方标准 · 18 页 · 内容就绪");
 
@@ -410,8 +451,8 @@ test("opens the full sidebar navigation without horizontal scrolling at 390px", 
 
   await page.getByRole("button", { name: "打开主导航" }).click();
   const navigation = page.getByRole("navigation", { name: "主导航" });
-  await expect(navigation.getByRole("menuitem")).toHaveCount(4);
-  for (const label of ["科目", "试卷", "评分", "复核"]) {
+  await expect(navigation.getByRole("menuitem")).toHaveCount(3);
+  for (const label of ["科目", "试卷", "复核"]) {
     await expect(navigation.getByRole("menuitem", { name: label })).toBeInViewport();
   }
 

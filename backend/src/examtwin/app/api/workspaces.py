@@ -286,3 +286,26 @@ def build_knowledge_base(
         failed=result.index_result.failed,
         errors=result.index_result.errors,
     )
+
+
+@router.post(
+    "/knowledge-base-versions/{version_id}/resume",
+    response_model=KnowledgeBaseBuildResponse,
+)
+def resume_knowledge_base_version(
+    version_id: str,
+    service: CorpusWorkspaceService = Depends(get_corpus_workspace_service),
+) -> KnowledgeBaseBuildResponse:
+    try:
+        result = service.resume_knowledge_base_version(version_id)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except KnowledgeBaseBuildError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    return KnowledgeBaseBuildResponse(
+        version=KnowledgeBaseVersionResponse.model_validate(result.version),
+        processed=result.index_result.processed,
+        succeeded=result.index_result.succeeded,
+        failed=result.index_result.failed,
+        errors=result.index_result.errors,
+    )

@@ -39,7 +39,6 @@ from examtwin.assessment.paper_vision import (
     PaperVisionReviewer,
     VisionReviewResult,
     format_physical_page_markdown,
-    parse_physical_page_markdown,
     validate_page_classification_records,
     validate_physical_page_markdown,
 )
@@ -53,8 +52,12 @@ from examtwin.subjects.public import SubjectContext, WorkspaceRepository
 logger = logging.getLogger(__name__)
 
 _QUESTION_IMAGE_SUFFIXES = {".bmp", ".gif", ".jpeg", ".jpg", ".png", ".webp"}
-_RECOVERED_IMAGE_MIN_AREA = 16_384
-_RECOVERED_IMAGE_MIN_LONG_EDGE = 160
+_QUESTION_IMAGE_MIN_AREA = 16_384
+_QUESTION_IMAGE_MIN_LONG_EDGE = 160
+_QUESTION_IMAGE_URL = re.compile(
+    r"/api/v1/papers/jobs/(?P<job_id>[A-Za-z0-9-]+)/question-images/"
+    r"(?P<asset>p(?P<page>\d{4})-[0-9a-f]{64}\.(?:bmp|gif|jpeg|jpg|png|webp))"
+)
 _UPLOADED_ANSWER_HEADING = re.compile(
     r"(?im)^(?:#{1,6}\s*(?:question|q)?\s*|(?:question|q)\s*)"
     r"(?P<number>\d+(?:\s*\([a-z0-9]+\))*)(?:\s*[:.)-]\s*)?"
@@ -67,47 +70,41 @@ def _answer_number(value: str) -> str:
     return str(int(match.group(0))) if match is not None else value.strip()
 
 
-def _is_probable_question_figure(content: bytes) -> bool:
-    """Keep unreferenced MinerU figures without promoting tiny print glyph crops."""
+def _is_substantive_question_image(content: bytes) -> bool:
+    """Reject MinerU's small glyph/option-marker crops while failing open on unknown formats."""
 
     try:
         pixmap = pymupdf.Pixmap(content)
-    except (RuntimeError, ValueError):
-        return False
+    except Exception:  # PyMuPDF raises format-specific exception classes across releases.
+        return True
     return (
-        pixmap.width * pixmap.height >= _RECOVERED_IMAGE_MIN_AREA
-        and max(pixmap.width, pixmap.height) >= _RECOVERED_IMAGE_MIN_LONG_EDGE
+        pixmap.width * pixmap.height >= _QUESTION_IMAGE_MIN_AREA
+        and max(pixmap.width, pixmap.height) >= _QUESTION_IMAGE_MIN_LONG_EDGE
     )
 
 
-def _append_recovered_question_images(
-    markdown: str,
-    recovered: list[tuple[int, str]],
-) -> str:
-    if not recovered:
-        return markdown
-    urls_by_page: dict[int, list[str]] = {}
-    for page_number, url in recovered:
-        urls_by_page.setdefault(page_number, []).append(url)
-
-    pages = parse_physical_page_markdown(markdown)
-    if pages:
-        return format_physical_page_markdown(
-            [
-                (
-                    page_number,
-                    "\n\n".join(
-                        [
-                            body,
-                            *(f"![]({url})" for url in urls_by_page.get(page_number, [])),
-                        ]
-                    ).strip(),
-                )
-                for page_number, body in pages
-            ]
+def _remove_markdown_image(markdown: str, targets: set[str]) -> str:
+    cleaned = markdown
+    for target in sorted((item for item in targets if item), key=len, reverse=True):
+        cleaned = re.sub(
+            rf"!\[[^\]]*\]\(\s*<?{re.escape(target)}>?(?:\s+['\"][^'\"]*['\"])?\s*\)",
+            "",
+            cleaned,
         )
+        cleaned = re.sub(
+            rf"<img\b[^>]*\bsrc=['\"]{re.escape(target)}['\"][^>]*>",
+            "",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+    return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
 
-    return "\n\n".join([markdown, *(f"![]({url})" for _page_number, url in recovered)]).strip()
+
+def _question_image_jpeg(content: bytes) -> bytes:
+    if content.startswith(b"\xff\xd8"):
+        return content
+    pixmap = pymupdf.Pixmap(content)
+    return pixmap.tobytes("jpeg", jpg_quality=88)
 
 
 def _split_uploaded_answers(markdown: str) -> dict[str, str]:
@@ -934,6 +931,30 @@ class PaperWorker:
         if len(pages) > self.settings.paper_question_image_max_pages:
             raise ValueError("题目原卷页数超过视觉输入上限")
 
+        embedded_matches = list(_QUESTION_IMAGE_URL.finditer(question_markdown))
+        if embedded_matches:
+            total_bytes = 0
+            embedded_images: list[QuestionImage] = []
+            seen_assets: set[str] = set()
+            for match in embedded_matches:
+                if match.group("job_id") != job_id:
+                    raise ValueError("题目图片引用了其他试卷任务")
+                image_page = int(match.group("page"))
+                if image_page not in pages:
+                    raise ValueError("题目图片页码不属于题目可信来源页")
+                asset_name = match.group("asset")
+                if asset_name in seen_assets:
+                    continue
+                seen_assets.add(asset_name)
+                image_path = self.jobs.question_image(job_id, asset_name)
+                content = _question_image_jpeg(image_path.read_bytes())
+                total_bytes += len(content)
+                if total_bytes > self.settings.paper_question_image_max_total_bytes:
+                    raise ValueError("题目图片总大小超过视觉输入上限")
+                embedded_images.append(QuestionImage(page_number=image_page, content=content))
+            if embedded_images:
+                return pages, tuple(embedded_images)
+
         safe_root = self.jobs.source_page_root(job_id)
         total_bytes = 0
         images: list[QuestionImage] = []
@@ -962,8 +983,22 @@ class PaperWorker:
         *,
         source_path: Path | None = None,
     ) -> str:
-        markdown = chunk.markdown
-        referenced_images: list[tuple[Any, str, list[str], bool]] = []
+        page_count = page_end - page_start + 1
+        if chunk.page_markdown and len(chunk.page_markdown) <= page_count:
+            markdown = format_physical_page_markdown(
+                [
+                    (
+                        page_number,
+                        chunk.page_markdown[page_number - page_start]
+                        if page_number - page_start < len(chunk.page_markdown)
+                        else "",
+                    )
+                    for page_number in range(page_start, page_end + 1)
+                ]
+            )
+        else:
+            markdown = chunk.markdown
+        referenced_images: list[tuple[Any, str, list[str]]] = []
         for image in chunk.images:
             name = Path(image.name).name
             suffix = Path(name).suffix.lower()
@@ -978,21 +1013,24 @@ class PaperWorker:
                 f"./images/{name}",
             }
             referenced = [target for target in targets if target and target in markdown]
-            recovered = False
             if not referenced:
-                if (
-                    not self.settings.paper_vision_enabled
-                    or image.page_index is None
-                    or not _is_probable_question_figure(image.content)
-                ):
-                    continue
-                recovered = True
-            referenced_images.append((image, suffix, referenced, recovered))
+                # MinerU also emits logos, option markers and decorative crops that are
+                # absent from its Markdown. Without a source position in the Markdown we
+                # cannot prove that an image belongs to a question, nor where it belongs.
+                # Keep only explicitly referenced assets; the vision-review stage remains
+                # the source-integrity fallback for genuinely missing visual content.
+                continue
+            if not _is_substantive_question_image(image.content):
+                # MinerU sometimes references tiny option letters, page furniture or
+                # isolated glyphs as standalone images. These do not carry enough visual
+                # information to justify occupying the question layout.
+                markdown = _remove_markdown_image(markdown, targets)
+                continue
+            referenced_images.append((image, suffix, referenced))
 
         fallback_page: int | None = None
         unpositioned_count = sum(
-            image.page_index is None
-            for image, _suffix, _referenced, _recovered in referenced_images
+            image.page_index is None for image, _suffix, _referenced in referenced_images
         )
         if page_start != page_end and unpositioned_count:
             if source_path is not None:
@@ -1007,8 +1045,7 @@ class PaperWorker:
             if fallback_page is None:
                 raise ValueError("MinerU 题目图片缺少物理页位置")
 
-        recovered_urls: list[tuple[int, str]] = []
-        for image, suffix, referenced, recovered in referenced_images:
+        for image, suffix, referenced in referenced_images:
             digest = hashlib.sha256(image.content).hexdigest()
             if image.page_index is None:
                 page_number = fallback_page or page_start
@@ -1024,9 +1061,7 @@ class PaperWorker:
             public_url = f"/api/v1/papers/jobs/{job_id}/question-images/{asset_name}"
             for target in sorted(referenced, key=len, reverse=True):
                 markdown = markdown.replace(target, public_url)
-            if recovered:
-                recovered_urls.append((page_number, public_url))
-        return _append_recovered_question_images(markdown, recovered_urls)
+        return markdown
 
     def _parse_pdf_chunk(
         self,

@@ -21,9 +21,12 @@ MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 SUPPORTED_SUFFIXES = {".md", ".markdown", ".pdf"}
 _VISUAL_CONTEXT = re.compile(
     r"(?:!\[|<img\b|<svg\b|"
-    r"\b(?:figure|diagram|graph|chart|histogram|scatter\s+plot|box\s+plot|"
-    r"tree\s+diagram|coordinate\s+axes|shaded\s+region)\b|"
-    r"\b(?:draw|sketch|shade)\b)",
+    r"\b(?:figures?|diagrams?|graphs?|charts?|histograms?|scatter\s+plots?|"
+    r"box\s+plots?|tree\s+diagrams?)\b"
+    r"(?:[ \t]+\d+|[ \t]+(?:above|below)|.{0,30}\b(?:shows?|shown|provided)\b)|"
+    r"\b(?:shown|illustrated|displayed)[ \t]+(?:in|on|by)[ \t]+(?:the[ \t]+)?"
+    r"(?:figure|diagram|graph|chart)\b|"
+    r"\b(?:coordinate\s+axes|shaded\s+region)\b)",
     re.IGNORECASE,
 )
 _UNRESOLVED_SOURCE_PLACEHOLDER = re.compile(
@@ -41,9 +44,14 @@ _TOP_LEVEL_QUESTION = re.compile(
 )
 _STRUCTURE_SUBPART = re.compile(
     r"(?im)^[ \t]*(?:#{1,6}[ \t]*)?(?:\*{1,2})?"
-    r"(?:0*\d{1,3}[ \t]*)?"
-    r"(?P<label>(?:\.\d+|\([a-zivx]+\)(?:[ \t]*\([a-zivx]+\))*))"
-    r"(?:\*{1,2})?(?=[ \t.:]|$)"
+    r"(?:(?:\d[ \t]+\d{1,2}|0*\d{1,3})[ \t]*)?"
+    r"(?P<label>(?:\.[ \t]*\d+|\([a-zivx]+\)(?:[ \t]*\([a-zivx]+\))*))"
+    r"(?:\*{1,2})?(?=[^\S\r\n]|[.:]|$)"
+)
+_FULL_DECIMAL_SUBPART = re.compile(
+    r"(?im)^(?P<prefix>[ \t]*(?:#{1,6}[ \t]*)?(?:\*{1,2})?)"
+    r"(?P<number>0*\d+)(?P<label>(?:\.\d+){1,2})(?P<suffix>(?:\*{1,2})?)"
+    r"(?=[^\S\r\n]|[.:]|$)"
 )
 _PRINTED_MARK = re.compile(
     r"\\?[\[(][ \t]*(\d+)(?:[ \t]+|\\text\{[ \t]*)"
@@ -75,6 +83,116 @@ class ExtractedPaperImage:
 class ParsedPaperChunk:
     markdown: str
     images: tuple[ExtractedPaperImage, ...] = ()
+    page_markdown: tuple[str, ...] = ()
+
+
+_MINERU_AUXILIARY_BLOCK_TYPES = {
+    "header",
+    "footer",
+    "page_number",
+    "aside_text",
+    "page_footnote",
+}
+_MINERU_SUPPORTED_BLOCK_TYPES = {
+    "text",
+    "title",
+    "equation",
+    "image",
+    "chart",
+    "table",
+    "code",
+    "list",
+    *_MINERU_AUXILIARY_BLOCK_TYPES,
+}
+
+
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
+def _mineru_content_block_markdown(item: dict[str, Any]) -> str:
+    block_type = str(item.get("type") or "").strip().lower()
+    if block_type in _MINERU_AUXILIARY_BLOCK_TYPES:
+        return ""
+    if block_type not in _MINERU_SUPPORTED_BLOCK_TYPES:
+        raise ValueError(f"不支持的 MinerU 内容块类型：{block_type or 'unknown'}")
+
+    if block_type in {"text", "title"}:
+        text = str(item.get("text") or "").strip()
+        if not text:
+            return ""
+        raw_level = item.get("text_level")
+        level = raw_level if isinstance(raw_level, int) and not isinstance(raw_level, bool) else 0
+        if block_type == "title" and level < 1:
+            level = 1
+        return f"{'#' * min(6, level)} {text}" if level > 0 else text
+
+    if block_type == "equation":
+        return str(item.get("text") or "").strip()
+
+    if block_type in {"image", "chart"}:
+        caption = _string_list(item.get(f"{block_type}_caption"))
+        footnote = _string_list(item.get(f"{block_type}_footnote"))
+        image_path = str(item.get("img_path") or "").strip()
+        parts = [*caption]
+        if image_path:
+            alt = " ".join(caption) or ("Chart" if block_type == "chart" else "Image")
+            parts.append(f"![{alt}]({image_path})")
+        content = str(item.get("content") or "").strip()
+        if content:
+            parts.append(content)
+        parts.extend(footnote)
+        return "\n\n".join(parts)
+
+    if block_type == "table":
+        parts = [
+            *_string_list(item.get("table_caption")),
+            str(item.get("table_body") or "").strip(),
+            *_string_list(item.get("table_footnote")),
+        ]
+        return "\n\n".join(part for part in parts if part)
+
+    if block_type == "list":
+        return "\n".join(_string_list(item.get("list_items")))
+
+    caption = _string_list(item.get("code_caption"))
+    footnote = _string_list(item.get("code_footnote"))
+    body = str(item.get("code_body") or "").strip()
+    parts = [*caption]
+    if body:
+        parts.append(f"```\n{body}\n```")
+    parts.extend(footnote)
+    return "\n\n".join(parts)
+
+
+def _mineru_page_markdown(content_list: object) -> tuple[str, ...]:
+    """Render MinerU's page-indexed content blocks without losing page provenance."""
+
+    if not isinstance(content_list, list) or not content_list:
+        return ()
+    pages: dict[int, list[str]] = {}
+    for raw_item in content_list:
+        if not isinstance(raw_item, dict):
+            return ()
+        page_index = raw_item.get("page_idx")
+        if not isinstance(page_index, int) or isinstance(page_index, bool) or page_index < 0:
+            return ()
+        try:
+            rendered = _mineru_content_block_markdown(raw_item)
+        except ValueError:
+            # A provider schema change must fail back to the original whole-chunk
+            # Markdown instead of silently dropping an unknown content block.
+            return ()
+        pages.setdefault(page_index, [])
+        if rendered:
+            pages[page_index].append(rendered)
+    if not pages:
+        return ()
+    return tuple(
+        "\n\n".join(pages.get(page_index, ())).strip() for page_index in range(max(pages) + 1)
+    )
 
 
 class QuestionSourceStructureError(ValueError):
@@ -101,8 +219,77 @@ def _canonical_question_number(value: object) -> str:
 
 
 def _normalized_structure_label(value: object) -> str:
-    normalized = re.sub(r"\s+", "", str(value)).lower()
+    normalized = re.sub(r"\s+", "", str(value)).lower().strip("#*_")
+    wrapped_decimal = re.fullmatch(r"\(0*\d+\.(\d+)\)", normalized)
+    if wrapped_decimal:
+        return f".{int(wrapped_decimal.group(1))}"
     return re.sub(r"^\d+(?=[.(])", "", normalized)
+
+
+def _collapse_redundant_decimal_labels(labels: tuple[str, ...]) -> tuple[str, ...]:
+    nested_count = 0
+    nested_parent = ""
+    collapsed: list[str] = []
+    for label in labels:
+        nested = re.fullmatch(r"\.(\d+)\.(\d+)", label)
+        if nested:
+            if len(collapsed) != nested_count:
+                return labels
+            parent, child = nested.groups()
+            if nested_parent and parent != nested_parent:
+                return labels
+            nested_parent = parent
+            nested_count += 1
+            if int(child) != nested_count:
+                return labels
+            collapsed.append(f".{int(child)}")
+            continue
+        simple = re.fullmatch(r"\.(\d+)", label)
+        if not simple or not nested_count or int(simple.group(1)) != len(collapsed) + 1:
+            return labels
+        collapsed.append(f".{int(simple.group(1))}")
+    return tuple(collapsed) if 1 < nested_count < len(labels) else labels
+
+
+def _repair_redundant_decimal_headings(markdown: str, question_number: str) -> str:
+    matches = [
+        match
+        for match in _FULL_DECIMAL_SUBPART.finditer(markdown)
+        if _canonical_question_number(match.group("number")) == question_number
+    ]
+    labels = tuple(match.group("label") for match in matches)
+    collapsed = _collapse_redundant_decimal_labels(labels)
+    if collapsed == labels:
+        return markdown
+    replacements = {match.start(): label for match, label in zip(matches, collapsed, strict=True)}
+
+    def replace(match: re.Match[str]) -> str:
+        label = replacements.get(match.start())
+        if label is None:
+            return match.group(0)
+        return f"{match.group('prefix')}{question_number}{label}{match.group('suffix')}"
+
+    return _FULL_DECIMAL_SUBPART.sub(replace, markdown)
+
+
+def _normalize_decimal_subpart_headings(markdown: str, question_number: str) -> str:
+    """Normalize OCR-spaced decimal labels without changing question wording."""
+
+    def replace(match: re.Match[str]) -> str:
+        label = _normalized_structure_label(match.group("label"))
+        if not re.fullmatch(r"\.\d+", label):
+            return match.group(0)
+        raw = match.group(0)
+        label_start = match.start("label") - match.start()
+        label_end = match.end("label") - match.start()
+        prefix = re.sub(
+            r"(?:\d[ \t]+\d{1,2}|0*\d{1,3})[ \t]*$",
+            "",
+            raw[:label_start],
+        )
+        return f"{prefix}{question_number}{label}{raw[label_end:]}"
+
+    return _STRUCTURE_SUBPART.sub(replace, markdown)
 
 
 def _simple_subpart_ordinals(labels: tuple[str, ...]) -> tuple[int, ...] | None:
@@ -142,12 +329,93 @@ def question_source_structures(markdown: str) -> list[QuestionSourceStructure]:
     if not matches:
         return []
 
-    anchors: list[tuple[str, re.Match[str]]] = []
-    seen: set[str] = set()
+    def is_subpart_prefix(match: re.Match[str]) -> bool:
+        return bool(
+            re.match(
+                r"[ \t]*(?:\.[ \t]*\d|\([a-zivx]+\))",
+                combined[match.end() :],
+                re.IGNORECASE,
+            )
+        )
+
+    # ``_TOP_LEVEL_QUESTION`` intentionally accepts the numeric prefix of a
+    # subpart so a page containing only ``16.1`` / ``16.2`` or ``3 (a)`` can
+    # still establish its top-level question.  When an explicit heading exists,
+    # however, those prefixes are subparts rather than duplicate top-level
+    # anchors.
+    explicit_numbers = {
+        number
+        for match in matches
+        if (number := _canonical_question_number(match.group("number")))
+        and not is_subpart_prefix(match)
+    }
+    matches = [
+        match
+        for match in matches
+        if (number := _canonical_question_number(match.group("number"))) not in explicit_numbers
+        or not is_subpart_prefix(match)
+    ]
+
+    number_counts: dict[str, int] = {}
     for match in matches:
         number = _canonical_question_number(match.group("number"))
-        if not number:
-            continue
+        if number:
+            number_counts[number] = number_counts.get(number, 0) + 1
+    marked_duplicate_numbers = {
+        number
+        for index, match in enumerate(matches)
+        if (number := _canonical_question_number(match.group("number")))
+        and number_counts.get(number, 0) > 1
+        and _PRINTED_MARK.search(
+            combined[
+                match.end() : matches[index + 1].start()
+                if index + 1 < len(matches)
+                else len(combined)
+            ]
+        )
+    }
+    matches = [
+        match
+        for index, match in enumerate(matches)
+        if (number := _canonical_question_number(match.group("number")))
+        not in marked_duplicate_numbers
+        or _PRINTED_MARK.search(
+            combined[
+                match.end() : matches[index + 1].start()
+                if index + 1 < len(matches)
+                else len(combined)
+            ]
+        )
+    ]
+
+    numbered_matches = [
+        (_canonical_question_number(match.group("number")), match)
+        for match in matches
+        if _canonical_question_number(match.group("number"))
+    ]
+    repaired_matches: list[tuple[str, re.Match[str]]] = []
+    repaired_numbers: set[str] = set()
+    for index, (number, match) in enumerate(numbered_matches):
+        if number in repaired_numbers and repaired_matches and index + 1 < len(numbered_matches):
+            previous_number = repaired_matches[-1][0]
+            next_number, next_match = numbered_matches[index + 1]
+            candidate = str(int(previous_number) + 1)
+            current_span = combined[match.start() : next_match.start()]
+            if (
+                candidate not in repaired_numbers
+                and candidate.endswith(number)
+                and next_number == candidate
+                and is_subpart_prefix(next_match)
+                and _STRUCTURE_SUBPART.search(current_span)
+                and _PRINTED_MARK.search(current_span)
+            ):
+                number = candidate
+        repaired_matches.append((number, match))
+        repaired_numbers.add(number)
+
+    anchors: list[tuple[str, re.Match[str]]] = []
+    seen: set[str] = set()
+    for number, match in repaired_matches:
         if anchors and anchors[-1][0] == number:
             continue
         if number in seen:
@@ -160,12 +428,46 @@ def question_source_structures(markdown: str) -> list[QuestionSourceStructure]:
     for index, (number, match) in enumerate(anchors):
         span_start = match.start()
         span_end = anchors[index + 1][1].start() if index + 1 < len(anchors) else len(combined)
-        raw_question = combined[match.end() : span_end]
+        subpart_anchor = is_subpart_prefix(match)
+        content_start = match.start() if subpart_anchor else match.end()
+        raw_question = combined[content_start:span_end]
         end_marker = _END_OF_QUESTIONS_RE.search(raw_question)
         if end_marker:
-            span_end = match.end() + end_marker.start()
+            span_end = content_start + end_marker.start()
             raw_question = raw_question[: end_marker.start()]
-        question = raw_question.lstrip(" \t.:)").strip()
+        next_section = _NEXT_SECTION_PREAMBLE_RE.search(raw_question)
+        if next_section:
+            span_end = content_start + next_section.start()
+            raw_question = raw_question[: next_section.start()]
+        for _page_number, page_start, page_end in page_spans:
+            if page_start <= content_start or page_start >= span_end:
+                continue
+            page_body = combined[page_start:page_end]
+            preceding_question = combined[content_start:page_start]
+            has_current_question_subpart = bool(_PRINTED_MARK.search(page_body)) and any(
+                _canonical_question_number(page_match.group("number")) == number
+                and bool(
+                    re.match(
+                        r"[ \t]*(?:\.[ \t]*\d|\([a-zivx]+\))",
+                        page_body[page_match.end() :],
+                        re.IGNORECASE,
+                    )
+                )
+                for page_match in _TOP_LEVEL_QUESTION.finditer(page_body)
+            )
+            if (
+                _ADMINISTRATIVE_PAGE_RE.search(page_body)
+                and not has_current_question_subpart
+                and _question_page_overlap(
+                    preceding_question,
+                    page_body,
+                )
+                < 0.2
+            ):
+                span_end = page_start
+                raw_question = combined[content_start:span_end]
+                break
+        question = raw_question.strip() if subpart_anchor else raw_question.lstrip(" \t.:)").strip()
         if not question:
             raise QuestionSourceStructureError(f"主源第 {number} 题内容为空")
         source_pages = tuple(
@@ -177,7 +479,11 @@ def question_source_structures(markdown: str) -> list[QuestionSourceStructure]:
                 combined[max(span_start, page_start) : min(span_end, page_end)]
             )
         )
-        source_question = combined[span_start:span_end]
+        question = _repair_redundant_decimal_headings(question, number)
+        source_question = _repair_redundant_decimal_headings(
+            combined[span_start:span_end],
+            number,
+        )
         all_labels = tuple(
             dict.fromkeys(
                 _normalized_structure_label(label)
@@ -195,7 +501,7 @@ def question_source_structures(markdown: str) -> list[QuestionSourceStructure]:
         structures.append(
             QuestionSourceStructure(
                 number=number,
-                question_markdown=question,
+                question_markdown=_normalize_decimal_subpart_headings(question, number),
                 source_pages=source_pages,
                 subpart_labels=labels,
                 marks=marks,
@@ -247,6 +553,7 @@ def validate_question_source_structure(
                 }
             )
         actual_labels = tuple(_normalized_structure_label(part.label) for part in spec.subparts)
+        comparable_actual_labels = _collapse_redundant_decimal_labels(actual_labels)
         expected_labels = (
             structure.subpart_labels
             if structure.subpart_labels
@@ -254,9 +561,9 @@ def validate_question_source_structure(
             if structure.marks
             else actual_labels
         )
-        actual_ordinals = _simple_subpart_ordinals(actual_labels)
+        actual_ordinals = _simple_subpart_ordinals(comparable_actual_labels)
         expected_ordinals = _simple_subpart_ordinals(expected_labels)
-        labels_match = actual_labels == expected_labels or (
+        labels_match = comparable_actual_labels == expected_labels or (
             actual_ordinals is not None
             and expected_ordinals is not None
             and actual_ordinals == expected_ordinals
@@ -354,6 +661,9 @@ def _meaningful_page_text(text: str) -> bool:
 
 
 _END_OF_QUESTIONS_RE = re.compile(r"\bEND\s+OF\s+QUESTIONS\b", re.IGNORECASE)
+_NEXT_SECTION_PREAMBLE_RE = re.compile(
+    r"(?im)^[ \t]*(?:#{1,6}[ \t]*)?(?:\*{1,2})?Section[ \t]+[A-Z0-9]+\b"
+)
 _ADMINISTRATIVE_PAGE_RE = re.compile(
     r"(?:"
     r"TURN\s+OVER\s+FOR\s+THE\s+NEXT\s+QUESTION"
@@ -609,7 +919,11 @@ def extract_paper_chunk(
         for image in result.images
         if image.data
     )
-    return ParsedPaperChunk(markdown=markdown, images=images)
+    return ParsedPaperChunk(
+        markdown=markdown,
+        images=images,
+        page_markdown=_mineru_page_markdown(content_list),
+    )
 
 
 def upload_to_markdown(settings: Settings, filename: str, content: bytes) -> str:

@@ -63,12 +63,23 @@ def _scope_violations(
     subject_code: str,
     case: RetrievalCase,
 ) -> int:
+    def unit_is_out_of_scope(node: NodeWithScore) -> bool:
+        metadata = node.node.metadata
+        return bool(
+            case.unit_code
+            and metadata.get("unit_code") != case.unit_code
+            # A component is not a hard curriculum boundary on synoptic papers.
+            # Subject-wide catalog nodes/cards are allowed, while raw evidence
+            # from another unit remains a scope violation.
+            and metadata.get("node_kind") not in {"knowledge_point", "knowledge_card"}
+        )
+
     return sum(
         1
         for node in nodes
         if (
             node.node.metadata.get("subject_code") != subject_code
-            or (case.unit_code and node.node.metadata.get("unit_code") != case.unit_code)
+            or unit_is_out_of_scope(node)
             or (case.pair_key and node.node.metadata.get("pair_key") != case.pair_key)
             or (
                 case.source_types and node.node.metadata.get("source_type") not in case.source_types

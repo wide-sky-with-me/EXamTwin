@@ -192,6 +192,7 @@ export function CitationReference({
   const [open, setOpen] = useState(false);
   const [preview, setPreview] = useState(false);
   const [tooltipPosition, setTooltipPosition] = useState<TooltipPosition | null>(null);
+  const previewExcerpt = citation.excerpt.trim() || citation.section || labels.title;
 
   useLayoutEffect(() => {
     if (!preview) return;
@@ -227,7 +228,7 @@ export function CitationReference({
           <strong><InlineMarkdown>{labels.title}</InlineMarkdown></strong>
           <em>{labels.location} · 点击查看完整原文</em>
           <div className="citation-hover-excerpt">
-            <Markdown>{citation.excerpt}</Markdown>
+            <Markdown>{previewExcerpt}</Markdown>
           </div>
         </div>,
         document.body,
@@ -238,7 +239,10 @@ export function CitationReference({
     "aria-describedby": preview ? tooltipId : undefined,
     "aria-haspopup": "dialog" as const,
     onBlur: () => setPreview(false),
-    onClick: () => setOpen(true),
+    onClick: () => {
+      setPreview(false);
+      setOpen(true);
+    },
     onFocus: () => setPreview(true),
     onMouseEnter: () => setPreview(true),
     onMouseLeave: () => setPreview(false),

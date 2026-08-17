@@ -51,6 +51,12 @@
       "query": "Calculate the terms of trade using export and import price indices and explain its significance.",
       "unit_code": "U4",
       "targets": [{"knowledge_code": "3.4.1.2.O16"}]
+    },
+    {
+      "id": "u2-functions-of-money",
+      "query": "Why are bank deposits included in the money supply while shares are not, considering the functions of money as a means of payment?",
+      "unit_code": "U4",
+      "targets": [{"knowledge_code": "3.4.2.3.O01"}]
     }
   ]
 }

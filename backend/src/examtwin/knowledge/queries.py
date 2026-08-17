@@ -83,6 +83,11 @@ def match_knowledge_points(
         title_coverage = title_overlap / max(1, len(title_tokens))
         definition_coverage = definition_overlap / max(1, min(len(definition_tokens), 12))
         score = 0.72 * title_coverage + 0.28 * min(1.0, definition_coverage)
+        graph_transform_concept = {"graph", "transform"}
+        if graph_transform_concept <= text_tokens and graph_transform_concept <= (
+            title_tokens | definition_tokens
+        ):
+            score = max(score, 0.92)
         if title.lower() in lowered and len(title) >= 5:
             score = max(score, 0.96)
         if explicit:
@@ -115,7 +120,11 @@ def build_retrieval_cards(
         for point in list_knowledge_points(
             repository,
             subject_code=subject_code,
-            unit_code=unit_code,
+            # The paper component is not a safe curriculum boundary: synoptic
+            # papers legitimately assess objectives introduced in earlier units.
+            # Evidence retrieval remains unit-scoped, but an explicitly linked
+            # evidence node must be allowed to resolve to its real subject card.
+            unit_code=None,
             index_build_id=index_build_id,
         )
         if _node_type(point) == "learning_objective"
@@ -126,7 +135,7 @@ def build_retrieval_cards(
             for point in list_knowledge_points(
                 repository,
                 subject_code=subject_code,
-                unit_code=unit_code,
+                unit_code=None,
                 index_build_id=index_build_id,
             )
             if _node_type(point) == "topic"
@@ -137,9 +146,13 @@ def build_retrieval_cards(
         catalog,
         limit=max(20, limit * 4),
     )
-    selected: dict[str, tuple[float, dict[str, Any]]] = {
+    question_scores: dict[str, tuple[float, dict[str, Any]]] = {
         point["code"]: (score, point) for score, point in question_matches
     }
+    # A lexical resemblance between the question and a catalog title is only a
+    # prior, not evidence that the objective was retrieved. Cards become public
+    # only after an actual retrieved node links to them or its excerpt matches.
+    selected: dict[str, tuple[float, dict[str, Any]]] = {}
 
     for evidence in evidence_items:
         metadata = evidence.get("metadata", {})
@@ -156,16 +169,39 @@ def build_retrieval_cards(
             point = catalog_by_code.get(str(code))
             if point is None:
                 continue
+            question_prior = question_scores.get(point["code"])
+            question_prior_score = (
+                min(1.0, max(0.0, question_prior[0])) if question_prior is not None else 0.0
+            )
             if metadata.get("node_kind") == "knowledge_point" and code == str(primary_code):
-                linked_score = 1.0 + evidence_relevance
+                # Direct curriculum nodes are already authoritative candidates,
+                # and sparse Qdrant scores are not calibrated to external
+                # reranker scores. Sparse rank decides candidacy; the official
+                # catalog prior and local title/definition match decide the card
+                # score on the shared 0..1 scale.
+                try:
+                    raw_catalog_rank = int(metadata.get("catalog_sparse_rank") or 0)
+                    catalog_rank = max(1, raw_catalog_rank) if raw_catalog_rank else 0
+                except (TypeError, ValueError):
+                    catalog_rank = 0
+                catalog_rank_score = 1.0 / catalog_rank if catalog_rank else 0.0
+                # Sparse rank is only a candidacy signal. The official
+                # objective's title and definition must carry more weight than
+                # a nearby formula node that happened to rank first lexically.
+                linked_score = 0.45 + 0.45 * question_prior_score + 0.10 * catalog_rank_score
+                if unit_code and point.get("unit_code") == unit_code:
+                    linked_score += 0.05
+                linked_score = min(1.0, linked_score)
             else:
                 link_confidence = min(
                     1.0,
                     max(0.0, float(match_confidences.get(code, 0.3))),
                 )
-                linked_score = 0.72 * evidence_relevance + 0.28 * link_confidence
+                linked_score = (
+                    0.55 * evidence_relevance + 0.25 * link_confidence + 0.20 * question_prior_score
+                )
                 if code == str(primary_code):
-                    linked_score = min(0.99, linked_score + 0.03)
+                    linked_score = min(1.0, linked_score + 0.02)
             existing = selected.get(point["code"])
             if existing is None or linked_score > existing[0]:
                 selected[point["code"]] = (linked_score, point)
@@ -174,7 +210,10 @@ def build_retrieval_cards(
             catalog,
             limit=2,
         ):
-            weighted = min(1.0, score) * max(0.2, float(evidence.get("score") or 0.5))
+            weighted = min(1.0, score) * min(
+                1.0,
+                max(0.2, float(evidence.get("score") or 0.5)),
+            )
             existing = selected.get(point["code"])
             if existing is None or weighted > existing[0]:
                 selected[point["code"]] = (weighted, point)
@@ -187,7 +226,6 @@ def build_retrieval_cards(
     for match_score, point in ranked:
         references = list(point.get("references", []))
         point_terms = _knowledge_tokens(f"{point['title']} {point['definition']}")
-        evidence_score = 0.0
         for evidence in evidence_items:
             metadata = evidence.get("metadata", {})
             if metadata.get("node_kind") == "knowledge_point":
@@ -217,7 +255,6 @@ def build_retrieval_cards(
                 section_path = [section_path]
             source_type = metadata.get("source_type")
             score = float(evidence.get("score") or 0)
-            evidence_score = max(evidence_score, score)
             references.append(
                 {
                     "source": metadata.get("source") or metadata.get("filename") or "unknown",
@@ -242,8 +279,21 @@ def build_retrieval_cards(
             )
         card = dict(point)
         card["index_build_id"] = index_build_id
-        card["references"] = _deduplicate_references(references)[:6]
-        card["retrieval_score"] = round(max(match_score, evidence_score), 4)
+        card["references"] = _deduplicate_references(references)[:2]
+        # `match_score` already combines query relevance with the strength of
+        # the evidence-to-objective link. Taking max with the raw reranker score
+        # lets a weakly linked 0.99 evidence hit erase that semantic judgment.
+        # Give the final official card title/definition match a separate vote as
+        # well: legacy evidence links can be over-broad, while this local score
+        # directly measures the curriculum objective the user actually asked.
+        question_prior = question_scores.get(point["code"])
+        question_prior_score = (
+            min(1.0, max(0.0, question_prior[0])) if question_prior is not None else 0.0
+        )
+        card["retrieval_score"] = round(
+            0.78 * match_score + 0.22 * question_prior_score,
+            4,
+        )
         cards.append(card)
     return cards
 

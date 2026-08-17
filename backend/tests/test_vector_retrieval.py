@@ -9,6 +9,7 @@ from examtwin.knowledge.retrieval_trace_repository import RetrievalTraceReposito
 from examtwin.knowledge.vector_index_reuse import (
     embedding_identity,
     plan_vector_writes,
+    prune_stale_points,
 )
 from examtwin.knowledge.vector_retrieval import (
     lexical_sparse_encoder,
@@ -75,6 +76,79 @@ def test_hybrid_qdrant_search_prefilters_before_dense_and_lexical_fusion() -> No
     assert {node.metadata["unit_code"] for node in result.nodes} == {"", "P1"}
 
 
+def test_hybrid_unit_filter_allows_cross_unit_knowledge_point_only() -> None:
+    client = QdrantClient(":memory:")
+    store = qdrant_vector_store(client, "synoptic", hybrid=True)
+    catalog = _node("Characteristics and functions of money.", subject="9640", unit="U2")
+    catalog.metadata.update(
+        node_kind="knowledge_point",
+        source_role="core_knowledge",
+        source_type="syllabus",
+    )
+    excluded_evidence = _node(
+        "Unrelated evidence from another unit.",
+        subject="9640",
+        unit="U2",
+    )
+    excluded_evidence.metadata.update(
+        source_role="core_knowledge",
+        source_type="syllabus",
+    )
+    store.add([catalog, excluded_evidence])
+
+    result = store.query(
+        VectorStoreQuery(
+            query_embedding=[1.0, 0.0],
+            query_str="functions of money",
+            similarity_top_k=10,
+            sparse_top_k=10,
+            hybrid_top_k=10,
+            mode=VectorStoreQueryMode.HYBRID,
+            filters=retrieval_filters(
+                subject_code="9640",
+                unit_code="U4",
+                source_types=("syllabus",),
+                authority_tiers=("official",),
+                source_roles=("core_knowledge",),
+            ),
+        )
+    )
+
+    assert result.nodes is not None
+    assert [node.metadata["node_kind"] for node in result.nodes] == ["knowledge_point"]
+
+
+def test_catalog_filter_selects_only_direct_knowledge_points() -> None:
+    client = QdrantClient(":memory:")
+    store = qdrant_vector_store(client, "catalog", hybrid=True)
+    catalog = _node("Monetary policy involves the central bank.", subject="9640", unit="U2")
+    catalog.metadata.update(
+        node_kind="knowledge_point",
+        source_role="core_knowledge",
+        source_type="syllabus",
+    )
+    evidence = _node("Monetary policy evidence.", subject="9640", unit="U4")
+    evidence.metadata.update(source_role="core_knowledge", source_type="syllabus")
+    store.add([catalog, evidence])
+
+    result = store.query(
+        VectorStoreQuery(
+            query_str="monetary policy central bank",
+            similarity_top_k=10,
+            sparse_top_k=10,
+            mode=VectorStoreQueryMode.SPARSE,
+            filters=retrieval_filters(
+                subject_code="9640",
+                source_roles=("core_knowledge",),
+                node_kinds=("knowledge_point",),
+            ),
+        )
+    )
+
+    assert result.nodes is not None
+    assert [node.metadata["node_kind"] for node in result.nodes] == ["knowledge_point"]
+
+
 def test_lexical_sparse_encoder_is_deterministic_and_phrase_sensitive() -> None:
     first = lexical_sparse_encoder(["hence show that critical region"])
     second = lexical_sparse_encoder(["hence show that critical region"])
@@ -120,6 +194,117 @@ def test_vector_write_plan_stabilizes_prose_ids_and_reuses_matching_dense_vector
     assert second_plan.embeddings_required == 0
     assert second.embedding == [1.0, 0.0]
     assert second.metadata["index_build_id"] == "build-2"
+
+
+def test_vector_write_plan_reuses_dense_vectors_across_sparse_schema_upgrade() -> None:
+    client = QdrantClient(":memory:")
+    identity = embedding_identity(base_url="https://embedding.test/v1", model="embed-8b")
+    first = _node("Stable embedding content.", subject="9660", unit="P1")
+    first.metadata["block_kind"] = "prose"
+    first_plan = plan_vector_writes(
+        client,
+        [first],
+        staging_collection="first",
+        previous_collection=None,
+        build_id="build-1",
+        schema_version="schema-v1",
+        embed_identity=identity,
+    )
+    qdrant_vector_store(client, "first", hybrid=True).add(first_plan.pending_nodes)
+
+    second = _node("Stable embedding content.", subject="9660", unit="P1")
+    second.metadata["block_kind"] = "prose"
+    second.embedding = None
+    second_plan = plan_vector_writes(
+        client,
+        [second],
+        staging_collection="second",
+        previous_collection="first",
+        build_id="build-2",
+        schema_version="schema-v2",
+        embed_identity=identity,
+    )
+
+    assert second_plan.reused_embeddings == 1
+    assert second_plan.embeddings_required == 0
+    assert second.embedding == [1.0, 0.0]
+    assert second.metadata["index_schema_version"] == "schema-v2"
+
+
+def test_vector_write_plan_ignores_filter_only_source_role_for_embedding_reuse() -> None:
+    client = QdrantClient(":memory:")
+    identity = embedding_identity(base_url="https://embedding.test/v1", model="embed-8b")
+    first = _node("Stable curriculum objective.", subject="9660", unit="P1")
+    first.metadata["node_kind"] = "knowledge_point"
+    first_plan = plan_vector_writes(
+        client,
+        [first],
+        staging_collection="first",
+        previous_collection=None,
+        build_id="build-1",
+        schema_version="schema-v1",
+        embed_identity=identity,
+    )
+    qdrant_vector_store(client, "first", hybrid=True).add(first_plan.pending_nodes)
+
+    second = _node("Stable curriculum objective.", subject="9660", unit="P1")
+    second.id_ = first.node_id
+    second.metadata.update(node_kind="knowledge_point", source_role="core_knowledge")
+    second.embedding = None
+    second_plan = plan_vector_writes(
+        client,
+        [second],
+        staging_collection="second",
+        previous_collection="first",
+        build_id="build-2",
+        schema_version="schema-v2",
+        embed_identity=identity,
+    )
+
+    assert second_plan.reused_embeddings == 1
+    assert second_plan.embeddings_required == 0
+    assert second.embedding == [1.0, 0.0]
+
+
+def test_prose_identity_ignores_run_local_navigation_ids() -> None:
+    client = QdrantClient(":memory:")
+    identity = embedding_identity(base_url="https://embedding.test/v1", model="embed-8b")
+    first = _node("A linked prose chunk.", subject="9660", unit="P1")
+    first.metadata.update(
+        block_kind="prose",
+        parent_block_id=str(uuid.uuid4()),
+        previous_block_id=str(uuid.uuid4()),
+        next_block_id=str(uuid.uuid4()),
+    )
+    plan_vector_writes(
+        client,
+        [first],
+        staging_collection="first",
+        previous_collection=None,
+        build_id="build-1",
+        schema_version="schema-v1",
+        embed_identity=identity,
+    )
+
+    second = _node("A linked prose chunk.", subject="9660", unit="P1")
+    second.metadata.update(
+        block_kind="prose",
+        parent_block_id=str(uuid.uuid4()),
+        previous_block_id=str(uuid.uuid4()),
+        next_block_id=str(uuid.uuid4()),
+    )
+    plan_vector_writes(
+        client,
+        [second],
+        staging_collection="second",
+        previous_collection=None,
+        build_id="build-2",
+        schema_version="schema-v1",
+        embed_identity=identity,
+    )
+
+    assert second.node_id == first.node_id
+    assert second.metadata["node_fingerprint"] == first.metadata["node_fingerprint"]
 
 
 def test_vector_write_plan_does_not_reuse_a_different_embedding_model() -> None:
@@ -189,6 +374,29 @@ def test_vector_write_plan_resumes_by_node_identity_not_collection_offset() -> N
 
     assert resumed.resumed_points == 1
     assert [node.get_content() for node in resumed.pending_nodes] == ["First chunk."]
+
+
+def test_resume_prunes_points_that_are_no_longer_in_the_build() -> None:
+    client = QdrantClient(":memory:")
+    identity = embedding_identity(base_url="https://embedding.test/v1", model="embed")
+    retained = _node("Retained chunk.", subject="9660", unit="P1")
+    retained.metadata["block_kind"] = "prose"
+    stale = _node("Stale chunk.", subject="9660", unit="P1")
+    stale.metadata["block_kind"] = "prose"
+    initial = plan_vector_writes(
+        client,
+        [retained, stale],
+        staging_collection="staging",
+        previous_collection=None,
+        build_id="build",
+        schema_version="schema-v1",
+        embed_identity=identity,
+    )
+    qdrant_vector_store(client, "staging", hybrid=True).add(initial.pending_nodes)
+
+    assert prune_stale_points(client, "staging", [retained.node_id]) == 1
+    records, _ = client.scroll("staging", limit=10, with_payload=False, with_vectors=False)
+    assert [str(record.id) for record in records] == [retained.node_id]
 
 
 def test_cards_keep_unmapped_reranked_evidence_as_raw_fallback() -> None:

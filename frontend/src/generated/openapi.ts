@@ -379,6 +379,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/knowledge-base-versions/{version_id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resume Knowledge Base Version */
+        post: operations["resume_knowledge_base_version_api_v1_knowledge_base_versions__version_id__resume_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/knowledge-bases/{knowledge_base_id}/build": {
         parameters: {
             query?: never;
@@ -929,6 +946,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/subject-workspaces/{workspace_id}/paper-units/trash": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Trashed Paper Units */
+        get: operations["list_trashed_paper_units_api_v1_subject_workspaces__workspace_id__paper_units_trash_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/subject-workspaces/{workspace_id}/paper-units/{paper_unit_id}": {
         parameters: {
             query?: never;
@@ -979,6 +1013,40 @@ export interface paths {
          * @description Import a human/external answer against the exact managed paper unit.
          */
         post: operations["import_paper_unit_answer_api_v1_subject_workspaces__workspace_id__paper_units__paper_unit_id__import_answer_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/subject-workspaces/{workspace_id}/paper-units/{paper_unit_id}/permanent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Permanently Delete Paper Unit */
+        delete: operations["permanently_delete_paper_unit_api_v1_subject_workspaces__workspace_id__paper_units__paper_unit_id__permanent_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/subject-workspaces/{workspace_id}/paper-units/{paper_unit_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore Paper Unit */
+        post: operations["restore_paper_unit_api_v1_subject_workspaces__workspace_id__paper_units__paper_unit_id__restore_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3867,6 +3935,41 @@ export interface operations {
             };
         };
     };
+    resume_knowledge_base_version_api_v1_knowledge_base_versions__version_id__resume_post: {
+        parameters: {
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeBaseBuildResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     build_knowledge_base_api_v1_knowledge_bases__knowledge_base_id__build_post: {
         parameters: {
             query?: {
@@ -5234,6 +5337,43 @@ export interface operations {
             };
         };
     };
+    list_trashed_paper_units_api_v1_subject_workspaces__workspace_id__paper_units_trash_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaperUnitListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_paper_unit_api_v1_subject_workspaces__workspace_id__paper_units__paper_unit_id__get: {
         parameters: {
             query?: {
@@ -5411,6 +5551,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PaperUnitAnswerCreated"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    permanently_delete_paper_unit_api_v1_subject_workspaces__workspace_id__paper_units__paper_unit_id__permanent_delete: {
+        parameters: {
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path: {
+                workspace_id: string;
+                paper_unit_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_paper_unit_api_v1_subject_workspaces__workspace_id__paper_units__paper_unit_id__restore_post: {
+        parameters: {
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path: {
+                workspace_id: string;
+                paper_unit_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaperUnitSummary"];
                 };
             };
             /** @description Validation Error */

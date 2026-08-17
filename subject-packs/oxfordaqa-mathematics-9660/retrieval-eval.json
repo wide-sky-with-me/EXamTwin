@@ -65,20 +65,28 @@
       "targets": [{"knowledge_code": "M2.7.O05"}]
     },
     {
-      "id": "p1-mark-scheme-exact-k31",
-      "query": "Equation equating the 13th term and 3 times the kth term; k = 31.",
-      "unit_code": "P1",
-      "source_types": ["mark_scheme"],
-      "authority_tiers": ["official"],
-      "targets": [{"document_id": "e5768e4ea11d93d94252710ead89a797aedb55b1"}]
+      "id": "p2-composite-functions",
+      "query": "Find a composite function gf from two given functions and determine its values.",
+      "unit_code": "P2",
+      "targets": [{"knowledge_code": "P2.1.O02"}]
     },
     {
-      "id": "s2-mark-scheme-exact-normal-tail",
-      "query": "P(X < 6), z < -1.54, 1 - 0.93822 = 0.0618 using tables.",
-      "unit_code": "S2",
-      "source_types": ["mark_scheme"],
-      "authority_tiers": ["official"],
-      "targets": [{"document_id": "a8fc1ef5b2980bbd9d26ff2ab2e5c276000ca4c2"}]
+      "id": "p2-binomial-series-rational-index",
+      "query": "Expand the square root of 1 minus one half x cubed up to the term in x to the sixth using a binomial series.",
+      "unit_code": "P2",
+      "targets": [{"knowledge_code": "P2.2.O01"}]
+    },
+    {
+      "id": "p2-inverse-trigonometric-domain-graph",
+      "query": "Sketch y = one half inverse sine of x plus one, including its domain, range and endpoints.",
+      "unit_code": "P2",
+      "targets": [{"knowledge_code": "P2.4.O01"}]
+    },
+    {
+      "id": "p2-inverse-sine-graph-transformation",
+      "query": "Transform the graph of y = inverse sine x into y = one half inverse sine of x plus one.",
+      "unit_code": "P2",
+      "targets": [{"knowledge_code": "P2.1.O05"}]
     }
   ]
 }

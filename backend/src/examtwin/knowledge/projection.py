@@ -32,6 +32,15 @@ AUTHORITY_ORDER = {
     "supplementary": 2,
 }
 
+KNOWLEDGE_TOKEN_ALIASES: dict[str, str] = {
+    "functions": "function",
+    "graphs": "graph",
+    "transformation": "transform",
+    "transformations": "transform",
+    "transformed": "transform",
+    "transforming": "transform",
+}
+
 
 def _load_features(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
@@ -45,7 +54,7 @@ def _load_features(value: Any) -> dict[str, Any]:
 
 def _knowledge_tokens(text: str) -> set[str]:
     return {
-        token
+        KNOWLEDGE_TOKEN_ALIASES.get(token) or token
         for token in re.findall(r"[a-z0-9]{2,}", text.lower())
         if token not in KNOWLEDGE_STOP_WORDS
     }

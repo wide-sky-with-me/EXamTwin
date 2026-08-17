@@ -115,23 +115,28 @@ def build_llm(
     )
 
 
-def build_embedding(settings: Settings) -> OpenAIEmbedding:
+def build_embedding(
+    settings: Settings,
+    *,
+    timeout: float | None = None,
+    max_retries: int = 1,
+) -> OpenAIEmbedding:
     return ResilientOpenAIEmbedding(
         model_name=settings.embedding_model,
         api_base=settings.siliconflow_base_url,
         api_key=required_secret(settings.siliconflow_api_key),
         embed_batch_size=16,
-        timeout=settings.embedding_timeout,
-        max_retries=1,
+        timeout=timeout if timeout is not None else settings.embedding_timeout,
+        max_retries=max_retries,
     )
 
 
 class SiliconFlowReranker:
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, *, timeout: float | None = None):
         self.url = f"{settings.siliconflow_base_url.rstrip('/')}/rerank"
         self.api_key = required_secret(settings.siliconflow_api_key)
         self.model = settings.rerank_model
-        self.timeout = settings.rerank_timeout
+        self.timeout = timeout if timeout is not None else settings.rerank_timeout
 
     def rerank(
         self,

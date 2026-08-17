@@ -10,6 +10,19 @@ from sqlalchemy.orm import Session, sessionmaker
 from examtwin.platform.database.models import DocumentBlockModel
 
 
+def build_scoped_block_id(build_id: str, source_block_id: str) -> str:
+    """Return a durable DB identity while vector block identities stay reusable."""
+
+    import uuid
+
+    return str(
+        uuid.uuid5(
+            uuid.NAMESPACE_URL,
+            f"https://examtwin.local/evidence/build/{build_id}/{source_block_id}",
+        )
+    )
+
+
 class DocumentBlockRepository:
     """Persist immutable parent/child retrieval blocks for one index build."""
 
@@ -26,15 +39,18 @@ class DocumentBlockRepository:
     def parents(self, build_id: str, parent_ids: Sequence[str]) -> dict[str, dict[str, Any]]:
         if not parent_ids:
             return {}
+        stored_to_source = {
+            build_scoped_block_id(build_id, source_id): source_id for source_id in parent_ids
+        }
         statement = select(DocumentBlockModel).where(
             DocumentBlockModel.build_id == build_id,
-            DocumentBlockModel.id.in_(tuple(parent_ids)),
+            DocumentBlockModel.id.in_(tuple(stored_to_source)),
         )
         with self.sessions() as session:
             rows = list(session.scalars(statement))
         return {
-            row.id: {
-                "id": row.id,
+            stored_to_source[row.id]: {
+                "id": stored_to_source[row.id],
                 "document_id": row.document_id,
                 "page": row.page,
                 "section": row.section,

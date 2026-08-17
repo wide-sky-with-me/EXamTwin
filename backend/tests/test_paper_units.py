@@ -132,11 +132,34 @@ def test_paper_unit_rejects_near_pair_and_document_reuse() -> None:
 
     created = service.create_unit(["qp"], display_name=None)
     assert created["pair_key"] == "9660:2024:JUN:P1"
+    retried = service.create_unit(["qp"], display_name="Retried name")
+    assert retried["id"] == created["id"]
+    assert retried["display_name"] == "Retried name"
+
+    _document(sessions, subject_id, "replacement-qp", "question_paper")
     with pytest.raises(ValueError, match="已存在"):
-        service.create_unit(["qp"], display_name=None)
+        service.create_unit(["replacement-qp"], display_name=None)
 
 
-def test_paper_unit_archive_is_blocked_by_job_lineage() -> None:
+def test_paper_unit_reactivates_archived_pair_with_its_deduplicated_documents() -> None:
+    service, sessions, subject_id = _service()
+    _document(sessions, subject_id, "qp", "question_paper")
+    _document(sessions, subject_id, "ms", "mark_scheme")
+    created = service.create_unit(["qp", "ms"], display_name="Original name")
+
+    service.archive_unit(str(created["id"]))
+    restored = service.create_unit(["qp", "ms"], display_name="Restored name")
+
+    assert restored["id"] == created["id"]
+    assert restored["status"] == "active"
+    assert restored["display_name"] == "Restored name"
+    assert [(item["id"], item["role"]) for item in restored["documents"]] == [
+        ("ms", "mark_scheme"),
+        ("qp", "question_paper"),
+    ]
+
+
+def test_paper_unit_trash_preserves_lineage_and_permanent_delete_removes_it() -> None:
     service, sessions, subject_id = _service()
     _document(sessions, subject_id, "qp", "question_paper")
     created = service.create_unit(["qp"], display_name=None)
@@ -187,8 +210,20 @@ def test_paper_unit_archive_is_blocked_by_job_lineage() -> None:
             )
         )
 
-    with pytest.raises(ValueError, match="不能归档"):
-        service.archive_unit(str(created["id"]))
-
     jobs = PaperJobRepository(sessions, lease_seconds=60)
+    service.archive_unit(str(created["id"]))
+    trashed, total, _facets = service.list_trash()
+    assert total == 1
+    assert trashed[0]["id"] == created["id"]
+    assert trashed[0]["paper_job_count"] == 1
     assert jobs.list_for_subject("9660", paper_unit_id=str(created["id"]))[1] == 1
+
+    restored = service.restore_unit(str(created["id"]))
+    assert restored["status"] == "active"
+    assert jobs.list_for_subject("9660", paper_unit_id=str(created["id"]))[1] == 1
+
+    service.archive_unit(str(created["id"]))
+    service.permanently_delete_unit(str(created["id"]))
+    assert service.list_trash()[1] == 0
+    assert jobs.list_for_subject("9660", paper_unit_id=str(created["id"]))[1] == 0
+    assert service.documents.get_active("qp") is None

@@ -320,6 +320,26 @@ describe("PaperJobHistory", () => {
     ));
   });
 
+  test("starts grading from the exact completed answer record", async () => {
+    const user = userEvent.setup();
+    const onGrade = vi.fn();
+    render(
+      <PaperJobHistory
+        currentJobId={null}
+        embedded
+        onDeleted={vi.fn()}
+        onGrade={onGrade}
+        onOpen={vi.fn()}
+        paperUnitId="paper-1"
+        refreshKey={0}
+        subject={subject}
+      />,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "评分" }));
+    expect(onGrade).toHaveBeenCalledWith("job-1", undefined);
+  });
+
   test("changes page size and loads the next page with the matching offset", async () => {
     const user = userEvent.setup();
     listMock.mockResolvedValue({ ...history, total: 21 });
