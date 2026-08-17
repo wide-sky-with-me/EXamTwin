@@ -2358,10 +2358,18 @@
               }
             ],
             "title": "Subject Code"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
           }
         },
         "required": [
           "status",
+          "warnings",
           "subject_code",
           "api_contract_version",
           "capabilities",

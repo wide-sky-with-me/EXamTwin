@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     app_name: str = "ExamTwin"
     app_env: str = "development"
     local_access_only: bool = True
+    api_bind_host: str = Field(default="127.0.0.1", min_length=1)
     api_prefix: str = "/api/v1"
     subject_pack: str = "oxfordaqa-mathematics-9660"
     subject_packages_root: Path = Path("subject-packs")

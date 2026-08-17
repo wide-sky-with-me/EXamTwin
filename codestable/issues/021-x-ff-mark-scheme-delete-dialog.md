@@ -26,4 +26,4 @@ epic: "002"
 
 ## 对 codestable/ 的影响
 
-- 已同步 Epic Spec：`codestable/epics/002-o-科目与考试工作流重构/spec.md`。
+- 已同步 Epic Spec：`codestable/epics/002-x-科目与考试工作流重构/spec.md`。

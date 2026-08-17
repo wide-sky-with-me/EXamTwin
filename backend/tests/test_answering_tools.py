@@ -78,6 +78,39 @@ def test_all_math_tool_schemas_are_serializable_for_react_prompt() -> None:
         assert tool.metadata.get_parameters_dict()["type"] == "object"
 
 
+@pytest.mark.asyncio
+async def test_knowledge_search_does_not_apply_the_paper_pair_key() -> None:
+    captured: dict[str, Any] = {}
+
+    def retrieve(_query: str, **kwargs):
+        captured.update(kwargs)
+        return []
+
+    context = AgentRunContext(
+        task=AnswerTask(
+            subject_code="9660",
+            unit_code="P1",
+            pair_key="9660:2026:JAN:P1",
+            question="Use approved curriculum evidence.",
+        )
+    )
+
+    result = (
+        await KnowledgeSearchTool(retrieve, _citation)
+        .bind(context)
+        .acall(
+            query="quadratic equations",
+            top_k=3,
+        )
+    )
+
+    assert result.content == "No matching knowledge-base evidence was found."
+    assert captured["subject_code"] == "9660"
+    assert captured["unit_code"] == "P1"
+    assert captured["top_k"] == 3
+    assert "pair_key" not in captured
+
+
 def test_economics_calculator_preserves_exam_working_and_rounding() -> None:
     percentage = calculate_economics(
         EconomicsCalculateInput(

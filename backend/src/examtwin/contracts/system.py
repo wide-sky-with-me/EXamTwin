@@ -51,6 +51,7 @@ API_CAPABILITIES = (
     "source_identity_diagnostics_v1",
     "local_only_access_v1",
     "component_health_v1",
+    "local_exposure_health_v1",
     "paper_plot_overlay_v1",
     "interactive_citation_references_v1",
     "request_correlation_v1",

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 from contextlib import suppress
 from dataclasses import dataclass
 
@@ -20,6 +21,22 @@ class InfrastructureHealth:
     @property
     def available(self) -> bool:
         return self.postgresql and self.qdrant and self.object_storage
+
+
+def access_boundary_warning(settings: Settings) -> str | None:
+    if settings.local_access_only:
+        return None
+    host = settings.api_bind_host.strip().strip("[]")
+    try:
+        loopback = ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        loopback = host.casefold() == "localhost"
+    if loopback:
+        return None
+    return (
+        "LOCAL_ACCESS_ONLY=false while API_BIND_HOST is non-loopback; "
+        "the API has no authentication boundary"
+    )
 
 
 def _postgresql_available(settings: Settings) -> bool:
