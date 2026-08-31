@@ -101,6 +101,21 @@ def test_answer_contract_requires_every_subpart_and_visual_artifact() -> None:
     verify_answer_contract(task, "(a) plotted. (b) illustrated.", [diagram], [image])
 
 
+def test_artifact_contract_separates_shape_from_extensible_capability_id() -> None:
+    legacy = SubpartRequirement.model_validate(
+        {"answer_kind": "math_plot", "required_tool": "math_plot"}
+    )
+    new_subject_diagram = AnswerDiagram(
+        title="Synthetic subject diagram",
+        tool_name="synthetic_diagram",
+        elements=[DiagramElement(kind="point", x=1, y=1)],
+    )
+
+    assert legacy.answer_kind == "diagram"
+    assert legacy.required_tool == "math_plot"
+    assert new_subject_diagram.tool_name == "synthetic_diagram"
+
+
 def test_answer_contract_accepts_question_prefixed_decimal_subpart_headings() -> None:
     task = AnswerTask(
         subject_code="9640",
@@ -236,7 +251,13 @@ def test_answer_contract_allows_blank_axes_fallback_but_not_existing_curve_fallb
 
     verify_answer_contract(blank_axes, "A mathematically equivalent plot is shown.", [diagram], [])
     with pytest.raises(RuntimeError, match="existing curve/grid"):
-        verify_answer_contract(existing_curve, "The trapezia are shown.", [diagram], [])
+        verify_answer_contract(
+            existing_curve,
+            "The trapezia are shown.",
+            [diagram],
+            [],
+            source_plot_overlay_mode="existing_curve_grid",
+        )
 
 
 def test_agent_budget_scales_with_subparts_but_respects_hard_caps() -> None:

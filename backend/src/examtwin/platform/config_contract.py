@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
+
+from dotenv import dotenv_values
 
 from examtwin.platform.config import PROJECT_ROOT, Settings
 
@@ -16,6 +19,20 @@ COMPOSE_ONLY_ENV_KEYS = frozenset(
         "POSTGRES_USER",
     }
 )
+OPTIONAL_NON_SETTINGS_ENV_KEYS = frozenset(
+    {
+        "VITE_API_BASE",
+        "VITE_API_PROXY_TARGET",
+    }
+)
+
+
+def seed_example_environment(project_root: Path = PROJECT_ROOT) -> None:
+    """Populate a non-secret process with the complete documented config contract."""
+
+    for name, value in dotenv_values(project_root / ".env.example").items():
+        if value is not None:
+            os.environ.setdefault(name, value)
 
 
 @dataclass(frozen=True)
@@ -71,8 +88,8 @@ def audit_environment_contract(project_root: Path = PROJECT_ROOT) -> Environment
     local, duplicate_local = _environment_keys(local_path) if local_path.is_file() else (None, ())
     return EnvironmentContractAudit(
         expected_keys=expected,
-        example_keys=example,
-        local_keys=local,
+        example_keys=example - OPTIONAL_NON_SETTINGS_ENV_KEYS,
+        local_keys=None if local is None else local - OPTIONAL_NON_SETTINGS_ENV_KEYS,
         duplicate_example_keys=duplicate_example,
         duplicate_local_keys=duplicate_local,
     )

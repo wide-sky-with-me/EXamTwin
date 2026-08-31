@@ -143,6 +143,17 @@ describe("AnswerDiagramView", () => {
     expect(document.body.style.overflow).toBe("");
   });
 
+  test("renders a generic fallback label for a new subject capability", () => {
+    render(
+      <AnswerDiagramView
+        diagram={{ ...diagram, tool_name: "synthetic_diagram" }}
+        subjectId="test-subject"
+      />,
+    );
+
+    expect(screen.getByText("synthetic diagram · 安全矢量图")).toBeInTheDocument();
+  });
+
   test("renders trusted paper pixels beneath a calibrated vector overlay", () => {
     const sourceDiagram: AnswerDiagram = {
       ...diagram,

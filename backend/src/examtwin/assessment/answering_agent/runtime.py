@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-from typing import Any
+from typing import Any, cast
 
 from llama_index.core.llms import LLM
 
@@ -18,12 +18,7 @@ from examtwin.assessment.answering_agent.contracts import (
     ToolReplayPayload,
     required_answer_artifacts_are_present,
 )
-from examtwin.assessment.answering_agent.finalization import (
-    AgentFinalPayload,
-    citation_ids_in_markdown,
-    compact_cited_evidence,
-    validate_citation_contract,
-)
+from examtwin.assessment.answering_agent.finalization import compact_cited_evidence
 from examtwin.assessment.answering_agent.llama_index_adapter import LlamaIndexChatModelAdapter
 from examtwin.assessment.answering_agent.policies import select_answering_tool_names
 from examtwin.assessment.answering_agent.react_runner import ReActHarnessRunner, WorkflowRunner
@@ -33,14 +28,15 @@ from examtwin.assessment.answering_agent.run_policy import (
 )
 from examtwin.assessment.answering_agent.verification import verify_answer_contract
 from examtwin.contracts.system import API_CONTRACT_VERSION
-from examtwin.platform.model_json import parse_json_response
+from examtwin.platform.agent_runtime.model import ChatModelPort
 
 
 class AnsweringAgentRuntime:
     def __init__(
         self,
         *,
-        llm: LLM,
+        llm: LLM | None = None,
+        model: ChatModelPort | None = None,
         skills: tuple[SubjectSkill, ...],
         registry: CapabilityRegistry,
         runner: WorkflowRunner | None = None,
@@ -49,8 +45,10 @@ class AnsweringAgentRuntime:
         timeout: float = 180,
         question_vision_replay_identity: str | None = None,
     ):
+        if llm is None and model is None:
+            raise ValueError("answering Agent requires a chat model")
         self.llm = llm
-        self.model = LlamaIndexChatModelAdapter(llm)
+        self.model = model or LlamaIndexChatModelAdapter(cast(LLM, llm))
         self.skills = skills
         self.registry = registry
         self.runner = runner or ReActHarnessRunner()
@@ -229,7 +227,7 @@ class AnsweringAgentRuntime:
                 remaining = deadline - loop.time()
                 if remaining <= 0:
                     raise TimeoutError("answering Agent exhausted its total time budget")
-                response_text = await self.runner.run(
+                payload = await self.runner.run(
                     model=self.model,
                     task=task,
                     skill=skill,
@@ -251,24 +249,16 @@ class AnsweringAgentRuntime:
                         + ", but none was produced"
                     )
                 context.emit("verifying", "running", "正在校验答案、引用与工具产物")
-                payload = AgentFinalPayload.model_validate(parse_json_response(response_text))
                 warnings = list(payload.warnings)
                 answer_markdown = payload.answer_markdown
                 confidence = payload.confidence
-                marker_ids = citation_ids_in_markdown(answer_markdown)
-                if not payload.citation_ids:
-                    payload = payload.model_copy(update={"citation_ids": marker_ids})
-                validate_citation_contract(
-                    payload,
-                    allowed_citation_ids=tuple(
-                        f"S{index}" for index in range(1, len(context.citations) + 1)
-                    ),
-                )
+                marker_ids = payload.citation_ids
                 verify_answer_contract(
                     task,
                     answer_markdown,
                     context.diagrams,
                     context.images,
+                    source_plot_overlay_mode=skill.source_plot_overlay_mode(task.question),
                 )
                 grounded = payload.grounded and bool(marker_ids)
                 cited_evidence = ()

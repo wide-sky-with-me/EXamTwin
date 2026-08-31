@@ -25,10 +25,24 @@ def test_bundled_subject_packages_load_reviewed_math_and_economics_skills() -> N
 
     skill = mathematics.require_skill()
     assert mathematics.pack.subject_code == "9660"
+    assert mathematics.icon == "calculator"
+    assert mathematics.color == "#2563EB"
     assert skill.required_visual_tool("Sketch the curve on the axes.") == "math_plot"
+    assert (
+        skill.source_plot_overlay_mode("On the grid, sketch the transformed curve.") == "blank_axes"
+    )
+    assert (
+        skill.source_plot_overlay_mode(
+            "On Figure 4 draw the five trapezia under the existing curve."
+        )
+        == "existing_curve_grid"
+    )
+    assert skill.source_plot_overlay_mode("Sketch a fresh coordinate graph.") is None
     assert skill.mandatory_tool_names == ("knowledge_search",)
     assert skill.package_digest == mathematics.digest
     assert economics.pack.subject_code == "9640"
+    assert economics.icon == "chart-no-axes-combined"
+    assert economics.color == "#0F766E"
     economics_skill = economics.require_skill()
     assert economics.answering_enabled is True
     assert (
@@ -152,6 +166,73 @@ def test_installed_subject_sync_creates_default_knowledge_bases() -> None:
         ("core", "Core Knowledge Base"),
         ("supplementary", "Supplementary Knowledge Base"),
     ]
+
+
+def test_synthetic_third_subject_uses_existing_contracts_without_core_changes(
+    tmp_path: Path,
+) -> None:
+    package_dir = tmp_path / "synthetic-general-9999"
+    package_dir.mkdir()
+    manifest = {
+        "schema_version": 1,
+        "version": "test-v1",
+        "id": package_dir.name,
+        "subject_code": "9999",
+        "title": "Synthetic General Subject",
+        "icon": "atom",
+        "color": "#123456",
+        "board_id": "oxfordaqa",
+        "specification_ref": "fixture://synthetic-specification",
+        "runtime": {
+            "corpus_root": "fixtures/synthetic",
+            "vector_collection": "examtwin_9999",
+            "vector_alias": "examtwin_9999_live",
+        },
+        "curriculum": {
+            "unit_rules": [
+                {
+                    "code": "ALL",
+                    "title": "Whole subject",
+                    "strand": "General",
+                    "source_page": 1,
+                    "topic_prefixes": ["ALL"],
+                }
+            ],
+            "topic_code_pattern": "[A-Za-z0-9][A-Za-z0-9._-]*",
+            "unit_patterns": [["whole subject", "ALL"]],
+            "paper_unit_map": {"0": "ALL"},
+            "minimum_topics": 1,
+            "minimum_objectives": 1,
+            "normalizer_key": "default-v1",
+        },
+        "answering": {
+            "tool_names": ["knowledge_search"],
+            "required_tool_names": ["knowledge_search"],
+            "mandatory_tool_names": ["knowledge_search"],
+        },
+    }
+    (package_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    (package_dir / "SKILL.md").write_text(
+        "Use only retrieved evidence for this synthetic subject.",
+        encoding="utf-8",
+    )
+
+    package = SubjectPackageRegistry.from_directory(tmp_path).resolve("9999")
+
+    assert package.pack.id == package_dir.name
+    assert package.pack.subject_code == "9999"
+    assert package.require_skill().tool_names == ("knowledge_search",)
+    assert package.require_skill().required_visual_tool("Draw anything.") is None
+    assert package.require_skill().source_plot_overlay_mode("On the grid.") is None
+    assert package.icon == "atom"
+    assert package.color == "#123456"
+
+    original_digest = package.digest
+    manifest["icon"] = "languages"
+    manifest["color"] = "#654321"
+    (package_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    restyled = SubjectPackageRegistry.from_directory(tmp_path).resolve("9999")
+    assert restyled.digest == original_digest
 
 
 def test_subject_package_rejects_skill_path_escape(tmp_path: Path) -> None:

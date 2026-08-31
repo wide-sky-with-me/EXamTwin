@@ -3,6 +3,7 @@ import {
   Card,
   Col,
   Empty,
+  Dropdown,
   Flex,
   Form,
   Input,
@@ -27,12 +28,14 @@ import {
   Eye,
   FileText,
   ChevronRight,
+  MoreHorizontal,
   Layers3,
   Pencil,
   Play,
   Plus,
   RotateCcw,
   Save,
+  ScanText,
   ShieldCheck,
   Trash2,
   UploadCloud,
@@ -44,6 +47,7 @@ import { ErrorBanner } from "../components/Feedback";
 import { PaperJobHistory } from "../components/PaperJobHistory";
 import { useToast } from "../components/toast-context";
 import { AppConfirmDialog } from "../components/ui/AppConfirmDialog";
+import { TaskWorkspaceDialog } from "../components/ui/AppDialog";
 import { ListPagination } from "../components/ui/ListControls";
 import {
   answerPaperUnit,
@@ -61,6 +65,7 @@ import {
   updatePaperUnit,
   uploadWorkspaceDocument,
 } from "../lib/api";
+import type { PaperDetail } from "../lib/paper-routes";
 import type {
   PaperUnitDocument,
   PaperUnitList,
@@ -83,18 +88,11 @@ const EMPTY_LIST: PaperUnitList = {
   available_sessions: [],
 };
 
-type Detail =
-  | { kind: "paper"; id: string }
-  | { kind: "document"; id: string; parentPaperId?: string }
-  | { kind: "answers"; paperId: string }
-  | { kind: "job"; id: string; paperId: string }
-  | { kind: "grading"; id: string; paperId: string }
-  | null;
 
 type PaperManagementProps = {
   subjects: SubjectStatus[];
   subjectId?: string;
-  detail?: Detail;
+  detail?: PaperDetail;
   onSubjectChange?: (subjectId: string) => void;
   onOpenPaper?: (subjectId: string, paperUnitId: string) => void;
   onOpenAnswers?: (subjectId: string, paperUnitId: string) => void;
@@ -129,6 +127,12 @@ const EMPTY_DRAFT: BindingDraft = {
   markSchemeId: "",
   sourceBookletId: "",
 };
+
+const PAPER_DOCUMENT_ROLE_META = {
+  question_paper: { icon: FileText, label: "Question Paper" },
+  mark_scheme: { icon: ShieldCheck, label: "Mark Scheme" },
+  source_booklet: { icon: Layers3, label: "Source Booklet" },
+} as const;
 
 function documentLabel(document: Pick<SourceDocument | PaperUnitDocument, "display_name" | "filename">) {
   return document.display_name || document.filename;
@@ -189,26 +193,25 @@ function PaperDocumentRow({
   document: PaperUnitDocument;
   onOpen: () => void;
 }) {
-  const labels = {
-    question_paper: "Question Paper",
-    mark_scheme: "Mark Scheme",
-    source_booklet: "Source Booklet",
-  } as const;
-  const icons = {
-    question_paper: FileText,
-    mark_scheme: ShieldCheck,
-    source_booklet: Layers3,
-  } as const;
-  const Icon = icons[document.role];
+  const { icon: Icon, label } = PAPER_DOCUMENT_ROLE_META[document.role];
   return (
     <button className="paper-binding-row" onClick={onOpen} type="button">
-      <Icon size={18} />
-      <span>
-        <strong>{labels[document.role]}</strong>
-        <Tooltip placement="bottomLeft" title={documentLabel(document)}><small>{documentLabel(document)}</small></Tooltip>
+      <span aria-hidden="true" className={`paper-binding-icon is-${document.role.replaceAll("_", "-")}`}>
+        <Icon size={19} strokeWidth={1.8} />
       </span>
-      <em>{document.page_count ? `${document.page_count} 页` : document.status}</em>
-      <ChevronRight size={16} />
+      <span className="paper-binding-copy">
+        <span className="paper-binding-title-line">
+          <strong>{label}</strong>
+          <Tag color={conversionStatusColor(document.status)}>{documentStatusLabel(document.status)}</Tag>
+        </span>
+        <Tooltip placement="bottomLeft" title={documentLabel(document)}>
+          <small className="paper-binding-filename">{documentLabel(document)}</small>
+        </Tooltip>
+      </span>
+      <span aria-hidden="true" className="paper-binding-meta">
+        <span>{document.page_count ? `${document.page_count} 页` : "页数未识别"}</span>
+        <ChevronRight className="paper-binding-chevron" size={17} strokeWidth={2} />
+      </span>
     </button>
   );
 }
@@ -272,6 +275,8 @@ export function PaperManagement({
   const [conversionQueue, setConversionQueue] = useState<ConversionQueueItem[]>([]);
   const [conversionStates, setConversionStates] = useState<Partial<Record<string, ConversionQueueState>>>({});
   const [detailPaper, setDetailPaper] = useState<PaperUnitSummary | null>(null);
+  const [detailLoading, setDetailLoading] = useState(Boolean(detail));
+  const [detailError, setDetailError] = useState<string | null>(null);
   const paperRequestRef = useRef(0);
   const documentRequestRef = useRef(0);
   const previousSubjectIdRef = useRef(subjectId);
@@ -411,13 +416,20 @@ export function PaperManagement({
           : undefined;
     if (!paperId || !subjectId) {
       setDetailPaper(null);
+      setDetailLoading(false);
+      setDetailError(null);
       return;
     }
     const listed = papers.items.find((item) => item.id === paperId);
     if (listed) {
       setDetailPaper(listed);
+      setDetailLoading(false);
+      setDetailError(null);
       return;
     }
+    setDetailPaper(null);
+    setDetailError(null);
+    setDetailLoading(true);
     let current = true;
     void unwrapApi(apiClient.GET(
       "/api/v1/subject-workspaces/{workspace_id}/paper-units/{paper_unit_id}",
@@ -426,9 +438,16 @@ export function PaperManagement({
         params: { path: { workspace_id: subjectId, paper_unit_id: paperId } },
       },
     )).then((result) => {
-      if (current) setDetailPaper(result);
+      if (current) {
+        setDetailError(null);
+        setDetailPaper(result);
+        setDetailLoading(false);
+      }
     }).catch((cause: unknown) => {
-      if (current) setError(cause instanceof Error ? cause.message : "试卷详情加载失败");
+      if (current) {
+        setDetailError(cause instanceof Error ? cause.message : "试卷详情加载失败");
+        setDetailLoading(false);
+      }
     });
     return () => { current = false; };
   }, [detail, papers.items, subjectId]);
@@ -459,6 +478,14 @@ export function PaperManagement({
     setExamSession("");
     setLocalSubjectId(nextSubjectId);
     onSubjectChange?.(nextSubjectId);
+  }
+
+  function resetPaperFilters() {
+    setQuery("");
+    setUnitCode("");
+    setExamYear("");
+    setExamSession("");
+    setPage(0);
   }
 
   function openCreate() {
@@ -687,13 +714,45 @@ export function PaperManagement({
     if (subjectId) onOpenDocument?.(subjectId, documentId, selectedPaper?.id);
   }
 
-  function convertDocument(document: SourceDocument) {
-    const state = conversionStates[document.id];
-    if (!subjectId || state === "queued" || state === "converting") return;
+  function queueDocumentsForConversion(
+    candidates: SourceDocument[],
+    message: (count: number) => string,
+  ) {
+    if (!subjectId) return;
+    const unique = candidates.filter((document, index) =>
+      candidates.findIndex((candidate) => candidate.id === document.id) === index
+      && (conversionStates[document.id] ?? document.status) !== "converted"
+      && conversionStates[document.id] !== "queued"
+      && conversionStates[document.id] !== "converting",
+    );
+    if (!unique.length) return;
     setError(null);
-    setConversionStates((current) => ({ ...current, [document.id]: "queued" }));
-    setConversionQueue((current) => current.some((item) => item.document.id === document.id) ? current : [...current, { document, subjectId }]);
-    notify(`${documentLabel(document)} 已加入解析队列。`);
+    setConversionStates((current) => unique.reduce(
+      (next, document) => ({ ...next, [document.id]: "queued" as const }),
+      current,
+    ));
+    setConversionQueue((current) => {
+      const queuedIds = new Set(current.map((item) => item.document.id));
+      return [
+        ...current,
+        ...unique
+          .filter((document) => !queuedIds.has(document.id))
+          .map((document) => ({ document, subjectId })),
+      ];
+    });
+    notify(message(unique.length));
+  }
+
+  function convertDocument(document: SourceDocument) {
+    queueDocumentsForConversion([document], () => `${documentLabel(document)} 已加入解析队列。`);
+  }
+
+  function convertPaperDocuments(paper: PaperUnitSummary) {
+    const boundIds = new Set(paper.documents.map((document) => document.id));
+    queueDocumentsForConversion(
+      documents.filter((document) => boundIds.has(document.id)),
+      (count) => `已将 ${count} 份绑定资料加入解析队列。`,
+    );
   }
 
   const selectedDocumentUrl = selectedDocument && subjectId
@@ -706,9 +765,27 @@ export function PaperManagement({
     ? conversionStates[selectedDocument.id] ?? selectedDocument.status
     : null;
 
+  const paperFiltersActive = Boolean(query || unitCode || examYear || examSession);
   return (
     <div className="paper-management-page">
-      <Card className="paper-management-toolbar-card" size="small">
+      <header className="catalog-page-header">
+        <div className="catalog-page-heading">
+          <Title className="catalog-page-title" level={1}>试卷</Title>
+          <Text className="catalog-page-context" type="secondary">
+            {subject ? `${subject.title} · ${subject.subject_code}` : "请选择科目"}
+          </Text>
+        </div>
+        <Button
+          className="catalog-primary-action"
+          disabled={!subject || loading}
+          icon={<Plus aria-hidden="true" size={17} />}
+          onClick={openCreate}
+          type="primary"
+        >
+          添加试卷
+        </Button>
+      </header>
+      <Card className="catalog-toolbar-card paper-management-toolbar-card" size="small">
         <Flex align="center" className="paper-management-toolbar" gap="small" wrap>
           <Select
             aria-label="选择科目"
@@ -754,21 +831,37 @@ export function PaperManagement({
           <Tooltip title="试卷回收站">
             <Button aria-label="打开试卷回收站" disabled={!subject || loading} icon={<Trash2 size={17} />} onClick={() => void openTrash()} />
           </Tooltip>
-          <Button aria-label="添加试卷" disabled={!subject || loading} icon={<Plus size={17} />} onClick={openCreate} type="primary" />
         </Flex>
       </Card>
 
       {subject ? (
         <section aria-busy={loading} className={`paper-management-results${loading ? " is-loading" : ""}`}>
           <div aria-hidden={loading || undefined} className="paper-management-results-content">
-            <ErrorBanner message={error} />
+            {error && (
+              <div className="catalog-error-row">
+                <ErrorBanner message={error} />
+                <Button disabled={loading} onClick={() => void loadPapers()}>重新加载</Button>
+              </div>
+            )}
 
             {papers.items.length > 0 ? (
             <Row gutter={[16, 16]}>
               {papers.items.map((paper) => {
-                const markScheme = paper.documents.some((item) => item.role === "mark_scheme");
-                const booklet = paper.documents.some((item) => item.role === "source_booklet");
                 const name = paperDisplayName(paper);
+                const materialStates = paper.documents.map((binding) => {
+                  const sourceDocument = documents.find((document) => document.id === binding.id);
+                  return {
+                    binding,
+                    sourceDocument,
+                    status: conversionStates[binding.id] ?? sourceDocument?.status ?? binding.status,
+                  };
+                });
+                const convertedCount = materialStates.filter(({ status }) => status === "converted").length;
+                const allConverted = materialStates.length > 0 && convertedCount === materialStates.length;
+                const conversionActive = materialStates.some(({ status }) => status === "queued" || status === "converting");
+                const canQuickConvert = materialStates.some(({ sourceDocument, status }) =>
+                  sourceDocument && status !== "converted" && status !== "queued" && status !== "converting",
+                );
                 return (
                   <Col key={paper.id} lg={8} md={12} xs={24}>
                     <Card className="paper-unit-card" hoverable>
@@ -789,13 +882,36 @@ export function PaperManagement({
                         <span className="paper-unit-card-overview">
                           <span><small>资料</small><strong>{paper.documents.length}</strong></span>
                           <span><small>作答记录</small><strong>{paper.paper_job_count}</strong></span>
-                          <span><small>评分标准</small><strong className={markScheme ? "complete" : "pending"}>{markScheme ? "已绑定" : "待绑定"}</strong></span>
+                          <span><small>解析状态</small><strong className={allConverted ? "complete" : "pending"}>{convertedCount}/{materialStates.length}</strong></span>
                         </span>
-                        <span className="paper-unit-card-bindings">
-                          <span className={markScheme ? "complete" : "pending"}><ShieldCheck size={13} />{markScheme ? "Mark Scheme" : "缺少 Mark Scheme"}</span>
-                          <span className={booklet ? "complete" : "muted"}><Layers3 size={13} />{booklet ? "含支撑材料" : "无支撑材料"}</span>
+                        <span className="paper-unit-card-conversions">
+                          {materialStates.map(({ binding, status }) => {
+                            const { icon: MaterialIcon, label } = PAPER_DOCUMENT_ROLE_META[binding.role];
+                            return (
+                              <span className={`paper-unit-card-conversion is-${status}`} key={binding.id}>
+                                <MaterialIcon aria-hidden="true" size={14} strokeWidth={1.8} />
+                                <span><small>{label}</small><strong>{documentStatusLabel(status)}</strong></span>
+                              </span>
+                            );
+                          })}
                         </span>
                       </button>
+                      <div className={`paper-unit-card-quick-action${allConverted ? " is-complete" : ""}`}>
+                        {allConverted ? (
+                          <span><Check aria-hidden="true" size={15} />资料已全部解析</span>
+                        ) : (
+                          <Button
+                            aria-label={`一键解析 ${name}`}
+                            disabled={!canQuickConvert && !conversionActive}
+                            icon={<ScanText aria-hidden="true" size={15} />}
+                            loading={conversionActive}
+                            onClick={() => convertPaperDocuments(paper)}
+                            size="small"
+                          >
+                            {conversionActive ? "解析处理中" : canQuickConvert ? "一键解析绑定资料" : "正在加载资料状态"}
+                          </Button>
+                        )}
+                      </div>
                       <footer>
                         <Tooltip title={paper.pair_key}><code>{paper.pair_key}</code></Tooltip>
                         <Button aria-label={`编辑 ${name}`} icon={<Pencil size={15} />} onClick={() => openEdit(paper)} type="text">编辑</Button>
@@ -807,8 +923,19 @@ export function PaperManagement({
               })}
             </Row>
             ) : (
-              <Card>
-                <Empty description="当前条件下没有试卷" />
+              <Card className="paper-management-empty">
+                <Empty
+                  description={(
+                    <span className="catalog-empty-copy">
+                      <strong>{paperFiltersActive ? "没有符合当前条件的试卷" : "还没有试卷"}</strong>
+                      <span>{paperFiltersActive ? "清除筛选后查看当前科目的完整试卷目录。" : "添加 Question Paper，并按需绑定 Mark Scheme 与支撑材料。"}</span>
+                    </span>
+                  )}
+                >
+                  <Button onClick={paperFiltersActive ? resetPaperFilters : openCreate}>
+                    {paperFiltersActive ? "清除筛选" : "添加试卷"}
+                  </Button>
+                </Empty>
               </Card>
             )}
 
@@ -833,17 +960,29 @@ export function PaperManagement({
           )}
         </section>
       ) : (
-        <Card><Empty description="先选择科目" /></Card>
+        <Card className="paper-management-empty">
+          <Empty
+            description={(
+              <span className="catalog-empty-copy">
+                <strong>尚未选择科目</strong>
+                <span>{subjects.length > 0 ? "选择一个科目，再查看该课程的试卷目录。" : "先创建科目，才能建立试卷目录。"}</span>
+              </span>
+            )}
+          >
+            {subjects[0] && (
+              <Button onClick={() => chooseSubject(subjects[0].id)} type="primary">
+                选择 {subjects[0].title}
+              </Button>
+            )}
+          </Empty>
+        </Card>
       )}
 
-      {(detail?.kind === "paper" || detail?.kind === "document") && <Modal
-        footer={null}
-        onCancel={() => {
+      {(detail?.kind === "paper" || detail?.kind === "document") && <TaskWorkspaceDialog
+        className="paper-domain-modal paper-detail-modal"
+        onClose={() => {
           if (subjectId) onCloseDetail?.(subjectId);
         }}
-        open
-        rootClassName="paper-detail-modal"
-        styles={{ body: { maxHeight: "calc(100vh - 170px)", overflowY: "auto", paddingRight: 4 } }}
         title={detail?.kind === "document" ? "资料详情" : "试卷详情"}
         width={980}
       >
@@ -852,38 +991,66 @@ export function PaperManagement({
             <div className="paper-detail-hero">
               <span className="paper-detail-hero-icon"><FileText size={24} /></span>
               <div>
-                <Text type="secondary">{selectedPaper.exam_year} · {sessionLabel(selectedPaper.exam_session)} · {selectedPaper.unit_code}</Text>
                 <Tooltip placement="topLeft" title={paperDisplayName(selectedPaper)}><Title level={2}>{paperDisplayName(selectedPaper)}</Title></Tooltip>
-                <Text code copyable>{selectedPaper.pair_key}</Text>
+                <Text type="secondary">
+                  {selectedPaper.exam_year} · {sessionLabel(selectedPaper.exam_session)} · {selectedPaper.unit_code}
+                </Text>
+                <Text className="paper-detail-identity" code copyable>{selectedPaper.pair_key}</Text>
               </div>
               <Tag color={selectedPaper.status === "active" ? "success" : "default"}>{selectedPaper.status === "active" ? "使用中" : "已删除"}</Tag>
             </div>
             <Flex className="paper-detail-primary-actions" gap="small" wrap>
               <Button icon={<Play size={16} />} loading={starting} onClick={() => void startAnswering(selectedPaper)} type="primary">AI 自动作答</Button>
-              <Button icon={<UploadCloud size={16} />} onClick={openExternalImport}>导入外部答卷</Button>
-              <Button icon={<ClipboardList size={16} />} onClick={() => onOpenAnswers?.(subjectId, selectedPaper.id)}>作答记录</Button>
-              <Button icon={<Pencil size={16} />} onClick={() => openEdit(selectedPaper)}>编辑试卷</Button>
+              <Dropdown
+                menu={{
+                  items: [
+                    { key: "import", icon: <UploadCloud size={15} />, label: "导入外部答卷" },
+                    { key: "history", icon: <ClipboardList size={15} />, label: "查看作答记录" },
+                    { key: "edit", icon: <Pencil size={15} />, label: "编辑试卷" },
+                    { type: "divider" },
+                    { key: "delete", danger: true, icon: <Trash2 size={15} />, label: "移入回收站" },
+                  ],
+                  onClick: ({ key }) => {
+                    if (key === "import") openExternalImport();
+                    if (key === "history") onOpenAnswers?.(subjectId, selectedPaper.id);
+                    if (key === "edit") openEdit(selectedPaper);
+                    if (key === "delete") setDeletingCandidate(selectedPaper);
+                  },
+                }}
+                placement="bottomRight"
+                trigger={["click"]}
+              >
+                <Button aria-label="更多试卷操作" icon={<MoreHorizontal size={16} />}>更多操作</Button>
+              </Dropdown>
             </Flex>
-            <section className="paper-detail-section">
-              <Flex align="center" justify="space-between"><Title level={4}>资料绑定</Title><Tag>{selectedPaper.documents.length} 份资料</Tag></Flex>
-              <Space orientation="vertical" size="small" style={{ width: "100%" }}>
-                {selectedPaper.documents.map((document) => <PaperDocumentRow document={document} key={document.id} onOpen={() => openDocument(document.id)} />)}
-              </Space>
-            </section>
-            <dl className="paper-detail-summary">
+            <dl className="paper-detail-summary" aria-label="试卷概览">
+              <div>
+                <dt>资料</dt>
+                <dd>{selectedPaper.documents.length}<small>份</small></dd>
+              </div>
               <div>
                 <dt>作答记录</dt>
                 <dd>{selectedPaper.paper_job_count}<small>条</small></dd>
-              </div>
-              <div>
-                <dt>试卷状态</dt>
-                <dd><Tag color={selectedPaper.status === "active" ? "success" : "default"}>{selectedPaper.status === "active" ? "使用中" : "已删除"}</Tag></dd>
               </div>
               <div>
                 <dt>最近更新</dt>
                 <dd className="paper-detail-summary-date">{new Date(selectedPaper.updated_at).toLocaleDateString("zh-CN")}</dd>
               </div>
             </dl>
+            <section className="paper-detail-section">
+              <Flex align="center" justify="space-between"><Title level={4}>资料绑定</Title><Tag>{selectedPaper.documents.length} 份资料</Tag></Flex>
+              {selectedPaper.documents.length > 0 ? (
+                <ul className="paper-binding-list">
+                  {selectedPaper.documents.map((document) => (
+                    <li key={document.id}>
+                      <PaperDocumentRow document={document} onOpen={() => openDocument(document.id)} />
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <Empty description="暂无绑定资料" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+              )}
+            </section>
           </Space>
         )}
         {detail?.kind === "document" && selectedDocument && (
@@ -945,16 +1112,13 @@ export function PaperManagement({
           </div>
         )}
         {((detail?.kind === "paper" && !selectedPaper) || (detail?.kind === "document" && !selectedDocument)) && <Skeleton active />}
-      </Modal>}
+      </TaskWorkspaceDialog>}
 
-      {detail?.kind === "answers" && <Modal
-        footer={null}
-        onCancel={() => {
-          if (selectedPaper) onOpenPaper?.(subjectId, selectedPaper.id);
+      {detail?.kind === "answers" && <TaskWorkspaceDialog
+        className="paper-domain-modal paper-workflow-modal paper-answer-records-modal"
+        onClose={() => {
+          onOpenPaper?.(subjectId, detail.paperId);
         }}
-        open
-        rootClassName="paper-workflow-modal paper-answer-records-modal"
-        styles={{ body: { maxHeight: "calc(100vh - 170px)", overflowY: "auto", paddingRight: 4 } }}
         title={selectedPaper ? `作答记录 · ${paperDisplayName(selectedPaper)}` : "作答记录"}
         width={1180}
       >
@@ -969,34 +1133,56 @@ export function PaperManagement({
             refreshKey={answerHistoryVersion}
             subject={subject}
           />
-        ) : <Skeleton active />}
-      </Modal>}
+        ) : detailLoading ? <Skeleton active /> : (
+          <div className="paper-route-unavailable" role="status">
+            <ErrorBanner message={detailError ?? "找不到这份试卷，可能已被移入回收站或永久删除。"} />
+            <p>无法打开作答记录。建议返回试卷列表，选择仍可用的试卷。</p>
+            <Button onClick={() => onCloseDetail?.(subjectId)} type="primary">返回试卷列表</Button>
+          </div>
+        )}
+      </TaskWorkspaceDialog>}
 
-      {detail?.kind === "job" && <Modal
-        footer={null}
-        onCancel={() => {
-          if (detail?.kind === "job") onOpenAnswers?.(subjectId, detail.paperId);
+      {detail?.kind === "job" && <TaskWorkspaceDialog
+        className="paper-domain-modal paper-workflow-modal paper-answer-result-modal"
+        onClose={() => {
+          if (selectedPaper) onOpenAnswers?.(subjectId, detail.paperId);
+          else onCloseDetail?.(subjectId);
         }}
-        open
-        rootClassName="paper-workflow-modal paper-answer-result-modal"
-        styles={{ body: { maxHeight: "calc(100vh - 150px)", overflowY: "auto", paddingRight: 4 } }}
         title={selectedPaper ? `作答详情 · ${paperDisplayName(selectedPaper)}` : "作答详情"}
         width={1380}
       >
-        {detail?.kind === "job" && subject ? (
-          <Suspense fallback={<Skeleton active />}>
+        {subject ? (
+          <Suspense fallback={(
+            <div aria-busy="true" role="status">
+              <span className="sr-only">正在加载作答详情</span>
+              <Skeleton active />
+            </div>
+          )}>
             <PaperAnswering
               embedded
               enabled={subject.answering_enabled}
               initialJobId={detail.id}
               initialPaperUnitId={detail.paperId}
               initialSubjectId={subject.id}
-              onBack={() => onOpenAnswers?.(subject.id, detail.paperId)}
+              onBack={() => {
+                if (selectedPaper) onOpenAnswers?.(subject.id, detail.paperId);
+                else onCloseDetail?.(subject.id);
+              }}
+              onOpenJob={(jobId, paperUnitId) => {
+                if (paperUnitId) onOpenJob?.(subject.id, paperUnitId, jobId);
+              }}
+              onOpenPaper={(paperUnitId) => onOpenPaper?.(subject.id, paperUnitId)}
               subjects={subjects}
             />
           </Suspense>
-        ) : <Skeleton active />}
-      </Modal>}
+        ) : detailLoading ? <Skeleton active /> : (
+          <div className="paper-route-unavailable" role="status">
+            <ErrorBanner message={detailError ?? "找不到这份试卷或作答任务，链接可能已失效。"} />
+            <p>无法打开作答详情。建议返回试卷列表，重新选择作答记录。</p>
+            <Button onClick={() => onCloseDetail?.(subjectId)} type="primary">返回试卷列表</Button>
+          </div>
+        )}
+      </TaskWorkspaceDialog>}
 
       {detail?.kind === "grading" && <Modal
         footer={null}
@@ -1004,8 +1190,7 @@ export function PaperManagement({
           if (detail?.kind === "grading") onOpenAnswers?.(subjectId, detail.paperId);
         }}
         open
-        rootClassName="paper-workflow-modal paper-grading-modal"
-        styles={{ body: { maxHeight: "calc(100vh - 150px)", overflowY: "auto", paddingRight: 4 } }}
+        rootClassName="paper-domain-modal paper-workflow-modal paper-grading-modal"
         title={selectedPaper ? `试卷评分 · ${paperDisplayName(selectedPaper)}` : "试卷评分"}
         width={1380}
       >
@@ -1027,8 +1212,7 @@ export function PaperManagement({
         footer={null}
         onCancel={() => setEditorOpen(false)}
         open={editorOpen}
-        rootClassName="paper-editor-modal"
-        styles={{ body: { maxHeight: "calc(100vh - 190px)", overflowY: "auto", paddingRight: 4 } }}
+        rootClassName="paper-domain-modal paper-editor-modal"
         title={editing ? "编辑试卷" : "添加试卷"}
         width={1180}
         zIndex={1300}
@@ -1260,7 +1444,7 @@ export function PaperManagement({
         footer={null}
         onCancel={() => setStagedPreview(null)}
         open={Boolean(stagedPreview)}
-        rootClassName="paper-local-preview-modal"
+        rootClassName="paper-domain-modal paper-local-preview-modal"
         title={stagedPreview ? `文件预览 · ${stagedPreview.file.name}` : "文件预览"}
         width={980}
         zIndex={1450}
@@ -1280,6 +1464,7 @@ export function PaperManagement({
         onCancel={() => setExternalImportOpen(false)}
         onOk={() => void importExternalAnswer()}
         open={externalImportOpen}
+        rootClassName="paper-domain-modal paper-external-import-modal"
         title="导入外部答卷"
         width={560}
         zIndex={1300}
@@ -1308,7 +1493,7 @@ export function PaperManagement({
         footer={null}
         onCancel={() => setTrashOpen(false)}
         open={trashOpen}
-        rootClassName="paper-trash-modal"
+        rootClassName="paper-domain-modal paper-trash-modal"
         title={(
           <span className="paper-trash-title">
             <span><Trash2 size={18} /></span>

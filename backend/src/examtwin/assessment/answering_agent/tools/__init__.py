@@ -3,7 +3,7 @@ from examtwin.assessment.answering_agent.tools.economics_diagram import Economic
 from examtwin.assessment.answering_agent.tools.image_generate import (
     AnswerImageStore,
     ImageGenerationTool,
-    OpenAICompatibleImageProvider,
+    LiteLLMImageProvider,
 )
 from examtwin.assessment.answering_agent.tools.knowledge import KnowledgeSearchTool
 from examtwin.assessment.answering_agent.tools.math_calculate import MathCalculateTool
@@ -23,7 +23,7 @@ __all__ = [
     "KnowledgeSearchTool",
     "AnswerImageStore",
     "ImageGenerationTool",
-    "OpenAICompatibleImageProvider",
+    "LiteLLMImageProvider",
     "MathCalculateTool",
     "MathDiagramTool",
     "MathPlotTool",

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Sequence
 from typing import Any
 
 from examtwin.assessment.answering_agent import (
@@ -72,7 +73,7 @@ class ToolUsingRunner:
         tools: list[HarnessTool],
         context: AgentRunContext,
         **_kwargs: Any,
-    ) -> str:
+    ) -> AgentFinalPayload:
         by_name = {tool.spec.name: tool for tool in tools}
         context.emit("tool", "running", "检索知识库中", tool_name="knowledge_search")
         evidence = await by_name["knowledge_search"].invoke(
@@ -98,25 +99,23 @@ class ToolUsingRunner:
         )
         assert "[S1]" in evidence.content
         assert "[2, 3]" in calculation.content
-        return json.dumps(
-            {
-                "answer_markdown": "The roots are 2 and 3. [S1]",
-                "confidence": 0.91,
-                "grounded": True,
-                "warnings": [],
-            }
+        return AgentFinalPayload(
+            answer_markdown="The roots are 2 and 3. [S1]",
+            citation_ids=["S1"],
+            confidence=0.91,
+            grounded=True,
+            warnings=[],
         )
 
 
 class NoEvidenceRunner:
-    async def run(self, **_kwargs: Any) -> str:
-        return json.dumps(
-            {
-                "answer_markdown": "An unsupported answer.",
-                "confidence": 0.8,
-                "grounded": True,
-                "warnings": [],
-            }
+    async def run(self, **_kwargs: Any) -> AgentFinalPayload:
+        return AgentFinalPayload(
+            answer_markdown="An unsupported answer.",
+            citation_ids=[],
+            confidence=0.8,
+            grounded=True,
+            warnings=[],
         )
 
 
@@ -157,6 +156,7 @@ class ScriptedReActLLM(CustomLLM):
                 "Thought: The tool observation supports the answer.\n"
                 "Answer: "
                 '{"answer_markdown":"The discriminant is $b^2-4ac$. [S1]",'
+                '"citation_ids":["S1"],'
                 '"confidence":0.9,"grounded":true,"warnings":[]}'
             )
         return CompletionResponse(text=text)
@@ -213,16 +213,15 @@ class CapturingFinalAnswerProvider:
 
     async def finalize(
         self,
-        messages: list[HarnessMessage],
+        messages: Sequence[HarnessMessage],
         *,
         draft: str | None = None,
-        allowed_citation_ids: tuple[str, ...] | None = None,
-        required_subpart_labels: tuple[str, ...] = (),
+        required_subpart_labels: Sequence[str] = (),
         timeout: float | None = None,
     ) -> AgentFinalPayload:
-        self.required_subpart_labels = required_subpart_labels
+        self.required_subpart_labels = tuple(required_subpart_labels)
         self.calls += 1
-        self.messages = messages
+        self.messages = list(messages)
         self.draft = draft
         self.finalize_timeout = timeout
 

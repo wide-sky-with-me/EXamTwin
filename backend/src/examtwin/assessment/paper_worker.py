@@ -44,6 +44,7 @@ from examtwin.assessment.paper_vision import (
 )
 from examtwin.assessment.task_events import PaperJobWakeup, SleepPaperJobWakeup
 from examtwin.contracts.papers import PaperQuestionAnswer
+from examtwin.contracts.system import API_PREFIX
 from examtwin.knowledge.public import parse_exam_identity
 from examtwin.platform.config import Settings
 from examtwin.platform.database.session import create_session_factory
@@ -55,7 +56,7 @@ _QUESTION_IMAGE_SUFFIXES = {".bmp", ".gif", ".jpeg", ".jpg", ".png", ".webp"}
 _QUESTION_IMAGE_MIN_AREA = 16_384
 _QUESTION_IMAGE_MIN_LONG_EDGE = 160
 _QUESTION_IMAGE_URL = re.compile(
-    r"/api/v1/papers/jobs/(?P<job_id>[A-Za-z0-9-]+)/question-images/"
+    rf"{re.escape(API_PREFIX)}/papers/jobs/(?P<job_id>[A-Za-z0-9-]+)/question-images/"
     r"(?P<asset>p(?P<page>\d{4})-[0-9a-f]{64}\.(?:bmp|gif|jpeg|jpg|png|webp))"
 )
 _UPLOADED_ANSWER_HEADING = re.compile(
@@ -1058,7 +1059,7 @@ class PaperWorker:
                 f"{job_id}/question-images/{asset_name}",
                 image.content,
             )
-            public_url = f"/api/v1/papers/jobs/{job_id}/question-images/{asset_name}"
+            public_url = f"{API_PREFIX}/papers/jobs/{job_id}/question-images/{asset_name}"
             for target in sorted(referenced, key=len, reverse=True):
                 markdown = markdown.replace(target, public_url)
         return markdown

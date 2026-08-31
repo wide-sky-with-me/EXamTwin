@@ -4,27 +4,21 @@ import {
   Badge,
   Breadcrumb,
   Button,
-  Card,
-  Col,
-  Drawer,
   Flex,
   Layout,
   Menu,
   Result,
-  Row,
   Space,
   Spin,
-  Tag,
+  Tooltip,
   Typography,
 } from "antd";
 import {
-  FileText,
   Files,
   GraduationCap,
-  LibraryBig,
+  PanelLeftClose,
   PanelLeftOpen,
   ShieldCheck,
-  X,
 } from "lucide-react";
 import { lazy, type ReactNode, Suspense, useState } from "react";
 import {
@@ -36,17 +30,30 @@ import {
   useParams,
 } from "react-router";
 
-import { SubjectWorkspace } from "./components/SubjectWorkspace";
 import { ThemeSwitch } from "./components/ThemeSwitch";
 import { apiClient, unwrapApi } from "./lib/api";
+import {
+  PAPER_ROUTE_PATTERNS,
+  paperAnsweringPath,
+  paperAnswersPath,
+  paperDetailPath,
+  paperDocumentPath,
+  paperGradingPath,
+  paperIndexPath,
+  parsePaperLocation,
+  parseSubjectId,
+  subjectPath,
+} from "./lib/paper-routes";
 import type { PlatformStatus, ReviewItem, SubjectStatus } from "./types";
 
+const SubjectWorkspace = lazy(() => import("./components/SubjectWorkspace").then(({ SubjectWorkspace: Workspace }) => ({ default: Workspace })));
+const SubjectOverview = lazy(() => import("./pages/SubjectOverview").then(({ SubjectOverview: Page }) => ({ default: Page })));
 const SubjectManagement = lazy(() => import("./pages/SubjectManagement").then(({ SubjectManagement: Page }) => ({ default: Page })));
 const PaperManagement = lazy(() => import("./pages/PaperManagement").then(({ PaperManagement: Page }) => ({ default: Page })));
 const Reviews = lazy(() => import("./pages/Reviews").then(({ Reviews: Page }) => ({ default: Page })));
 
 const { Content } = Layout;
-const { Paragraph, Text, Title } = Typography;
+const { Text, Title } = Typography;
 
 type AppMenuItem = {
   key: string;
@@ -55,45 +62,66 @@ type AppMenuItem = {
   path: string;
 };
 
-function SidebarNavigation({
+export function SidebarNavigation({
+  collapsed,
   items,
-  onClose,
   onNavigate,
+  onToggle,
   selectedKey,
 }: {
+  collapsed: boolean;
   items: AppMenuItem[];
-  onClose?: () => void;
   onNavigate: (path: string) => void;
+  onToggle: () => void;
   selectedKey: string;
 }) {
   return (
-    <div className="flex h-full min-h-0 flex-col px-4 py-5">
-      <div className="mb-6 flex items-center justify-between gap-3 px-1">
+    <div className={`app-sidebar-inner flex h-full min-h-0 flex-col py-5 ${collapsed ? "px-2" : "px-4"}`}>
+      <div className={`app-sidebar-brand mb-6 flex items-center gap-3 px-1 ${collapsed ? "justify-center" : "justify-between"}`}>
         <Button
-          className="!h-auto !px-2 !py-1.5"
-          icon={<span className="flex size-9 items-center justify-center rounded-xl bg-blue-600 text-white shadow-lg shadow-blue-600/20"><LibraryBig size={19} /></span>}
+          aria-label="返回科目列表"
+          className="app-brand-button !h-auto !px-2 !py-1.5"
+          icon={<span className="app-brand-mark"><img alt="" aria-hidden="true" src="/examtwin-icon.svg" /></span>}
           onClick={() => onNavigate("/subjects")}
           type="text"
         >
-          <span className="flex flex-col items-start leading-tight">
-            <Text className="!text-[15px]" strong>ExamTwin</Text>
-            <Text className="!text-[10px] !tracking-[0.12em]" type="secondary">ASSESSMENT</Text>
-          </span>
+          {!collapsed && (
+            <span className="flex flex-col items-start leading-tight">
+              <Text className="!text-[15px]" strong>ExamTwin</Text>
+              <Text className="!text-[10px] !tracking-[0.12em]" type="secondary">ASSESSMENT</Text>
+            </span>
+          )}
         </Button>
-        {onClose && <Button aria-label="关闭主导航" icon={<X size={18} />} onClick={onClose} shape="circle" type="text" />}
       </div>
       <nav aria-label="主导航" className="min-h-0 flex-1">
         <Menu
           className="app-side-menu"
+          inlineCollapsed={collapsed}
           items={items.map(({ key, icon, label }) => ({ key, icon, label }))}
           mode="inline"
           onClick={({ key }) => onNavigate(items.find((item) => item.key === key)?.path ?? "/subjects")}
           selectedKeys={[selectedKey]}
         />
       </nav>
-      <div className="mt-5 rounded-2xl border border-[var(--app-glass-border)] bg-[var(--app-content-glass)] p-2.5 shadow-sm backdrop-blur-xl">
-        <Text className="mb-2 block px-1 !text-[10px] !font-semibold !tracking-[0.12em]" type="secondary">外观</Text>
-        <ThemeSwitch />
+      <div className="app-sidebar-footer mt-5">
+        {!collapsed && (
+          <div className="rounded-2xl border border-[var(--app-glass-border)] bg-[var(--app-content-glass)] p-2.5 shadow-sm backdrop-blur-xl">
+            <Text className="mb-2 block px-1 !text-[10px] !font-semibold !tracking-[0.12em]" type="secondary">外观</Text>
+            <ThemeSwitch />
+          </div>
+        )}
+        <Tooltip placement="right" title={collapsed ? "展开侧栏" : "收起侧栏"}>
+          <Button
+            aria-label={collapsed ? "展开侧栏" : "收起侧栏"}
+            block
+            className="app-sidebar-toggle"
+            icon={collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+            onClick={onToggle}
+            type="text"
+          >
+            {!collapsed && "收起侧栏"}
+          </Button>
+        </Tooltip>
       </div>
     </div>
   );
@@ -103,57 +131,11 @@ function subjectOrFirst(subjects: SubjectStatus[], requested?: string) {
   return subjects.find((item) => item.id === requested)?.id ?? subjects[0]?.id ?? "";
 }
 
-function encoded(value: string) {
-  return encodeURIComponent(value);
-}
 
-function SubjectRedirect({ subjects, task }: { subjects: SubjectStatus[]; task: "papers" }) {
+function SubjectRedirect({ subjects }: { subjects: SubjectStatus[] }) {
   const subjectId = subjects[0]?.id;
   if (!subjectId) return <Navigate replace to="/subjects" />;
-  return <Navigate replace to={`/subjects/${encoded(subjectId)}/${task}`} />;
-}
-
-function SubjectOverview({ subjects }: { subjects: SubjectStatus[] }) {
-  const navigate = useNavigate();
-  const { subjectId = "" } = useParams();
-  const subject = subjects.find((item) => item.id === subjectId);
-  if (!subject) {
-    return <Result status="404" title="科目不存在" subTitle="该 URL 中的科目标识无效或科目已被删除。" extra={<Button onClick={() => navigate("/subjects")} type="primary">返回科目列表</Button>} />;
-  }
-  const base = `/subjects/${encoded(subject.id)}`;
-  return (
-    <Space direction="vertical" size="large" style={{ width: "100%" }}>
-      <Breadcrumb items={[{ title: "科目" }, { title: subject.title }]} />
-      <Flex align="center" justify="space-between" wrap gap="middle">
-        <Space direction="vertical" size={0}>
-          <Space wrap>
-            <Tag color="blue">{subject.subject_code}</Tag>
-            <Text type="secondary">{subject.board_name}</Text>
-          </Space>
-          <Title level={2} style={{ margin: 0 }}>{subject.title}</Title>
-          <Paragraph type="secondary">科目资料、知识库、试卷、作答与评分的统一入口。</Paragraph>
-        </Space>
-        <Button onClick={() => navigate(`${base}/papers`)} size="large" type="primary">进入试卷库</Button>
-      </Flex>
-      <Row gutter={[16, 16]}>
-        <Col lg={8} md={12} xs={24}>
-          <Card actions={[<Button key="documents" onClick={() => navigate(`${base}/documents`)} type="link">管理资料</Button>]}>
-            <Card.Meta avatar={<Files size={24} />} title="资料库" description="大纲、教材、Question Paper、Mark Scheme 与 Source Booklet。" />
-          </Card>
-        </Col>
-        <Col lg={8} md={12} xs={24}>
-          <Card actions={[<Button key="knowledge" onClick={() => navigate(`${base}/knowledge`)} type="link">查看知识库</Button>]}>
-            <Card.Meta avatar={<LibraryBig size={24} />} title="知识库" description="维护授权资料并构建当前科目的可检索知识版本。" />
-          </Card>
-        </Col>
-        <Col lg={8} md={12} xs={24}>
-          <Card actions={[<Button key="papers" onClick={() => navigate(`${base}/papers`)} type="link">打开试卷库</Button>]}>
-            <Card.Meta avatar={<FileText size={24} />} title="试卷库" description="管理严格配对的试卷、评分标准和支撑材料。" />
-          </Card>
-        </Col>
-      </Row>
-    </Space>
-  );
+  return <Navigate replace to={paperIndexPath(subjectId)} />;
 }
 
 function SubjectWorkspaceRoute({ subjects, refresh, view }: { subjects: SubjectStatus[]; refresh: () => Promise<void>; view: "documents" | "knowledge" }) {
@@ -163,7 +145,7 @@ function SubjectWorkspaceRoute({ subjects, refresh, view }: { subjects: SubjectS
   if (!subject) return <Result status="404" title="科目不存在" extra={<Button onClick={() => navigate("/subjects")}>返回科目列表</Button>} />;
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
-      <Breadcrumb items={[{ title: <Button onClick={() => navigate("/subjects")} type="link">科目</Button> }, { title: <Button onClick={() => navigate(`/subjects/${encoded(subject.id)}`)} type="link">{subject.title}</Button> }, { title: view === "documents" ? "资料库" : "知识库" }]} />
+      <Breadcrumb items={[{ title: <Button onClick={() => navigate("/subjects")} type="link">科目</Button> }, { title: <Button onClick={() => navigate(subjectPath(subject.id))} type="link">{subject.title}</Button> }, { title: view === "documents" ? "资料库" : "知识库" }]} />
       <Title level={2}>{view === "documents" ? "资料库" : "知识库"}</Title>
       <SubjectWorkspace onChanged={refresh} subject={subject} view={view} />
     </Space>
@@ -172,35 +154,29 @@ function SubjectWorkspaceRoute({ subjects, refresh, view }: { subjects: SubjectS
 
 function PaperRoute({ subjects, onGradingChanged }: { subjects: SubjectStatus[]; onGradingChanged: () => Promise<void> }) {
   const navigate = useNavigate();
-  const location = useLocation();
-  const params = useParams();
-  const selectedSubjectId = subjectOrFirst(subjects, params.subjectId);
-  if (!selectedSubjectId) return <Result title="尚未创建科目" subTitle="创建科目后才能管理试卷。" />;
-  const jobId = params.jobId ?? "";
-  const detail = params.documentId
-    ? { kind: "document" as const, id: params.documentId, parentPaperId: params.paperUnitId }
-    : params.paperUnitId && jobId && location.pathname.endsWith("/grading")
-      ? { kind: "grading" as const, id: jobId, paperId: params.paperUnitId }
-      : params.paperUnitId && jobId
-        ? { kind: "job" as const, id: jobId, paperId: params.paperUnitId }
-        : params.paperUnitId && location.pathname.endsWith("/answers")
-          ? { kind: "answers" as const, paperId: params.paperUnitId }
-          : params.paperUnitId
-            ? { kind: "paper" as const, id: params.paperUnitId }
-            : null;
+  const { pathname } = useLocation();
+  const paperLocation = parsePaperLocation(pathname);
+  if (!paperLocation) {
+    return <Result status="404" title="试卷路径无效" subTitle="该 URL 缺少完整的科目、试卷或作答身份。" />;
+  }
+  const subject = subjects.find((item) => item.id === paperLocation.subjectId);
+  if (!subject) {
+    return <Result status="404" title="科目不存在" subTitle="该 URL 中的科目标识无效或科目已被删除。" />;
+  }
+  const { detail } = paperLocation;
   return <PaperManagement
     detail={detail}
-    onBackDocument={(subjectId, paperUnitId) => navigate(paperUnitId ? `/subjects/${encoded(subjectId)}/papers/${encoded(paperUnitId)}` : `/subjects/${encoded(subjectId)}/papers`)}
-    onCloseDetail={(subjectId) => navigate(detail?.kind === "document" && detail.parentPaperId ? `/subjects/${encoded(subjectId)}/papers/${encoded(detail.parentPaperId)}` : `/subjects/${encoded(subjectId)}/papers`)}
-    onOpenDocument={(subjectId, documentId, paperUnitId) => navigate(paperUnitId ? `/subjects/${encoded(subjectId)}/papers/${encoded(paperUnitId)}/documents/${encoded(documentId)}` : `/subjects/${encoded(subjectId)}/documents/${encoded(documentId)}`)}
-    onOpenAnswers={(subjectId, paperUnitId) => navigate(`/subjects/${encoded(subjectId)}/papers/${encoded(paperUnitId)}/answers`)}
-    onOpenJob={(subjectId, paperUnitId, nextJobId) => navigate(`/subjects/${encoded(subjectId)}/papers/${encoded(paperUnitId)}/jobs/${encoded(nextJobId)}/answering`)}
-    onOpenPaper={(subjectId, paperUnitId) => navigate(`/subjects/${encoded(subjectId)}/papers/${encoded(paperUnitId)}`)}
-    onStartAnswering={(subjectId, paperUnitId, nextJobId) => navigate(`/subjects/${encoded(subjectId)}/papers/${encoded(paperUnitId)}/jobs/${encoded(nextJobId)}/answering`)}
-    onStartGrading={(subjectId, paperUnitId, nextJobId) => navigate(`/subjects/${encoded(subjectId)}/papers/${encoded(paperUnitId)}/jobs/${encoded(nextJobId)}/grading`)}
+    onBackDocument={(subjectId, paperUnitId) => navigate(paperUnitId ? paperDetailPath(subjectId, paperUnitId) : paperIndexPath(subjectId))}
+    onCloseDetail={(subjectId) => navigate(detail?.kind === "document" && detail.parentPaperId ? paperDetailPath(subjectId, detail.parentPaperId) : paperIndexPath(subjectId))}
+    onOpenDocument={(subjectId, documentId, paperUnitId) => navigate(paperDocumentPath(subjectId, documentId, paperUnitId))}
+    onOpenAnswers={(subjectId, paperUnitId) => navigate(paperAnswersPath(subjectId, paperUnitId))}
+    onOpenJob={(subjectId, paperUnitId, nextJobId) => navigate(paperAnsweringPath(subjectId, paperUnitId, nextJobId))}
+    onOpenPaper={(subjectId, paperUnitId) => navigate(paperDetailPath(subjectId, paperUnitId))}
+    onStartAnswering={(subjectId, paperUnitId, nextJobId) => navigate(paperAnsweringPath(subjectId, paperUnitId, nextJobId))}
+    onStartGrading={(subjectId, paperUnitId, nextJobId) => navigate(paperGradingPath(subjectId, paperUnitId, nextJobId))}
     onGradingChanged={onGradingChanged}
-    onSubjectChange={(subjectId) => navigate(`/subjects/${encoded(subjectId)}/papers`)}
-    subjectId={selectedSubjectId}
+    onSubjectChange={(subjectId) => navigate(paperIndexPath(subjectId))}
+    subjectId={subject.id}
     subjects={subjects}
   />;
 }
@@ -209,7 +185,7 @@ function LegacyPaperChildRedirect({ subjects }: { subjects: SubjectStatus[] }) {
   const { subjectId } = useParams();
   const resolved = subjectOrFirst(subjects, subjectId);
   if (!resolved) return <Navigate replace to="/subjects" />;
-  return <Navigate replace to={`/subjects/${encoded(resolved)}/papers`} />;
+  return <Navigate replace to={paperIndexPath(resolved)} />;
 }
 
 function ReviewRoute({ items, refresh }: { items: ReviewItem[]; refresh: () => Promise<void> }) {
@@ -229,7 +205,9 @@ export default function App() {
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
-  const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => window.localStorage.getItem("examtwin.sidebar.collapsed") === "true",
+  );
   const platformQuery = useQuery({
     queryKey: ["platform", "subjects"],
     queryFn: () => unwrapApi(apiClient.GET("/api/v1/subjects/status")),
@@ -241,9 +219,8 @@ export default function App() {
   const platform = platformQuery.data as PlatformStatus | undefined;
   const reviews = (reviewsQuery.data ?? []) as ReviewItem[];
   const subjects = platform?.subjects ?? [];
-  const currentSubjectId = location.pathname.match(/^\/subjects\/([^/]+)/)?.[1];
-  const navSubjectId = subjectOrFirst(subjects, currentSubjectId ? decodeURIComponent(currentSubjectId) : undefined);
-  const subjectBase = navSubjectId ? `/subjects/${encoded(navSubjectId)}` : "/subjects";
+  const navSubjectId = subjectOrFirst(subjects, parseSubjectId(location.pathname) ?? undefined);
+  const paperMenuPath = navSubjectId ? paperIndexPath(navSubjectId) : "/subjects";
   const refreshSubjects = async () => {
     await queryClient.invalidateQueries({ queryKey: ["platform", "subjects"] });
   };
@@ -254,76 +231,114 @@ export default function App() {
   const loadError = platformQuery.error ?? reviewsQuery.error;
   const menuItems: AppMenuItem[] = [
     { key: "subjects", icon: <GraduationCap size={17} />, label: "科目", path: "/subjects" },
-    { key: "papers", icon: <Files size={17} />, label: "试卷", path: `${subjectBase}/papers` },
+    { key: "papers", icon: <Files size={17} />, label: "试卷", path: paperMenuPath },
     { key: "reviews", icon: <ShieldCheck size={17} />, label: <Badge count={reviews.length} offset={[10, -3]} size="small">复核</Badge>, path: "/reviews" },
   ];
-  const navigateFromSidebar = (path: string) => {
+  const navigateFromNavigation = (path: string) => {
     navigate(path);
-    setMobileNavigationOpen(false);
   };
   const selectedKey = selectedMenuKey(location.pathname);
+  const toggleSidebar = () => {
+    setSidebarCollapsed((collapsed) => {
+      const next = !collapsed;
+      window.localStorage.setItem("examtwin.sidebar.collapsed", String(next));
+      return next;
+    });
+  };
 
   return (
-    <Layout hasSider className="relative min-h-screen overflow-x-clip !bg-[var(--surface-muted)]">
-      <div aria-hidden="true" className="pointer-events-none fixed -left-28 -top-32 size-[28rem] rounded-full bg-[var(--app-ambient-one)] blur-3xl" />
-      <div aria-hidden="true" className="pointer-events-none fixed -bottom-40 right-[-8rem] size-[32rem] rounded-full bg-[var(--app-ambient-two)] blur-3xl" />
-      <aside aria-label="应用侧边栏" className="sticky top-0 z-20 hidden h-screen w-64 shrink-0 border-r border-[var(--app-glass-border)] bg-[var(--app-glass)] shadow-[var(--app-glass-shadow)] backdrop-blur-2xl lg:block">
-        <SidebarNavigation items={menuItems} onNavigate={navigateFromSidebar} selectedKey={selectedKey} />
-      </aside>
-      <Drawer
-        className="app-mobile-drawer"
-        closable={false}
-        onClose={() => setMobileNavigationOpen(false)}
-        open={mobileNavigationOpen}
-        placement="left"
-        rootClassName="lg:!hidden"
-        size={272}
-        styles={{ body: { padding: 0 } }}
+    <Layout hasSider className="app-root">
+      <div aria-hidden="true" className="app-ambient-field">
+        <span className="app-ambient-orb app-ambient-orb-primary" />
+        <span className="app-ambient-orb app-ambient-orb-secondary" />
+      </div>
+
+      <aside
+        aria-label="应用侧边栏"
+        className={`app-desktop-rail${sidebarCollapsed ? " is-collapsed" : ""}`}
       >
-        <div className="h-full border-r border-[var(--app-glass-border)] bg-[var(--app-glass-strong)] shadow-[var(--app-glass-shadow)] backdrop-blur-2xl">
-          <SidebarNavigation items={menuItems} onClose={() => setMobileNavigationOpen(false)} onNavigate={navigateFromSidebar} selectedKey={selectedKey} />
-        </div>
-      </Drawer>
-      <Layout className="relative min-w-0 !bg-transparent">
-        <header className="sticky top-0 z-10 flex h-16 items-center gap-3 border-b border-[var(--app-glass-border)] bg-[var(--app-glass)] px-4 shadow-sm backdrop-blur-xl lg:hidden">
-          <Button aria-label="打开主导航" icon={<PanelLeftOpen size={19} />} onClick={() => setMobileNavigationOpen(true)} shape="circle" size="large" type="text" />
-          <span className="flex size-8 items-center justify-center rounded-xl bg-blue-600 text-white shadow-md shadow-blue-600/20"><LibraryBig size={17} /></span>
-          <Text strong>ExamTwin</Text>
+        <SidebarNavigation
+          collapsed={sidebarCollapsed}
+          items={menuItems}
+          onNavigate={navigateFromNavigation}
+          onToggle={toggleSidebar}
+          selectedKey={selectedKey}
+        />
+      </aside>
+
+      <Layout className="app-main-layout">
+        <header className="app-mobile-header">
+          <Button
+            aria-label="返回科目列表"
+            className="app-mobile-brand"
+            icon={<span className="app-brand-mark"><img alt="" aria-hidden="true" src="/examtwin-icon.svg" /></span>}
+            onClick={() => navigateFromNavigation("/subjects")}
+            type="text"
+          >
+            <Text strong>ExamTwin</Text>
+          </Button>
+          <div className="app-mobile-theme">
+            <span className="sr-only">选择界面主题</span>
+            <ThemeSwitch />
+          </div>
         </header>
-        <Content className="app-page-content w-full p-3 sm:p-4 lg:p-5">
-          <div className="app-page-shell min-h-[calc(100vh-2.5rem)]">
-            {loadError && <Alert closable message={loadError instanceof Error ? loadError.message : "数据加载失败"} showIcon type="error" />}
+
+        <Content className="app-page-content">
+          <div className="app-page-shell">
+            {loadError && (
+              <Alert
+                action={<Button onClick={() => void Promise.all([refreshSubjects(), refreshReviews()])} size="small">重新加载</Button>}
+                closable
+                message={loadError instanceof Error ? loadError.message : "数据加载失败"}
+                showIcon
+                type="error"
+              />
+            )}
             <Suspense fallback={<Flex align="center" justify="center" style={{ minHeight: 320 }}><Spin description="正在加载" size="large" /></Flex>}>
               <Routes>
-            <Route element={<Navigate replace to="/subjects" />} path="/" />
-            <Route element={<SubjectManagement loading={loading} refresh={refreshSubjects} subjects={subjects} />} path="/subjects" />
-            <Route element={<SubjectOverview subjects={subjects} />} path="/subjects/:subjectId" />
-            <Route element={<SubjectWorkspaceRoute refresh={refreshSubjects} subjects={subjects} view="documents" />} path="/subjects/:subjectId/documents" />
-            <Route element={<SubjectWorkspaceRoute refresh={refreshSubjects} subjects={subjects} view="knowledge" />} path="/subjects/:subjectId/knowledge" />
-            <Route element={<SubjectRedirect subjects={subjects} task="papers" />} path="/papers" />
-            <Route element={<PaperRoute onGradingChanged={refreshReviews} subjects={subjects} />} path="/subjects/:subjectId/papers" />
-            <Route element={<PaperRoute onGradingChanged={refreshReviews} subjects={subjects} />} path="/subjects/:subjectId/papers/:paperUnitId" />
-            <Route element={<PaperRoute onGradingChanged={refreshReviews} subjects={subjects} />} path="/subjects/:subjectId/papers/:paperUnitId/answers" />
-            <Route element={<PaperRoute onGradingChanged={refreshReviews} subjects={subjects} />} path="/subjects/:subjectId/papers/:paperUnitId/documents/:documentId" />
-            <Route element={<PaperRoute onGradingChanged={refreshReviews} subjects={subjects} />} path="/subjects/:subjectId/documents/:documentId" />
-            <Route element={<SubjectRedirect subjects={subjects} task="papers" />} path="/answering" />
-            <Route element={<LegacyPaperChildRedirect subjects={subjects} />} path="/subjects/:subjectId/answering" />
-            <Route element={<LegacyPaperChildRedirect subjects={subjects} />} path="/subjects/:subjectId/papers/answers" />
-            <Route element={<LegacyPaperChildRedirect subjects={subjects} />} path="/subjects/:subjectId/papers/answers/:jobId" />
-            <Route element={<PaperRoute onGradingChanged={refreshReviews} subjects={subjects} />} path="/subjects/:subjectId/papers/:paperUnitId/jobs/:jobId" />
-            <Route element={<PaperRoute onGradingChanged={refreshReviews} subjects={subjects} />} path="/subjects/:subjectId/papers/:paperUnitId/jobs/:jobId/answering" />
-            <Route element={<PaperRoute onGradingChanged={refreshReviews} subjects={subjects} />} path="/subjects/:subjectId/papers/:paperUnitId/jobs/:jobId/grading" />
-            <Route element={<SubjectRedirect subjects={subjects} task="papers" />} path="/grading" />
-            <Route element={<LegacyPaperChildRedirect subjects={subjects} />} path="/subjects/:subjectId/grading" />
-            <Route element={<LegacyPaperChildRedirect subjects={subjects} />} path="/subjects/:subjectId/papers/:paperUnitId/grading" />
-            <Route element={<ReviewRoute items={reviews} refresh={refreshReviews} />} path="/reviews" />
-            <Route element={<ReviewRoute items={reviews} refresh={refreshReviews} />} path="/reviews/:assessmentId" />
-            <Route element={<Navigate replace to="/subjects" />} path="*" />
+                <Route element={<Navigate replace to="/subjects" />} path="/" />
+                <Route element={<SubjectManagement loading={loading} refresh={refreshSubjects} subjects={subjects} />} path="/subjects" />
+                <Route element={<SubjectOverview subjects={subjects} />} path="/subjects/:subjectId" />
+                <Route element={<SubjectWorkspaceRoute refresh={refreshSubjects} subjects={subjects} view="documents" />} path="/subjects/:subjectId/documents" />
+                <Route element={<SubjectWorkspaceRoute refresh={refreshSubjects} subjects={subjects} view="knowledge" />} path="/subjects/:subjectId/knowledge" />
+                <Route element={<SubjectRedirect subjects={subjects} />} path="/papers" />
+                {PAPER_ROUTE_PATTERNS.map((path) => (
+                  <Route
+                    element={<PaperRoute onGradingChanged={refreshReviews} subjects={subjects} />}
+                    key={path}
+                    path={path}
+                  />
+                ))}
+                <Route element={<SubjectRedirect subjects={subjects} />} path="/answering" />
+                <Route element={<LegacyPaperChildRedirect subjects={subjects} />} path="/subjects/:subjectId/answering" />
+                <Route element={<LegacyPaperChildRedirect subjects={subjects} />} path="/subjects/:subjectId/papers/answers" />
+                <Route element={<LegacyPaperChildRedirect subjects={subjects} />} path="/subjects/:subjectId/papers/answers/:jobId" />
+                <Route element={<SubjectRedirect subjects={subjects} />} path="/grading" />
+                <Route element={<LegacyPaperChildRedirect subjects={subjects} />} path="/subjects/:subjectId/grading" />
+                <Route element={<LegacyPaperChildRedirect subjects={subjects} />} path="/subjects/:subjectId/papers/:paperUnitId/grading" />
+                <Route element={<ReviewRoute items={reviews} refresh={refreshReviews} />} path="/reviews" />
+                <Route element={<ReviewRoute items={reviews} refresh={refreshReviews} />} path="/reviews/:assessmentId" />
+                <Route element={<Navigate replace to="/subjects" />} path="*" />
               </Routes>
             </Suspense>
           </div>
         </Content>
       </Layout>
+
+      <nav aria-label="主导航" className="app-bottom-nav">
+        {menuItems.map((item) => (
+          <button
+            aria-current={selectedKey === item.key ? "page" : undefined}
+            className={selectedKey === item.key ? "is-active" : undefined}
+            key={item.key}
+            onClick={() => navigateFromNavigation(item.path)}
+            type="button"
+          >
+            <span aria-hidden="true" className="app-bottom-nav-icon">{item.icon}</span>
+            <span>{item.label}</span>
+          </button>
+        ))}
+      </nav>
     </Layout>
   );
 }

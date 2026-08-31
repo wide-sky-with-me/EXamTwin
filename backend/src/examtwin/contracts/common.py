@@ -1,8 +1,27 @@
 from __future__ import annotations
 
+import re
+from typing import Literal, get_args
+
 from pydantic import BaseModel, Field
 
 from examtwin.contracts.base import SerializedResponse
+
+SubjectIcon = Literal[
+    "book-open",
+    "calculator",
+    "chart-no-axes-combined",
+    "flask-conical",
+    "languages",
+    "landmark",
+    "atom",
+    "graduation-cap",
+]
+DEFAULT_SUBJECT_ICON: SubjectIcon = "book-open"
+DEFAULT_SUBJECT_COLOR = "#2F6FED"
+SUBJECT_ICONS = frozenset(get_args(SubjectIcon))
+SUBJECT_COLOR_PATTERN_TEXT = r"^#[0-9A-Fa-f]{6}$"
+SUBJECT_COLOR_PATTERN = re.compile(SUBJECT_COLOR_PATTERN_TEXT)
 
 
 class InfrastructureHealthResponse(SerializedResponse):
@@ -48,8 +67,8 @@ class SubjectPackResponse(SerializedResponse):
     subject_code: str
     title: str
     board_name: str
-    icon: str = "book-open"
-    color: str = "#2F6FED"
+    icon: str = DEFAULT_SUBJECT_ICON
+    color: str = DEFAULT_SUBJECT_COLOR
     capability_profile_id: str | None = None
     generic_qa_enabled: bool = True
     answering_enabled: bool

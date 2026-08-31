@@ -7,19 +7,24 @@ import time
 from llama_index.core.schema import NodeWithScore, TextNode
 
 from examtwin.assessment.answering_agent.finalization import LiteLLMFinalAnswerProvider
-from examtwin.assessment.answering_agent.tools.image_generate import OpenAICompatibleImageProvider
+from examtwin.assessment.answering_agent.tools.image_generate import LiteLLMImageProvider
 from examtwin.assessment.answering_agent.tools.question_vision import LiteLLMQuestionVisionProvider
 from examtwin.platform.agent_runtime.model import HarnessMessage
 from examtwin.platform.config import Settings
-from examtwin.platform.providers import SiliconFlowReranker, build_embedding, required_secret
+from examtwin.platform.providers import IndexResultsReranker, build_embedding, required_secret
 
 
 def build_final_answer_provider(settings: Settings) -> LiteLLMFinalAnswerProvider:
     return LiteLLMFinalAnswerProvider(
         model=settings.llm_model,
-        api_base=settings.llm_provider_base_url,
-        api_key=required_secret(settings.llm_provider_api_key),
-        timeout=min(settings.answer_agent_timeout / 3, 45),
+        provider=settings.litellm_provider,
+        api_base=settings.llm_base_url,
+        api_key=required_secret(settings.llm_api_key),
+        timeout=min(
+            settings.answer_agent_timeout / 3,
+            settings.answer_agent_finalization_timeout,
+        ),
+        draft_max_chars=settings.answer_agent_finalization_draft_max_chars,
         max_retries=0,
         reasoning_effort=settings.llm_reasoning_effort,
     )
@@ -28,16 +33,20 @@ def build_final_answer_provider(settings: Settings) -> LiteLLMFinalAnswerProvide
 def build_question_vision_provider(settings: Settings) -> LiteLLMQuestionVisionProvider:
     return LiteLLMQuestionVisionProvider(
         model=settings.paper_vision_model,
-        api_base=settings.llm_provider_base_url,
-        api_key=required_secret(settings.llm_provider_api_key),
+        provider=settings.litellm_provider,
+        api_base=settings.llm_base_url,
+        api_key=required_secret(settings.llm_api_key),
         timeout=settings.paper_vision_timeout,
+        question_max_chars=settings.question_vision_question_max_chars,
+        max_output_tokens=settings.question_vision_max_output_tokens,
         reasoning_effort=settings.paper_vision_reasoning_effort,
     )
 
 
-def build_image_generation_provider(settings: Settings) -> OpenAICompatibleImageProvider:
-    return OpenAICompatibleImageProvider(
+def build_image_generation_provider(settings: Settings) -> LiteLLMImageProvider:
+    return LiteLLMImageProvider(
         model=settings.image_generation_model,
+        provider=settings.litellm_provider,
         api_base=settings.image_provider_base_url,
         api_key=required_secret(settings.image_provider_api_key),
         timeout=settings.image_generation_timeout,
@@ -73,8 +82,7 @@ def run_provider_smoke(
                                 ),
                             ),
                         ),
-                        allowed_citation_ids=(),
-                        timeout=30,
+                        timeout=settings.answer_agent_finalization_timeout,
                     )
                 )
                 if "EXAMTWIN_OK" not in payload.answer_markdown:
@@ -104,7 +112,7 @@ def run_provider_smoke(
                         score=0,
                     ),
                 ]
-                ranked = SiliconFlowReranker(settings).rerank(
+                ranked = IndexResultsReranker(settings).rerank(
                     "How do I solve an algebra equation?",
                     nodes,
                     top_n=1,

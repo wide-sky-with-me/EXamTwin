@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+API_PREFIX = "/api/v1"
 API_CONTRACT_VERSION = "2026-08-07.paper-source-integrity-v26"  # gitleaks:allow
 
 API_CAPABILITIES = (

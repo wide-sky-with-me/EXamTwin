@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -46,6 +47,8 @@ def test_batch_delete_subject_workspaces_is_atomic_and_rejects_active_jobs() -> 
                 source_path="delete-test-source",
                 status="answering",
                 stage="answering",
+                lease_token=f"delete-test-lease-{token}",
+                lease_expires_at=now + timedelta(minutes=5),
                 error=None,
                 created_at=now,
                 updated_at=now,

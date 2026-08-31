@@ -4,6 +4,8 @@
   "id": "oxfordaqa-economics-9640",
   "subject_code": "9640",
   "title": "OxfordAQA International AS/A-level Economics (9640)",
+  "icon": "chart-no-axes-combined",
+  "color": "#0F766E",
   "board_id": "oxfordaqa",
   "specification_ref": "data/牛津AQA/经济/00_旧库补充/官方资料/考试大纲/oxfordaqa-a-level-economics-specification.pdf",
   "runtime": {

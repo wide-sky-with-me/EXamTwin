@@ -17,6 +17,7 @@ class SubjectSkill:
     required_tool_names: tuple[str, ...] = ()
     mandatory_tool_names: tuple[str, ...] = ()
     visual_tool_selector: Callable[[str], str | None] | None = None
+    source_plot_overlay_selector: Callable[[str], str | None] | None = None
     version: str = "1"
     digest: str = ""
     package_digest: str = ""
@@ -30,6 +31,11 @@ class SubjectSkill:
                 f"Visual tool selector returned an unregistered capability: {tool_name}"
             )
         return tool_name
+
+    def source_plot_overlay_mode(self, question: str) -> str | None:
+        if self.source_plot_overlay_selector is None:
+            return None
+        return self.source_plot_overlay_selector(question)
 
 
 class CurriculumTextNormalizer(Protocol):
@@ -60,6 +66,15 @@ class BoardPack:
     id: str
     name: str
     official_source_types: frozenset[str]
+    filename_subject_code_pattern: str | None = None
+
+    def subject_code_from_filename(self, filename: str) -> str | None:
+        if self.filename_subject_code_pattern is None:
+            return None
+        match = re.search(self.filename_subject_code_pattern, filename.lower())
+        if match is None:
+            return None
+        return match.group("subject_code")
 
 
 @dataclass(frozen=True)

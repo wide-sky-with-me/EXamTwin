@@ -39,10 +39,7 @@ from examtwin.knowledge.public import CorpusRepository, classify_source, parse_e
 from examtwin.platform.config import Settings
 from examtwin.platform.database.session import utcnow
 from examtwin.platform.model_json import repair_markdown_latex
-from examtwin.subjects.public import (
-    SubjectContext,
-    mathematics_source_plot_overlay_mode,
-)
+from examtwin.subjects.public import SubjectContext
 
 ACTIVE_JOB_STATUSES = ("queued", "parsing", "vision_review", "splitting", "answering")
 TERMINAL_JOB_STATUSES = ("completed", "partial_failed", "failed")
@@ -559,9 +556,9 @@ class PaperJobService:
                 answer = PaperQuestionAnswer.model_validate_json(question["answer_json"] or "{}")
             except ValueError:
                 answer = None
+            skill = self.subject.package.require_skill()
             requires_source_overlay = (
-                self.subject.subject_code == "9660"
-                and mathematics_source_plot_overlay_mode(question["question_markdown"]) is not None
+                skill.source_plot_overlay_mode(question["question_markdown"]) is not None
             )
             source_overlay_present = answer is not None and any(
                 diagram.tool_name == "math_plot" and diagram.source is not None

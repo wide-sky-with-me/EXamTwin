@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Protocol
 
 from examtwin.assessment.answering_agent.contracts import AgentRunContext, AnswerTask, SubjectSkill
 from examtwin.assessment.answering_agent.finalization import (
+    AgentFinalPayload,
     FinalAnswerProvider,
-    materialize_final_answer,
-    validate_citation_contract,
+    finalize_payload,
 )
 from examtwin.assessment.answering_agent.llama_index_adapter import LlamaIndexReActProtocolAdapter
 from examtwin.assessment.answering_agent.prompts import compose_system_prompt
@@ -35,6 +36,8 @@ from examtwin.platform.agent_runtime import (
     ToolRunController,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class WorkflowRunner(Protocol):
     async def run(
@@ -49,7 +52,7 @@ class WorkflowRunner(Protocol):
         max_tool_calls: int,
         timeout: float,
         initial_observations: tuple[str, ...] = (),
-    ) -> str: ...
+    ) -> AgentFinalPayload: ...
 
 
 class ReActHarnessRunner:
@@ -59,10 +62,16 @@ class ReActHarnessRunner:
         self,
         final_answer_provider: FinalAnswerProvider | None = None,
         *,
+        finalization_reserve_seconds: float | None = None,
         protocol: AgentProtocolPort | None = None,
         tool_executor: ToolExecutor | None = None,
     ) -> None:
+        if final_answer_provider is not None and finalization_reserve_seconds is None:
+            raise ValueError("structured finalization requires an explicit time reserve")
+        if finalization_reserve_seconds is not None and finalization_reserve_seconds <= 0:
+            raise ValueError("finalization reserve must be positive")
         self.final_answer_provider = final_answer_provider
+        self.finalization_reserve_seconds = finalization_reserve_seconds or 0.0
         self.protocol = protocol or LlamaIndexReActProtocolAdapter()
         self.tool_executor = tool_executor or ToolExecutor()
 
@@ -78,7 +87,7 @@ class ReActHarnessRunner:
         max_tool_calls: int,
         timeout: float,
         initial_observations: tuple[str, ...] = (),
-    ) -> str:
+    ) -> AgentFinalPayload:
         by_name = {tool.spec.name: tool for tool in tools}
         if len(by_name) != len(tools):
             raise ValueError("answering capabilities contain duplicate tool names")
@@ -129,7 +138,7 @@ class ReActHarnessRunner:
         structured_finalizer_available = self.final_answer_provider is not None
         loop = asyncio.get_running_loop()
         deadline = loop.time() + timeout
-        fallback_reserve = min(45.0, timeout / 3)
+        fallback_reserve = min(self.finalization_reserve_seconds, timeout / 3)
 
         def formatted_messages() -> tuple[HarnessMessage, ...]:
             return self.protocol.format_messages(
@@ -175,7 +184,40 @@ class ReActHarnessRunner:
             )
             return True
 
-        async def request_structured_final(draft: str | None = None) -> str | None:
+        def allowed_citation_ids() -> tuple[str, ...]:
+            return tuple(f"S{index}" for index in range(1, len(context.citations) + 1))
+
+        def finalize_candidate(payload: AgentFinalPayload) -> AgentFinalPayload:
+            return finalize_payload(
+                payload,
+                required_subpart_labels=task.question_spec.labelled_subparts,
+                allowed_citation_ids=allowed_citation_ids(),
+            )
+
+        def accept_structured_protocol_final(
+            turn: ProtocolFinal,
+        ) -> AgentFinalPayload | None:
+            if not turn.structured or turn.output_json is None:
+                return None
+            try:
+                payload = finalize_candidate(
+                    AgentFinalPayload.model_validate_json(turn.output_json)
+                )
+            except (TypeError, ValueError):
+                return None
+            logger.info(
+                "answer structured final accepted without provider rewrite",
+                extra={
+                    "event": "answer_structured_final_accepted",
+                    "subject_code": task.subject_code,
+                    "question_number": task.question_number,
+                },
+            )
+            return payload
+
+        async def request_structured_final(
+            draft: str | None = None,
+        ) -> AgentFinalPayload | None:
             nonlocal structured_finalizer_available
             if self.final_answer_provider is None or not structured_finalizer_available:
                 return None
@@ -188,26 +230,14 @@ class ReActHarnessRunner:
                     "剩余时间不足以安全整理结构化答案，正在使用兼容恢复",
                 )
                 return None
-            allowed_citation_ids = tuple(
-                f"S{index}" for index in range(1, len(context.citations) + 1)
-            )
-            required_subpart_labels = task.question_spec.labelled_subparts
             try:
                 payload = await self.final_answer_provider.finalize(
                     formatted_messages(),
                     draft=draft,
-                    allowed_citation_ids=allowed_citation_ids,
-                    required_subpart_labels=required_subpart_labels,
+                    required_subpart_labels=task.question_spec.labelled_subparts,
                     timeout=structured_budget,
                 )
-                payload = materialize_final_answer(
-                    payload,
-                    required_subpart_labels=required_subpart_labels,
-                )
-                validate_citation_contract(
-                    payload,
-                    allowed_citation_ids=allowed_citation_ids,
-                )
+                payload = finalize_candidate(payload)
             except Exception as error:
                 structured_finalizer_available = False
                 context.emit(
@@ -216,15 +246,27 @@ class ReActHarnessRunner:
                     f"结构化答案整理不可用（{type(error).__name__}），正在使用兼容恢复",
                 )
                 return None
-            return payload.model_dump_json()
+            return payload
 
-        async def finish_protocol_turn(turn: ProtocolFinal) -> str | None:
+        async def finish_protocol_turn(
+            turn: ProtocolFinal,
+        ) -> AgentFinalPayload | None:
             if require_mandatory_tools_before_final(turn.draft):
                 return None
+            accepted = accept_structured_protocol_final(turn)
+            if accepted is not None:
+                return accepted
             structured = await request_structured_final(turn.draft)
-            return structured or turn.output_json
+            if structured is not None:
+                return structured
+            if turn.structured or turn.output_json is None:
+                return None
+            try:
+                return finalize_candidate(AgentFinalPayload.model_validate_json(turn.output_json))
+            except (TypeError, ValueError):
+                return None
 
-        async def request_final(message: str) -> str:
+        async def request_final(message: str) -> AgentFinalPayload:
             if calls.missing_mandatory:
                 raise RuntimeError(
                     "answering Agent did not complete mandatory tools: "

@@ -1,5 +1,5 @@
 import type { ReactElement } from "react";
-import { fireEvent, render as testingLibraryRender, screen } from "@testing-library/react";
+import { fireEvent, render as testingLibraryRender, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { DesignSystemProvider } from "../components/ui/DesignSystemProvider";
 
@@ -17,30 +17,47 @@ vi.mock("../lib/task-events", () => ({
 
 const subscribeMock = vi.mocked(subscribeTaskSnapshots);
 
-const subject = {
+const subject: SubjectPack = {
   id: "math",
   subject_code: "9660",
   title: "Mathematics",
   board_name: "OxfordAQA",
+  icon: "calculator",
+  color: "#2F6FED",
   answering_enabled: true,
   version: "1",
   digest: "digest",
   capability_profile_id: "math",
   generic_qa_enabled: true,
   answering_disabled_reason: null,
+  source_booklet_required: false,
   active_graph_version_id: null,
   units: [],
   knowledge_bases: [],
-} as SubjectPack;
+};
 
 beforeEach(() => {
+  vi.unstubAllGlobals();
   window.localStorage.clear();
   subscribeMock.mockReset();
 });
 
 describe("PaperAnswering", () => {
-  test("accepts a supported paper through drag and drop", async () => {
-    render(<PaperAnswering enabled subjects={[subject]} />);
+  test("creates a job through the navigation callback without persisting identity", async () => {
+    const onOpenJob = vi.fn();
+    window.localStorage.setItem("examtwin.paperJobId.math", "stale-job");
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      if (request.method === "POST" && new URL(request.url).pathname.endsWith("/papers/answer")) {
+        return new Response(JSON.stringify({ job_id: "created-job", status: "queued", stage: "queued" }), {
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ items: [], total: 0, limit: 10, offset: 0 }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }));
+    render(<PaperAnswering enabled onOpenJob={onOpenJob} subjects={[subject]} />);
     fireEvent.click(screen.getByRole("button", { name: "新建作答" }));
     fireEvent.click(screen.getByRole("button", { name: /Mathematics/ }));
     fireEvent.click(screen.getByRole("button", { name: "下一步" }));
@@ -48,8 +65,10 @@ describe("PaperAnswering", () => {
     const paper = new File(["# Question 1"], "paper.md", { type: "text/markdown" });
 
     fireEvent.drop(dropZone!, { dataTransfer: { files: [paper] } });
+    fireEvent.click(screen.getByRole("button", { name: "开始整卷作答" }));
 
-    expect(screen.getByText("paper.md")).toBeInTheDocument();
+    await waitFor(() => expect(onOpenJob).toHaveBeenCalledWith("created-job"));
+    expect(window.localStorage.getItem("examtwin.paperJobId.math")).toBe("stale-job");
   });
 
   test("presents completion as answer status instead of evidence status", async () => {
@@ -60,8 +79,14 @@ describe("PaperAnswering", () => {
     const completedJob: PaperJobResult = {
       job_id: "job-1",
       filename: "paper.pdf",
+      display_name: null,
       answer_mode: "generated",
       paper_unit_id: "paper-1",
+      pair_key: null,
+      question_paper_document_id: null,
+      source_booklet_document_id: null,
+      source_booklet_checksum: null,
+      source_booklet_filename: null,
       subject_pack_id: "oxfordaqa-mathematics-9660",
       subject_code: "9660",
       knowledge_base_version_ids: [],
@@ -146,10 +171,10 @@ describe("PaperAnswering", () => {
       options.onState("live");
       return () => undefined;
     });
-    window.localStorage.setItem(`examtwin.paperJobId.${subject.id}`, completedJob.job_id);
+    window.localStorage.setItem(`examtwin.paperJobId.${subject.id}`, "stale-job");
 
     const onBack = vi.fn();
-    render(<PaperAnswering enabled initialPaperUnitId="paper-1" onBack={onBack} subject={subject} />);
+    render(<PaperAnswering enabled initialJobId={completedJob.job_id} initialPaperUnitId="paper-1" onBack={onBack} onOpenJob={vi.fn()} subject={subject} />);
 
     expect(await screen.findByText("已作答")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "AI 作答" })).toBeInTheDocument();
@@ -176,6 +201,7 @@ describe("PaperAnswering", () => {
     expect(answerText.indexOf("Part A graph")).toBeLessThan(
       answerText.indexOf("Check by substitution."),
     );
+    expect(window.localStorage.getItem(`examtwin.paperJobId.${subject.id}`)).toBe("stale-job");
   });
 
   test("shows one calm processing state before questions are identified", async () => {
@@ -185,6 +211,10 @@ describe("PaperAnswering", () => {
       display_name: "QP-202601-Economics-U4A-Level-AQA经济学-A-Level",
       answer_mode: "generated",
       paper_unit_id: "paper-1",
+      pair_key: null,
+      question_paper_document_id: null,
+      source_booklet_document_id: null,
+      source_booklet_checksum: null,
       subject_pack_id: subject.id,
       subject_code: subject.subject_code,
       knowledge_base_version_ids: [],
@@ -216,11 +246,11 @@ describe("PaperAnswering", () => {
     });
 
     const { container } = render(
-      <PaperAnswering embedded enabled initialJobId={parsingJob.job_id} initialPaperUnitId="paper-1" onBack={vi.fn()} subject={subject} />,
+      <PaperAnswering embedded enabled initialJobId={parsingJob.job_id} initialPaperUnitId="paper-1" onBack={vi.fn()} onOpenJob={vi.fn()} subject={subject} />,
     );
 
     expect(await screen.findByText("正在识别试卷题目")).toBeInTheDocument();
-    expect(screen.getByText("完成后将自动展示逐题结果，你可以关闭弹窗继续处理其他工作。")).toBeInTheDocument();
+    expect(screen.getByText("完成后将自动展示逐题结果；任务会继续在后台处理。")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "返回作答记录" })).toBeInTheDocument();
     expect(screen.getByText("实时进度已连接", { exact: false })).toBeInTheDocument();
     expect(container.querySelectorAll(".paper-processing-empty")).toHaveLength(1);
@@ -234,6 +264,14 @@ describe("PaperAnswering", () => {
     const failedJob: PaperJobResult = {
       job_id: "job-failed",
       filename: "paper.pdf",
+      display_name: null,
+      answer_mode: "generated",
+      pair_key: null,
+      paper_unit_id: null,
+      question_paper_document_id: null,
+      source_booklet_document_id: null,
+      source_booklet_checksum: null,
+      source_booklet_filename: null,
       subject_pack_id: "oxfordaqa-mathematics-9660",
       subject_code: "9660",
       knowledge_base_version_ids: [],
@@ -256,7 +294,7 @@ describe("PaperAnswering", () => {
         attempts: 1,
         error: "ValueError: MinerU 题目图片缺少物理页位置",
       }],
-      source_integrity_status: "verified",
+      source_integrity_status: "legacy_unverified",
       split_contract_version: null,
       split_source_digest: null,
       replacement_for_job_id: null,
@@ -269,13 +307,121 @@ describe("PaperAnswering", () => {
       options.onState("idle");
       return () => undefined;
     });
-    window.localStorage.setItem(`examtwin.paperJobId.${subject.id}`, failedJob.job_id);
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      if (request.method === "POST" && new URL(request.url).pathname.endsWith("/replace")) {
+        return new Response(JSON.stringify({ job_id: "replacement-job", status: "queued", stage: "queued" }), {
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ items: [], total: 0, limit: 10, offset: 0 }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }));
+    const onOpenJob = vi.fn();
+    const onOpenPaper = vi.fn();
+    window.localStorage.setItem(`examtwin.paperJobId.${subject.id}`, "stale-job");
 
-    render(<PaperAnswering enabled subject={subject} />);
+    render(
+      <PaperAnswering
+        enabled
+        initialJobId={failedJob.job_id}
+        initialPaperUnitId="paper-1"
+        onBack={vi.fn()}
+        onOpenJob={onOpenJob}
+        onOpenPaper={onOpenPaper}
+        subject={subject}
+      />,
+    );
 
     expect(await screen.findByText("解析中断 · 已完成 10 / 32 页")).toBeInTheDocument();
     expect(screen.getByText("任务在题目识别前中断")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "从失败步骤继续" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "上传另一份试卷" }));
+    expect(onOpenPaper).toHaveBeenCalledWith("paper-1");
     expect(screen.queryByText("等待题目识别结果")).not.toBeInTheDocument();
+    expect(window.localStorage.getItem(`examtwin.paperJobId.${subject.id}`)).toBe("stale-job");
+    fireEvent.click(screen.getByRole("button", { name: "修复并重跑" }));
+    await waitFor(() => expect(onOpenJob).toHaveBeenCalledWith("replacement-job", "paper-1"));
+  });
+
+  test("uses prop changes as the only source of active job identity", async () => {
+    window.localStorage.setItem(`examtwin.paperJobId.${subject.id}`, "stale-job");
+    subscribeMock.mockImplementation(() => () => undefined);
+    const onOpenJob = vi.fn();
+    const { rerender } = render(
+      <PaperAnswering enabled initialJobId="job-from-url-1" onOpenJob={onOpenJob} subject={subject} />,
+    );
+
+    await waitFor(() => expect(subscribeMock).toHaveBeenCalledWith(
+      expect.objectContaining({ path: "/papers/jobs/job-from-url-1/events" }),
+    ));
+    rerender(
+      <PaperAnswering enabled initialJobId="job-from-url-2" onOpenJob={onOpenJob} subject={subject} />,
+    );
+
+    await waitFor(() => expect(subscribeMock).toHaveBeenCalledWith(
+      expect.objectContaining({ path: "/papers/jobs/job-from-url-2/events" }),
+    ));
+    expect(window.localStorage.getItem(`examtwin.paperJobId.${subject.id}`)).toBe("stale-job");
+  });
+
+  test("loads routed history when new answering is disabled", async () => {
+    subscribeMock.mockImplementation(() => () => undefined);
+    const disabledSubject = {
+      ...subject,
+      answering_enabled: false,
+      answering_disabled_reason: "暂不允许新建 AI 作答",
+    };
+
+    render(
+      <PaperAnswering
+        enabled={false}
+        initialJobId="existing-uploaded-job"
+        initialPaperUnitId="paper-1"
+        onBack={vi.fn()}
+        onOpenJob={vi.fn()}
+        subject={disabledSubject}
+      />,
+    );
+
+    await waitFor(() => expect(subscribeMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: "/papers/jobs/existing-uploaded-job/events",
+        subjectId: disabledSubject.id,
+      }),
+    ));
+  });
+
+  test("uses the embedded paper-scoped history shell before a routed job snapshot arrives", async () => {
+    const requests: Request[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      requests.push(request);
+      return new Response(
+        JSON.stringify({ items: [], total: 0, limit: 10, offset: 0 }),
+        { headers: { "Content-Type": "application/json" } },
+      );
+    }));
+
+    render(
+      <PaperAnswering
+        embedded
+        enabled
+        initialPaperUnitId="paper-1"
+        initialSubjectId={subject.id}
+        onOpenJob={vi.fn()}
+        subjects={[subject]}
+      />,
+    );
+
+    const emptyState = await screen.findByText("还没有作答记录");
+    const historyShell = emptyState.closest("article");
+    expect(historyShell).toHaveClass("paper-history", "paper-history-embedded");
+    expect(historyShell).not.toHaveClass("panel");
+    expect(screen.queryByRole("heading", { name: "全部作答记录" })).not.toBeInTheDocument();
+    await waitFor(() => expect(requests.some((request) => (
+      new URL(request.url).searchParams.get("paper_unit_id") === "paper-1"
+    ))).toBe(true));
   });
 });

@@ -11,7 +11,7 @@ from xml.etree import ElementTree
 from pypdf import PdfReader
 
 from examtwin.knowledge.corpus_repository import CorpusRepository
-from examtwin.subjects.public import DashboardRepository, SubjectPack, get_subject_pack
+from examtwin.subjects.public import DashboardRepository, SubjectPack
 
 SUPPORTED_SUFFIXES = {".pdf", ".ppt", ".pptx", ".doc", ".docx", ".md"}
 
@@ -55,7 +55,7 @@ def classify_source(path: Path) -> str:
         return "mark_scheme"
     if "examiner" in filename or "report on exam" in filename or re.search(r"(^| )er ", filename):
         return "examiner_report"
-    if "insert" in filename or re.search(r"(?:^| )in (?:20|economics|mathematics)", filename):
+    if "insert" in filename or re.search(r"(?:^|[-_ ])in(?:[-_ ]|$)", path.stem.lower()):
         return "insert"
     if re.search(r"(?:^|[^a-z])qp(?:[^a-z]|$)", filename) or "question paper" in filename:
         return "question_paper"
@@ -73,9 +73,8 @@ def classify_source(path: Path) -> str:
 def authority_tier(
     path: Path,
     source_type: str,
-    subject_pack: SubjectPack | None = None,
+    subject_pack: SubjectPack,
 ) -> str:
-    subject_pack = subject_pack or get_subject_pack("oxfordaqa-mathematics-9660")
     if source_type in subject_pack.board.official_source_types:
         return "official"
     if source_type == "textbook" and "赠送" not in str(path):
@@ -118,9 +117,9 @@ def parse_exam_identity(
     year = _parse_year(text)
     session = _parse_session(text)
     unit = subject_pack.parse_unit(text)
-    vendor_code = re.search(r"\baqa[-_ ]?(\d{4,5})(?!\d)", path.name.lower())
+    filename_subject_code = subject_pack.board.subject_code_from_filename(path.name)
     foreign_subject = bool(
-        vendor_code and not vendor_code.group(1).startswith(subject_pack.subject_code)
+        filename_subject_code and not filename_subject_code.startswith(subject_pack.subject_code)
     )
     specimen = "样卷" in text or "specimen" in text
     exam_source = (
@@ -174,9 +173,8 @@ def page_count(path: Path) -> int | None:
 def scan_corpus(
     documents: CorpusRepository,
     root: Path,
-    subject_pack: SubjectPack | None = None,
+    subject_pack: SubjectPack,
 ) -> dict[str, Any]:
-    subject_pack = subject_pack or get_subject_pack("oxfordaqa-mathematics-9660")
     if not root.exists():
         raise FileNotFoundError(f"Corpus directory does not exist: {root}")
     counts: Counter[str] = Counter()
@@ -200,8 +198,14 @@ def scan_corpus(
                 "path": str(path.resolve()),
                 "filename": path.name,
                 "source_type": source_type,
+                "subject_id": subject_pack.id,
                 "subject_code": subject_pack.subject_code,
                 "authority_tier": authority_tier(path, source_type, subject_pack),
+                "source_role": (
+                    "assessment_only"
+                    if source_type in subject_pack.board.official_source_types
+                    else "excluded"
+                ),
                 "checksum": digest,
                 "page_count": page_count(path),
                 "metadata_json": {

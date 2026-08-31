@@ -9,7 +9,7 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 
 import { canonicalizeLooseMarkdownMath, canonicalizeMarkdownMath } from "../lib/markdown-math";
-import { backendResourceUrl } from "../lib/api";
+import { backendResourceUrl, isBackendResourcePath } from "../lib/api";
 
 type HastNode = {
   type: string;
@@ -187,7 +187,7 @@ function questionMarkdownComponents(subjectId?: string): Components {
     ...markdownComponents,
     img({ node, src, ...props }) {
       void node;
-      const resolvedSrc = src?.startsWith("/api/v1/") && subjectId
+      const resolvedSrc = isBackendResourcePath(src) && subjectId
         ? backendResourceUrl(src, subjectId)
         : src;
       return <QuestionSourceImage {...props} src={resolvedSrc} />;

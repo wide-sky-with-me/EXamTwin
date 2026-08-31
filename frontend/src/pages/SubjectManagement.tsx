@@ -40,14 +40,19 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 
+import { DifficultyEvidenceWorkspace } from "../components/DifficultyEvidenceWorkspace";
 import { ErrorBanner } from "../components/Feedback";
 import { SubjectWorkspace } from "../components/SubjectWorkspace";
 import { AppConfirmDialog } from "../components/ui/AppConfirmDialog";
-import { ListPagination } from "../components/ui/ListControls";
+import {
+  DEFAULT_LIST_PAGE_SIZE,
+  DEFAULT_LIST_PAGE_SIZES,
+  ListPagination,
+} from "../components/ui/ListControls";
 import { apiClient, subjectHeaders, unwrapApi } from "../lib/api";
 import type { SubjectStatus } from "../types";
 
-const { Text } = Typography;
+const { Text, Title } = Typography;
 const ICONS = {
   "book-open": BookOpen,
   calculator: Calculator,
@@ -60,7 +65,7 @@ const ICONS = {
 } as const;
 
 type SubjectIcon = keyof typeof ICONS;
-type SubjectTab = "basic" | "documents" | "knowledge";
+type SubjectTab = "basic" | "documents" | "knowledge" | "difficulty";
 type SubjectAvailability = "" | "enabled" | "disabled";
 type CapabilityProfile = {
   id: string;
@@ -78,20 +83,25 @@ type CreateForm = {
   icon: SubjectIcon;
   color: string;
 };
+type EditForm = Pick<CreateForm, "title" | "icon" | "color">;
 
-const PAGE_SIZES = [10, 20, 50] as const;
+const DEFAULT_SUBJECT_APPEARANCE = {
+  color: "#2F6FED",
+  icon: "book-open" as SubjectIcon,
+} as const;
 const EMPTY_CREATE_FORM: CreateForm = {
   id: "",
   subject_code: "",
   title: "",
   board_name: "",
   capability_profile_id: "",
-  icon: "book-open",
-  color: "#2F6FED",
+  ...DEFAULT_SUBJECT_APPEARANCE,
 };
 
 function subjectIcon(subject: SubjectStatus): SubjectIcon {
-  return subject.icon && subject.icon in ICONS ? subject.icon as SubjectIcon : "book-open";
+  return subject.icon && subject.icon in ICONS
+    ? subject.icon as SubjectIcon
+    : DEFAULT_SUBJECT_APPEARANCE.icon;
 }
 
 function IconPicker({
@@ -144,14 +154,17 @@ export function SubjectManagement({
   const [availability, setAvailability] = useState<SubjectAvailability>("");
   const [board, setBoard] = useState("");
   const [page, setPage] = useState(0);
-  const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0]);
+  const [pageSize, setPageSize] = useState(DEFAULT_LIST_PAGE_SIZE);
   const [createOpen, setCreateOpen] = useState(false);
   const [manageOpen, setManageOpen] = useState(false);
   const [managedSubjectId, setManagedSubjectId] = useState<string | null>(null);
   const [tab, setTab] = useState<SubjectTab>("basic");
   const [profiles, setProfiles] = useState<CapabilityProfile[]>([]);
   const [createForm, setCreateForm] = useState<CreateForm>(EMPTY_CREATE_FORM);
-  const [editForm, setEditForm] = useState({ title: "", icon: "book-open" as SubjectIcon, color: "#2F6FED" });
+  const [editForm, setEditForm] = useState<EditForm>({
+    title: "",
+    ...DEFAULT_SUBJECT_APPEARANCE,
+  });
   const [busy, setBusy] = useState<"create" | "save" | "delete" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<SubjectStatus | null>(null);
@@ -182,7 +195,7 @@ export function SubjectManagement({
     setManagedSubjectId(subject.id);
     setManageOpen(true);
     setTab(initialTab);
-    setEditForm({ title: subject.title, icon: subjectIcon(subject), color: subject.color ?? "#2F6FED" });
+    setEditForm({ title: subject.title, icon: subjectIcon(subject), color: subject.color });
     setError(null);
   }
 
@@ -272,69 +285,95 @@ export function SubjectManagement({
 
   return (
     <div aria-label="科目管理" className="subject-management-page">
-      <form
-        aria-label="科目搜索与筛选"
-        className="subject-management-toolbar"
-        onSubmit={(event) => {
-          event.preventDefault();
-          setPage(0);
-          setQuery(queryDraft.trim());
-        }}
-      >
-        <Input
-          allowClear
-          aria-label="搜索科目"
-          autoComplete="off"
-          onChange={(event) => setQueryDraft(event.target.value)}
-          placeholder="搜索名称、代码或考试局"
-          prefix={<Search aria-hidden="true" size={16} />}
-          value={queryDraft}
-        />
-        <Select
-          aria-label="按科目状态筛选"
-          className="subject-status-filter"
-          onChange={(value) => { setPage(0); setAvailability(value as SubjectAvailability); }}
-          options={[{ label: "全部状态", value: "" }, { label: "可用", value: "enabled" }, { label: "需配置", value: "disabled" }]}
-          value={availability}
-        />
-        <Select
-          aria-label="按考试局筛选"
-          className="subject-board-filter"
-          onChange={(value) => { setPage(0); setBoard(value); }}
-          options={[{ label: "全部考试局", value: "" }, ...boards.map((item) => ({ label: item, value: item }))]}
-          value={board}
-        />
-        <Tooltip title="搜索">
-          <Button aria-label="搜索" htmlType="submit" icon={<Search size={16} />} type="primary" />
-        </Tooltip>
-        <Tooltip title="重置筛选">
-          <Button
-            aria-label="重置"
-            disabled={!queryDraft && !query && !availability && !board}
-            icon={<RotateCcw size={16} />}
-            onClick={resetFilters}
+      <header className="catalog-page-header">
+        <div className="catalog-page-heading">
+          <Title className="catalog-page-title" level={1}>科目</Title>
+        </div>
+        <Button
+          className="catalog-primary-action"
+          icon={<Plus aria-hidden="true" size={17} />}
+          onClick={() => { setCreateOpen(true); setError(null); }}
+          type="primary"
+        >
+          新增科目
+        </Button>
+      </header>
+
+      <Card className="catalog-toolbar-card subject-management-toolbar-card" size="small">
+        <form
+          aria-label="科目搜索与筛选"
+          className="subject-management-toolbar"
+          onSubmit={(event) => {
+            event.preventDefault();
+            setPage(0);
+            setQuery(queryDraft.trim());
+          }}
+        >
+          <Input
+            allowClear
+            aria-label="搜索科目"
+            autoComplete="off"
+            onChange={(event) => setQueryDraft(event.target.value)}
+            placeholder="搜索名称、代码或考试局"
+            prefix={<Search aria-hidden="true" size={16} />}
+            value={queryDraft}
           />
-        </Tooltip>
-        <Tooltip title="新增科目">
-          <Button
-            aria-label="新增科目"
-            icon={<Plus size={17} />}
-            onClick={() => { setCreateOpen(true); setError(null); }}
-            type="primary"
+          <Select
+            aria-label="按科目状态筛选"
+            className="subject-status-filter"
+            onChange={(value) => { setPage(0); setAvailability(value as SubjectAvailability); }}
+            options={[{ label: "全部状态", value: "" }, { label: "可用", value: "enabled" }, { label: "需配置", value: "disabled" }]}
+            value={availability}
           />
-        </Tooltip>
-      </form>
+          <Select
+            aria-label="按考试局筛选"
+            className="subject-board-filter"
+            onChange={(value) => { setPage(0); setBoard(value); }}
+            options={[{ label: "全部考试局", value: "" }, ...boards.map((item) => ({ label: item, value: item }))]}
+            value={board}
+          />
+          <Tooltip title="搜索">
+            <Button aria-label="搜索" htmlType="submit" icon={<Search aria-hidden="true" size={16} />} />
+          </Tooltip>
+          <Tooltip title="重置筛选">
+            <Button
+              aria-label="重置筛选"
+              disabled={!queryDraft && !query && !availability && !board}
+              icon={<RotateCcw aria-hidden="true" size={16} />}
+              onClick={resetFilters}
+            />
+          </Tooltip>
+        </form>
+      </Card>
 
       <ErrorBanner message={!createOpen && !manageOpen ? error : null} />
       {loading && subjects.length === 0 ? (
         <div className="subject-management-grid">{Array.from({ length: 6 }, (_, index) => <Card key={index}><Skeleton active /></Card>)}</div>
       ) : pageSubjects.length === 0 ? (
-        <Card className="subject-management-empty"><Empty description={query || availability || board ? "没有符合当前条件的科目" : "还没有科目，先创建一个"} image={<BookOpenText size={48} />} /></Card>
+        <Card className="subject-management-empty">
+          <Empty
+            description={(
+              <span className="catalog-empty-copy">
+                <strong>{query || availability || board ? "没有符合当前条件的科目" : "还没有科目"}</strong>
+                <span>{query || availability || board ? "清除筛选后查看完整课程目录。" : "创建第一个科目后，即可导入资料并管理试卷。"}</span>
+              </span>
+            )}
+            image={<BookOpenText size={48} />}
+          >
+            <Button
+              onClick={query || availability || board
+                ? resetFilters
+                : () => { setCreateOpen(true); setError(null); }}
+            >
+              {query || availability || board ? "清除筛选" : "新增科目"}
+            </Button>
+          </Empty>
+        </Card>
       ) : (
         <div className="subject-management-grid">
           {pageSubjects.map((subject) => {
             const Icon = ICONS[subjectIcon(subject)];
-            const color = subject.color ?? "#2F6FED";
+            const color = subject.color;
             return (
               <article className="subject-management-card" key={subject.id} style={{ "--subject-color": color } as CSSProperties}>
                 <header>
@@ -381,7 +420,7 @@ export function SubjectManagement({
         onPageSizeChange={(size) => { setPage(0); setPageSize(size); }}
         page={currentPage}
         pageSize={pageSize}
-        pageSizes={PAGE_SIZES}
+        pageSizes={DEFAULT_LIST_PAGE_SIZES}
         total={filteredSubjects.length}
         visibleCount={pageSubjects.length}
       />
@@ -440,6 +479,7 @@ export function SubjectManagement({
                 },
                 { key: "documents", label: "资料管理", children: <SubjectWorkspace key={`${managedSubject.id}-documents`} onChanged={refresh} subject={managedSubject} view="documents" /> },
                 { key: "knowledge", label: "知识库", children: <SubjectWorkspace key={`${managedSubject.id}-knowledge`} onChanged={refresh} subject={managedSubject} view="knowledge" /> },
+                { key: "difficulty", label: "难度证据", children: <DifficultyEvidenceWorkspace key={`${managedSubject.id}-difficulty`} subjectId={managedSubject.id} /> },
               ]}
               onChange={(key) => setTab(key as SubjectTab)}
             />

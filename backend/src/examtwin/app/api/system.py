@@ -5,6 +5,8 @@ from fastapi import APIRouter, Depends
 from examtwin.app.api.dependencies import get_subject_context
 from examtwin.app.composition import dashboard_repository
 from examtwin.contracts.common import (
+    DEFAULT_SUBJECT_COLOR,
+    DEFAULT_SUBJECT_ICON,
     HealthResponse,
     InfrastructureHealthResponse,
     PlatformStatusResponse,
@@ -41,11 +43,11 @@ def health(settings: Settings = Depends(get_settings)) -> HealthResponse:
         rerank_model=settings.rerank_model,
         credentials={
             "mineru": settings.mineru_token is not None,
-            "llm": settings.llm_provider_api_key is not None,
+            "llm": settings.llm_api_key is not None,
             "image_generation": (
                 settings.image_generation_enabled and settings.image_provider_api_key is not None
             ),
-            "siliconflow": settings.siliconflow_api_key is not None,
+            "retrieval": settings.retrieval_api_key is not None,
         },
         object_storage_backend=settings.object_store_backend,
         infrastructure=InfrastructureHealthResponse(
@@ -69,8 +71,8 @@ def _subject_response(subject: SubjectContext, settings: Settings) -> SubjectPac
         subject_code=pack.subject_code,
         title=str(workspace.get("title") or pack.title),
         board_name=str(workspace.get("board_name") or subject.board_name),
-        icon=str(workspace.get("icon") or "book-open"),
-        color=str(workspace.get("color") or "#2F6FED"),
+        icon=str(workspace.get("icon") or DEFAULT_SUBJECT_ICON),
+        color=str(workspace.get("color") or DEFAULT_SUBJECT_COLOR),
         capability_profile_id=subject.capability_profile_id,
         generic_qa_enabled=True,
         answering_enabled=subject.paper_answering_enabled,

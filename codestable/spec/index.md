@@ -100,6 +100,11 @@ PDF 文本层只承担恢复定位证据，不能覆盖或逐字段补写已经�
 Markdown，逐页视觉请求不重复携带整个多页分块；输入收口降低重复成本，但外部视觉模型推理
 和服务波动仍是整卷任务的主要耗时。
 
+逐页视觉复核仍保持一页一请求、原渲染清晰度和既有页码/图片/语义/置信度门禁；供应商请求使用
+strict JSON Schema 约束响应。文本、结构化、视觉和图片请求统一从配置读取模型、LiteLLM provider、
+端点、推理强度与预算，具体模型名只作为审计身份，不决定业务代码中的请求协议。结构化响应仍须
+经过相同的本地解析与页面守恒校验，不能用供应商格式约束替代业务门禁。
+
 旧版已结束任务不被原地改写，统一标为未通过当前来源完整性契约，答案页和历史列表都会明确
 警告，且不能原地重试。用户可以从原任务创建使用同一原卷和 Unit 的全新替代任务；旧任务、
 新任务及替代方向永久保留审计关系。
@@ -108,6 +113,12 @@ Markdown，逐页视觉请求不重复携带整个多页分块；输入收口降
 编号；按引用首次出现顺序去重，最多保留四个。没有可靠绑定时保持空列表，不用词面重叠或
 课纲顺序伪造映射。最终编号与答案在同一次题目完成事务中保存，使查询、重试和展示读取同一
 份结果。
+
+ReAct 工作流是公开终稿物化与业务验收的唯一边界：无论候选来自主模型还是结构化终稿
+provider，都统一补齐子题结构，并精确校验正文引用与 `citation_ids` 的首次出现顺序及允许引用
+集合。主模型候选通过时直接成为公开终稿并省去第二次模型调用；未通过时才请求 provider。
+provider 只生成和解析结构化载荷，运行时只消费工作流已验收的载荷，不得补写引用声明；结构化
+候选和 provider 均无法通过时失败关闭，不能由协议解析器或下游兼容修复伪装成合法终稿。
 
 ### 从已完成作答到教师复核
 
@@ -153,8 +164,10 @@ assessment 人工确认 / 改分分别写入追加式记录，任何模型输出
 - **试卷**：先在科目上下文中按考试单元归档 Question Paper、Mark Scheme 和 Source Booklet；
   试卷详情是 AI 作答、外部答案导入、作答记录、评分和整卷报告的共同上文。科目、试卷单元、
   作答任务和评分状态由 URL 与后端事实确定，不用 `localStorage` 或独立步骤状态充当事实源；
-- **复核**：合并展示全部科目的待复核项；提交决定前必须展示题目、答案、Rubric、证据、
-  建议分和置信度，教师可以确认或在合法范围内改分。
+- **复核**：合并展示全部科目的待复核项；关联 assessment 按持久化 `paper_job_id` 聚合为试卷组，
+  使用试卷显示名（回退文件名）并按题位排序，未关联的旧版或独立 assessment 各自成组；队列同时
+  标明外部答卷、AI 作答或来源未记录。提交决定前必须展示题目、答案、Rubric、证据、建议分和
+  置信度，教师可以确认或在合法范围内改分。
 
 前端使用 Ant Design 6 承担主题、表单、表格、上传、弹窗和反馈，React Router 拥有业务 URL，
 TanStack Query 只拥有服务端缓存、请求取消和精确失效。快速切换科目时，旧请求不得覆盖当前
@@ -243,8 +256,8 @@ flowchart TB
 - **信息安全性**：真实供应商凭据只从未跟踪的环境配置读取，不进入示例文件、响应或日志；
   所有外部调用前必须显式配置相应凭据。当前没有认证、授权或租户边界；关闭本地访问限制且
   绑定非 loopback 必须健康降级，不得把该配置视为可直接公开部署。
-- **可靠性 / 可恢复性**：MinerU 调用最多重试三次；大文档分段结果可复用；最终缓存文件采用
-  临时文件替换，失败状态和错误写回资料清单。
+- **可靠性 / 可恢复性**：MinerU 的超时、有限重试和退避上限由部署配置声明，默认最多重试三次；
+  大文档分段结果可复用；最终缓存文件采用临时文件替换，失败状态和错误写回资料清单。
 - **可核查性**：问答返回来源引用；评分保存逐 rubric 证据、置信度和复核记录，自动建议分
   不直接发布。
 - **可测试性**：普通测试不得调用真实模型服务；云端连通性与数据库集成应以显式 smoke /
@@ -269,7 +282,7 @@ flowchart TB
 | 清点、分类和严格配对 | [`backend/src/examtwin/knowledge/inventory.py`](../../backend/src/examtwin/knowledge/inventory.py)、[`subject-packs/`](../../subject-packs/) |
 | MinerU 转换与 Qdrant 发布 | [`backend/src/examtwin/knowledge/ingestion.py`](../../backend/src/examtwin/knowledge/ingestion.py)、[`backend/src/examtwin/knowledge/vector_retrieval.py`](../../backend/src/examtwin/knowledge/vector_retrieval.py) |
 | 知识构建和难度 | [`backend/src/examtwin/knowledge/pipeline.py`](../../backend/src/examtwin/knowledge/pipeline.py)、[`backend/src/examtwin/knowledge/difficulty.py`](../../backend/src/examtwin/knowledge/difficulty.py) |
-| RAG、Agent 与供应商边界 | [`backend/src/examtwin/assessment/rag.py`](../../backend/src/examtwin/assessment/rag.py)、[`backend/src/examtwin/assessment/answering_agent/`](../../backend/src/examtwin/assessment/answering_agent/)、[`backend/src/examtwin/platform/providers.py`](../../backend/src/examtwin/platform/providers.py) |
+| RAG、Agent 与供应商边界 | [`backend/src/examtwin/assessment/rag.py`](../../backend/src/examtwin/assessment/rag.py)、[`backend/src/examtwin/assessment/answering_agent/`](../../backend/src/examtwin/assessment/answering_agent/)、[`backend/src/examtwin/platform/litellm_provider.py`](../../backend/src/examtwin/platform/litellm_provider.py)、[`backend/src/examtwin/platform/providers.py`](../../backend/src/examtwin/platform/providers.py) |
 | 整卷任务、评分与复核 | [`backend/src/examtwin/assessment/paper_jobs.py`](../../backend/src/examtwin/assessment/paper_jobs.py)、[`backend/src/examtwin/assessment/paper_worker.py`](../../backend/src/examtwin/assessment/paper_worker.py)、[`backend/src/examtwin/assessment/grading.py`](../../backend/src/examtwin/assessment/grading.py) |
 | 当前 Web 界面 | [`frontend/src/App.tsx`](../../frontend/src/App.tsx)、[`frontend/src/lib/api.ts`](../../frontend/src/lib/api.ts) |
 | 自动化证据 | [`backend/tests`](../../backend/tests)、[`frontend/package.json`](../../frontend/package.json) |

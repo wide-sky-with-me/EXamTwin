@@ -2,6 +2,7 @@
 
 from examtwin.knowledge.corpus_ingestion import render_documents
 from examtwin.knowledge.corpus_repository import CorpusRepository
+from examtwin.knowledge.difficulty import difficulty_label
 from examtwin.knowledge.difficulty_repository import DifficultyRepository
 from examtwin.knowledge.document_block_repository import DocumentBlockRepository
 from examtwin.knowledge.graph_repository import GraphRepository
@@ -27,6 +28,7 @@ __all__ = [
     "RetrievalTraceRepository",
     "build_retrieval_cards",
     "classify_source",
+    "difficulty_label",
     "list_knowledge_points",
     "knowledge_cards_by_code",
     "load_vector_index",

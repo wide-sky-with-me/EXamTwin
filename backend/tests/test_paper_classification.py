@@ -61,6 +61,20 @@ def test_classifier_sends_actual_content_to_the_structured_model() -> None:
     assert "Scoring guidance and acceptable answers" in model.messages[1].content
 
 
+def test_classifier_uses_configured_document_budget() -> None:
+    model = StubStructuredModel(classification("question_paper"))
+    classifier = PaperDocumentClassifier(
+        Settings(paper_classification_max_chars=4_000),
+        structured_model=model,
+    )
+
+    classifier.classify("Question content. " * 1_000)
+
+    assert len(model.messages[1].content) <= 4_100
+    assert "[BEGINNING]" in model.messages[1].content
+    assert "[END]" in model.messages[1].content
+
+
 @pytest.mark.parametrize(
     "document_type",
     [

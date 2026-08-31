@@ -6,7 +6,7 @@ describe("theme preference", () => {
   beforeEach(() => {
     window.localStorage.clear();
     vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: true }));
-    document.head.innerHTML = '<meta name="theme-color" content="#f5f5f7" />';
+    document.head.innerHTML = '<meta name="theme-color" content="#eef2f8" />';
   });
 
   it("starts from system mode and persists an explicit override", () => {
@@ -14,7 +14,7 @@ describe("theme preference", () => {
     applyTheme("system");
     expect(document.documentElement.dataset.theme).toBe("dark");
     expect(document.querySelector('meta[name="theme-color"]')?.getAttribute("content")).toBe(
-      "#000000",
+      "#0b0d12",
     );
 
     saveTheme("light");
@@ -23,7 +23,7 @@ describe("theme preference", () => {
     expect(storedTheme()).toBe("light");
     expect(document.documentElement.dataset.theme).toBe("light");
     expect(document.querySelector('meta[name="theme-color"]')?.getAttribute("content")).toBe(
-      "#f5f5f7",
+      "#eef2f8",
     );
   });
 });

@@ -228,11 +228,9 @@
           },
           "tool_name": {
             "default": "math_diagram",
-            "enum": [
-              "math_plot",
-              "math_diagram",
-              "economics_diagram"
-            ],
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)*$",
             "title": "Tool Name",
             "type": "string"
           },
@@ -361,8 +359,10 @@
             "type": "string"
           },
           "tool_name": {
-            "const": "image_generate",
             "default": "image_generate",
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)*$",
             "title": "Tool Name",
             "type": "string"
           },
@@ -1520,6 +1520,720 @@
           "tone"
         ],
         "title": "DiagramLegendItem",
+        "type": "object"
+      },
+      "DifficultyCandidatePatch": {
+        "properties": {
+          "evidence_level": {
+            "anyOf": [
+              {
+                "enum": [
+                  "A",
+                  "B"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Level"
+          },
+          "metric_comparator": {
+            "anyOf": [
+              {
+                "enum": [
+                  "eq",
+                  "approx",
+                  "gt",
+                  "gte",
+                  "lt",
+                  "lte"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metric Comparator"
+          },
+          "metric_direction": {
+            "anyOf": [
+              {
+                "enum": [
+                  "success",
+                  "difficulty"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metric Direction"
+          },
+          "metric_name": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metric Name"
+          },
+          "metric_scale": {
+            "anyOf": [
+              {
+                "enum": [
+                  "proportion",
+                  "percent"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metric Scale"
+          },
+          "metric_text": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metric Text"
+          },
+          "metric_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metric Value"
+          },
+          "page_number": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Number"
+          },
+          "question_number": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Question Number"
+          },
+          "quote": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "minLength": 8,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quote"
+          }
+        },
+        "title": "DifficultyCandidatePatch",
+        "type": "object"
+      },
+      "DifficultyCandidateView": {
+        "properties": {
+          "block_hash": {
+            "title": "Block Hash",
+            "type": "string"
+          },
+          "candidate_fingerprint": {
+            "title": "Candidate Fingerprint",
+            "type": "string"
+          },
+          "difficulty_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Difficulty Score"
+          },
+          "evidence_level": {
+            "enum": [
+              "A",
+              "B"
+            ],
+            "title": "Evidence Level",
+            "type": "string"
+          },
+          "evidence_type": {
+            "enum": [
+              "quantitative",
+              "qualitative"
+            ],
+            "title": "Evidence Type",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "metric_comparator": {
+            "anyOf": [
+              {
+                "enum": [
+                  "eq",
+                  "approx",
+                  "gt",
+                  "gte",
+                  "lt",
+                  "lte"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metric Comparator"
+          },
+          "metric_direction": {
+            "anyOf": [
+              {
+                "enum": [
+                  "success",
+                  "difficulty"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metric Direction"
+          },
+          "metric_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metric Name"
+          },
+          "metric_scale": {
+            "anyOf": [
+              {
+                "enum": [
+                  "proportion",
+                  "percent"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metric Scale"
+          },
+          "metric_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metric Text"
+          },
+          "metric_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metric Value"
+          },
+          "page_number": {
+            "title": "Page Number",
+            "type": "integer"
+          },
+          "question_number": {
+            "title": "Question Number",
+            "type": "string"
+          },
+          "quote": {
+            "title": "Quote",
+            "type": "string"
+          },
+          "quote_hash": {
+            "title": "Quote Hash",
+            "type": "string"
+          },
+          "review_decision": {
+            "anyOf": [
+              {
+                "enum": [
+                  "accepted",
+                  "rejected"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Decision"
+          },
+          "review_replacement": {
+            "additionalProperties": true,
+            "title": "Review Replacement",
+            "type": "object"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "source_ref": {
+            "title": "Source Ref",
+            "type": "string"
+          },
+          "validation_errors": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Validation Errors",
+            "type": "array"
+          },
+          "validation_status": {
+            "title": "Validation Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "run_id",
+          "candidate_fingerprint",
+          "question_number",
+          "page_number",
+          "evidence_level",
+          "evidence_type",
+          "metric_name",
+          "metric_text",
+          "metric_value",
+          "metric_scale",
+          "metric_direction",
+          "metric_comparator",
+          "difficulty_score",
+          "quote",
+          "quote_hash",
+          "block_hash",
+          "source_ref",
+          "validation_status",
+          "validation_errors",
+          "review_decision",
+          "review_replacement"
+        ],
+        "title": "DifficultyCandidateView",
+        "type": "object"
+      },
+      "DifficultyPublishRequest": {
+        "properties": {
+          "expected_run_fingerprint": {
+            "maxLength": 64,
+            "minLength": 64,
+            "title": "Expected Run Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_run_fingerprint"
+        ],
+        "title": "DifficultyPublishRequest",
+        "type": "object"
+      },
+      "DifficultyReviewRequest": {
+        "properties": {
+          "decision": {
+            "enum": [
+              "accepted",
+              "rejected"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "expected_candidate_fingerprint": {
+            "maxLength": 64,
+            "minLength": 64,
+            "title": "Expected Candidate Fingerprint",
+            "type": "string"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "replacement": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DifficultyCandidatePatch"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "decision",
+          "expected_candidate_fingerprint"
+        ],
+        "title": "DifficultyReviewRequest",
+        "type": "object"
+      },
+      "DifficultyRunCreateRequest": {
+        "properties": {
+          "source_document_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Source Document Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_document_id"
+        ],
+        "title": "DifficultyRunCreateRequest",
+        "type": "object"
+      },
+      "DifficultyRunDetail": {
+        "properties": {
+          "candidate_count": {
+            "title": "Candidate Count",
+            "type": "integer"
+          },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/DifficultyCandidateView"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "extractor_version": {
+            "title": "Extractor Version",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "input_hash": {
+            "title": "Input Hash",
+            "type": "string"
+          },
+          "model_name": {
+            "title": "Model Name",
+            "type": "string"
+          },
+          "package_digest": {
+            "title": "Package Digest",
+            "type": "string"
+          },
+          "pair_key": {
+            "title": "Pair Key",
+            "type": "string"
+          },
+          "prompt_digest": {
+            "title": "Prompt Digest",
+            "type": "string"
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published At"
+          },
+          "question_catalog_hash": {
+            "title": "Question Catalog Hash",
+            "type": "string"
+          },
+          "question_paper_checksum": {
+            "title": "Question Paper Checksum",
+            "type": "string"
+          },
+          "question_paper_document_id": {
+            "title": "Question Paper Document Id",
+            "type": "string"
+          },
+          "run_fingerprint": {
+            "title": "Run Fingerprint",
+            "type": "string"
+          },
+          "source_checksum": {
+            "title": "Source Checksum",
+            "type": "string"
+          },
+          "source_document_id": {
+            "title": "Source Document Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "subject_code": {
+            "title": "Subject Code",
+            "type": "string"
+          },
+          "subject_id": {
+            "title": "Subject Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "subject_id",
+          "subject_code",
+          "source_document_id",
+          "source_checksum",
+          "question_paper_document_id",
+          "question_paper_checksum",
+          "question_catalog_hash",
+          "package_digest",
+          "prompt_digest",
+          "pair_key",
+          "input_hash",
+          "extractor_version",
+          "model_name",
+          "status",
+          "candidate_count",
+          "error",
+          "created_at",
+          "updated_at",
+          "completed_at",
+          "published_at",
+          "run_fingerprint",
+          "candidates"
+        ],
+        "title": "DifficultyRunDetail",
+        "type": "object"
+      },
+      "DifficultyRunSummary": {
+        "properties": {
+          "candidate_count": {
+            "title": "Candidate Count",
+            "type": "integer"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "extractor_version": {
+            "title": "Extractor Version",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "input_hash": {
+            "title": "Input Hash",
+            "type": "string"
+          },
+          "model_name": {
+            "title": "Model Name",
+            "type": "string"
+          },
+          "package_digest": {
+            "title": "Package Digest",
+            "type": "string"
+          },
+          "pair_key": {
+            "title": "Pair Key",
+            "type": "string"
+          },
+          "prompt_digest": {
+            "title": "Prompt Digest",
+            "type": "string"
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published At"
+          },
+          "question_catalog_hash": {
+            "title": "Question Catalog Hash",
+            "type": "string"
+          },
+          "question_paper_checksum": {
+            "title": "Question Paper Checksum",
+            "type": "string"
+          },
+          "question_paper_document_id": {
+            "title": "Question Paper Document Id",
+            "type": "string"
+          },
+          "source_checksum": {
+            "title": "Source Checksum",
+            "type": "string"
+          },
+          "source_document_id": {
+            "title": "Source Document Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "subject_code": {
+            "title": "Subject Code",
+            "type": "string"
+          },
+          "subject_id": {
+            "title": "Subject Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "subject_id",
+          "subject_code",
+          "source_document_id",
+          "source_checksum",
+          "question_paper_document_id",
+          "question_paper_checksum",
+          "question_catalog_hash",
+          "package_digest",
+          "prompt_digest",
+          "pair_key",
+          "input_hash",
+          "extractor_version",
+          "model_name",
+          "status",
+          "candidate_count",
+          "error",
+          "created_at",
+          "updated_at",
+          "completed_at",
+          "published_at"
+        ],
+        "title": "DifficultyRunSummary",
         "type": "object"
       },
       "GenerateRubricRequest": {
@@ -4461,6 +5175,21 @@
       },
       "ReviewQueueItem": {
         "properties": {
+          "answer_mode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "generated",
+                  "uploaded"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Mode"
+          },
           "confidence": {
             "title": "Confidence",
             "type": "number"
@@ -4473,6 +5202,50 @@
           "id": {
             "title": "Id",
             "type": "string"
+          },
+          "paper_display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paper Display Name"
+          },
+          "paper_filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paper Filename"
+          },
+          "paper_job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paper Job Id"
+          },
+          "question_position": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Question Position"
           },
           "question_ref": {
             "anyOf": [
@@ -4514,6 +5287,11 @@
           "id",
           "subject_code",
           "subject_id",
+          "paper_job_id",
+          "paper_display_name",
+          "paper_filename",
+          "question_position",
+          "answer_mode",
           "question_ref",
           "total_awarded",
           "total_available",
@@ -5933,9 +6711,7 @@
               "expression",
               "proof",
               "table",
-              "math_plot",
-              "math_diagram",
-              "economics_diagram",
+              "diagram",
               "image"
             ],
             "title": "Answer Kind",
@@ -5963,12 +6739,9 @@
           "required_tool": {
             "anyOf": [
               {
-                "enum": [
-                  "math_plot",
-                  "math_diagram",
-                  "economics_diagram",
-                  "image_generate"
-                ],
+                "maxLength": 64,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)*$",
                 "type": "string"
               },
               {
@@ -10089,6 +10862,456 @@
           }
         },
         "summary": "Update Subject Workspace"
+      }
+    },
+    "/api/v1/subject-workspaces/{workspace_id}/difficulty-evidence/runs": {
+      "get": {
+        "operationId": "list_difficulty_runs_api_v1_subject_workspaces__workspace_id__difficulty_evidence_runs_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DifficultyRunSummary"
+                  },
+                  "title": "Response List Difficulty Runs Api V1 Subject Workspaces  Workspace Id  Difficulty Evidence Runs Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Difficulty Runs",
+        "tags": [
+          "difficulty-evidence"
+        ]
+      },
+      "post": {
+        "operationId": "create_difficulty_run_api_v1_subject_workspaces__workspace_id__difficulty_evidence_runs_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DifficultyRunCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DifficultyRunDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Difficulty Run",
+        "tags": [
+          "difficulty-evidence"
+        ]
+      }
+    },
+    "/api/v1/subject-workspaces/{workspace_id}/difficulty-evidence/runs/{run_id}": {
+      "get": {
+        "operationId": "get_difficulty_run_api_v1_subject_workspaces__workspace_id__difficulty_evidence_runs__run_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DifficultyRunDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Difficulty Run",
+        "tags": [
+          "difficulty-evidence"
+        ]
+      }
+    },
+    "/api/v1/subject-workspaces/{workspace_id}/difficulty-evidence/runs/{run_id}/candidates/{candidate_id}/reviews": {
+      "post": {
+        "operationId": "review_difficulty_candidate_api_v1_subject_workspaces__workspace_id__difficulty_evidence_runs__run_id__candidates__candidate_id__reviews_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "candidate_id",
+            "required": true,
+            "schema": {
+              "title": "Candidate Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DifficultyReviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DifficultyRunDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Review Difficulty Candidate",
+        "tags": [
+          "difficulty-evidence"
+        ]
+      }
+    },
+    "/api/v1/subject-workspaces/{workspace_id}/difficulty-evidence/runs/{run_id}/publish": {
+      "post": {
+        "operationId": "publish_difficulty_run_api_v1_subject_workspaces__workspace_id__difficulty_evidence_runs__run_id__publish_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DifficultyPublishRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DifficultyRunDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Publish Difficulty Run",
+        "tags": [
+          "difficulty-evidence"
+        ]
       }
     },
     "/api/v1/subject-workspaces/{workspace_id}/documents": {

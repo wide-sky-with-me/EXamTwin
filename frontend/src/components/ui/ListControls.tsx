@@ -1,4 +1,4 @@
-import { Button, Flex, Input, Space, Typography } from "antd";
+import { Button, Flex, Input, Select, Space, Typography } from "antd";
 import { ChevronLeft, ChevronRight, RotateCcw, Search } from "lucide-react";
 import { useEffect, useRef } from "react";
 import type { FormEvent, ReactNode } from "react";
@@ -109,18 +109,18 @@ export function ListFilterSelect({
   value,
 }: ListFilterSelectProps) {
   return (
-    <select
+    <Select
       aria-label={ariaLabel}
       className="list-filter-select-trigger"
-      onChange={(event) => onValueChange(event.target.value === ALL_VALUE ? "" : event.target.value)}
+      onChange={(nextValue) => onValueChange(nextValue === ALL_VALUE ? "" : nextValue)}
+      options={options.map((option) => ({
+        label: option.label,
+        value: option.value || ALL_VALUE,
+      }))}
+      popupMatchSelectWidth
+      showSearch={false}
       value={value || ALL_VALUE}
-    >
-      {options.map((option) => (
-        <option key={option.value || ALL_VALUE} value={option.value || ALL_VALUE}>
-          {option.label}
-        </option>
-      ))}
-    </select>
+    />
   );
 }
 
@@ -139,7 +139,8 @@ type ListPaginationProps = {
   onPageSizeChange: (pageSize: number) => void;
 };
 
-const DEFAULT_PAGE_SIZES = [10, 20, 50] as const;
+export const DEFAULT_LIST_PAGE_SIZE = 10;
+export const DEFAULT_LIST_PAGE_SIZES = [10, 20, 50] as const;
 
 export function ListPagination({
   ariaLabel,
@@ -151,7 +152,7 @@ export function ListPagination({
   pageSize,
   visibleCount,
   disabled = false,
-  pageSizes = DEFAULT_PAGE_SIZES,
+  pageSizes = DEFAULT_LIST_PAGE_SIZES,
   onPageChange,
   onPageSizeChange,
 }: ListPaginationProps) {

@@ -1,6 +1,7 @@
 import {
   ArrowLeft,
   BookOpen,
+  CircleHelp,
   ChevronDown,
   Eye,
   FileText,
@@ -12,9 +13,12 @@ import {
   UploadCloud,
   X,
 } from "lucide-react";
+import { Tooltip } from "antd";
 import {
   type DragEvent as ReactDragEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   type FormEvent,
+  type ReactNode,
   useEffect,
   useMemo,
   useRef,
@@ -63,6 +67,123 @@ function isSupportedPaper(file: File) {
   return name.endsWith(".pdf") || name.endsWith(".md") || name.endsWith(".markdown");
 }
 
+type PaperQuestion = PaperJobResult["questions"][number];
+type MobilePane = "answer" | "evidence";
+
+function QuestionNavigator({
+  onSelect,
+  questions,
+  selectedIndex,
+}: {
+  onSelect: (index: number) => void;
+  questions: PaperQuestion[];
+  selectedIndex: number;
+}) {
+  return (
+    <nav aria-label="题目导航" className="question-nav">
+      {questions.map((item, index) => {
+        const latestStep = item.agent_steps[item.agent_steps.length - 1];
+        return (
+          <button
+            aria-current={selectedIndex === index ? "true" : undefined}
+            aria-pressed={selectedIndex === index}
+            className={selectedIndex === index ? "active" : ""}
+            key={`${item.position}-${item.number}`}
+            onClick={() => onSelect(index)}
+            type="button"
+          >
+            <b>Q{item.number}</b>
+            <span>
+              {item.status === "answering"
+                ? (latestStep?.message ?? paperQuestionStatusLabel(item))
+                : paperQuestionStatusLabel(item)}
+            </span>
+            <i className={item.error ? "failed" : item.status === "completed" && item.grounded ? "done" : "warn"} />
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
+function MobileReadingTabs({
+  evidenceCount,
+  onChange,
+  pane,
+}: {
+  evidenceCount: number;
+  onChange: (pane: MobilePane) => void;
+  pane: MobilePane;
+}) {
+  function handleKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>) {
+    let nextPane: MobilePane | null = null;
+    if (event.key === "ArrowLeft" || event.key === "Home") nextPane = "answer";
+    if (event.key === "ArrowRight" || event.key === "End") nextPane = "evidence";
+    if (!nextPane) return;
+    event.preventDefault();
+    onChange(nextPane);
+    window.requestAnimationFrame(() => {
+      document.getElementById(`paper-${nextPane}-tab`)?.focus();
+    });
+  }
+
+  return (
+    <div aria-label="答案与证据" aria-orientation="horizontal" className="paper-mobile-reading-tabs" role="tablist">
+      <button
+        aria-controls="paper-answer-panel"
+        aria-selected={pane === "answer"}
+        id="paper-answer-tab"
+        onClick={() => onChange("answer")}
+        onKeyDown={handleKeyDown}
+        role="tab"
+        tabIndex={pane === "answer" ? 0 : -1}
+        type="button"
+      >
+        答案
+      </button>
+      <button
+        aria-controls="paper-evidence-panel"
+        aria-selected={pane === "evidence"}
+        id="paper-evidence-tab"
+        onClick={() => onChange("evidence")}
+        onKeyDown={handleKeyDown}
+        role="tab"
+        tabIndex={pane === "evidence" ? 0 : -1}
+        type="button"
+      >
+        证据
+        <span>{evidenceCount}</span>
+      </button>
+    </div>
+  );
+}
+
+function AnswerReadingPane({ active, children }: { active: boolean; children: ReactNode }) {
+  return (
+    <article
+      aria-labelledby="paper-answer-tab"
+      className={`paper-answer paper-reading-panel paper-answer-pane${active ? " is-mobile-active" : ""}`}
+      id="paper-answer-panel"
+      role="tabpanel"
+    >
+      {children}
+    </article>
+  );
+}
+
+function EvidenceReadingPane({ active, children }: { active: boolean; children: ReactNode }) {
+  return (
+    <aside
+      aria-labelledby="paper-evidence-tab"
+      className={`paper-reading-panel paper-evidence-pane${active ? " is-mobile-active" : ""}`}
+      id="paper-evidence-panel"
+      role="tabpanel"
+    >
+      {children}
+    </aside>
+  );
+}
+
 export function PaperAnswering({
   enabled,
   subjects: providedSubjects,
@@ -72,6 +193,7 @@ export function PaperAnswering({
   initialPaperUnitId,
   onBack,
   onOpenJob,
+  onOpenPaper,
   embedded = false,
 }: {
   enabled: boolean;
@@ -81,7 +203,8 @@ export function PaperAnswering({
   initialJobId?: string;
   initialPaperUnitId?: string;
   onBack?: (paperUnitId?: string) => void;
-  onOpenJob?: (jobId: string, paperUnitId?: string | null) => void;
+  onOpenJob: (jobId: string, paperUnitId?: string | null) => void;
+  onOpenPaper?: (paperUnitId: string) => void;
   embedded?: boolean;
 }) {
   const subjects = useMemo(
@@ -94,16 +217,15 @@ export function PaperAnswering({
   const canAnswer = enabled && Boolean(subject?.answering_enabled);
   const [createOpen, setCreateOpen] = useState(false);
   const [createStep, setCreateStep] = useState<1 | 2>(1);
-  const jobStorageKey = `examtwin.paperJobId.${subjectId || "unselected"}`;
   const [file, setFile] = useState<File | null>(null);
   const [sourceBooklet, setSourceBooklet] = useState<File | null>(null);
   const [unit, setUnit] = useState("");
-  const [jobId, setJobId] = useState<string | null>(() =>
-    initialJobId ?? window.localStorage.getItem(jobStorageKey),
-  );
-  const [job, setJob] = useState<PaperJobResult | null>(null);
+  const jobId = initialJobId ?? null;
+  const [jobSnapshot, setJob] = useState<PaperJobResult | null>(null);
+  const job = jobSnapshot?.job_id === jobId ? jobSnapshot : null;
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [questionExpanded, setQuestionExpanded] = useState(true);
+  const [mobilePane, setMobilePane] = useState<"answer" | "evidence">("answer");
   const [uploading, setUploading] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [retrying, setRetrying] = useState(false);
@@ -124,27 +246,21 @@ export function PaperAnswering({
   }, [subjectId, subjects]);
 
   useEffect(() => {
-    setJobId(window.localStorage.getItem(jobStorageKey));
-    setJob(null);
-    setSelectedIndex(0);
-    setError(null);
-  }, [jobStorageKey, subjectId]);
-  useEffect(() => {
     if (!initialSubjectId) return;
     setSubjectId(initialSubjectId);
   }, [initialSubjectId]);
 
   useEffect(() => {
-    if (!initialJobId) return;
-    window.localStorage.setItem(jobStorageKey, initialJobId);
+    terminalNoticeRef.current = null;
     setJob(null);
-    setJobId(initialJobId);
-    setStreamVersion((version) => version + 1);
-  }, [initialJobId, jobStorageKey]);
+    setSelectedIndex(0);
+    setStreamState("idle");
+    setError(null);
+  }, [initialJobId]);
 
 
   useEffect(() => {
-    if (!jobId || !enabled || !subjectId) return;
+    if (!jobId || !subjectId) return;
     return subscribeTaskSnapshots<PaperJobResult>({
       subjectId,
       path: `/papers/jobs/${jobId}/events`,
@@ -163,9 +279,6 @@ export function PaperAnswering({
               : `整卷处理结束：${next.completed_questions} 题已处理，${next.failed_questions} 题处理失败。`,
           );
         }
-        if (next.status === "completed") {
-          window.localStorage.removeItem(jobStorageKey);
-        }
         if (["completed", "partial_failed", "failed"].includes(next.status)) {
           setHistoryVersion((version) => version + 1);
         }
@@ -174,18 +287,17 @@ export function PaperAnswering({
         ["completed", "partial_failed", "failed"].includes(next.status),
       onState: setStreamState,
       onUnavailable: (message) => {
-        window.localStorage.removeItem(jobStorageKey);
-        setJobId(null);
         setJob(null);
         setError(message);
       },
       onError: setError,
     });
-  }, [enabled, jobId, jobStorageKey, notify, streamVersion, subjectId]);
+  }, [jobId, notify, streamVersion, subjectId]);
 
   useEffect(() => {
     setSourcePreviewOpen(false);
     setQuestionExpanded(true);
+    setMobilePane("answer");
   }, [jobId, selectedIndex]);
 
   useEffect(() => {
@@ -266,12 +378,8 @@ export function PaperAnswering({
     setError(null);
     try {
       const created = await uploadPaper(subjectId, file, unit, sourceBooklet);
-      window.localStorage.setItem(jobStorageKey, created.job_id);
-      setJob(null);
-      setJobId(created.job_id);
-      setStreamVersion((version) => version + 1);
-      setSelectedIndex(0);
       setHistoryVersion((version) => version + 1);
+      onOpenJob(created.job_id);
       notify("试卷已保存，后台开始解析与逐题作答。");
       setCreateOpen(false);
     } catch (cause) {
@@ -292,7 +400,6 @@ export function PaperAnswering({
           params: { path: { job_id: job.job_id } },
         }),
       );
-      window.localStorage.setItem(jobStorageKey, job.job_id);
       setStreamVersion((version) => version + 1);
       notify("失败步骤已重新排队。");
     } catch (cause) {
@@ -310,7 +417,7 @@ export function PaperAnswering({
       const replacement = await replacePaperJob(subjectId, job.job_id);
       notify("已创建替代任务；旧结果将保留用于审计。");
       setHistoryVersion((version) => version + 1);
-      openHistoryJob(replacement.job_id);
+      onOpenJob(replacement.job_id, initialPaperUnitId);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "替代任务创建失败");
     } finally {
@@ -329,7 +436,6 @@ export function PaperAnswering({
           params: { path: { job_id: job.job_id, position } },
         }),
       );
-      window.localStorage.setItem(jobStorageKey, job.job_id);
       setStreamVersion((version) => version + 1);
       notify("本题已重新排队，旧答案记录会保留。");
     } catch (cause) {
@@ -339,26 +445,13 @@ export function PaperAnswering({
     }
   }
 
-  function resetPaper() {
-    window.localStorage.removeItem(jobStorageKey);
+  function resetPaperDraft() {
     setFile(null);
     setSourceBooklet(null);
     setUnit("");
-    setJobId(null);
     setJob(null);
     setSelectedIndex(0);
     setStreamState("idle");
-    setError(null);
-  }
-
-  function openHistoryJob(nextJobId: string) {
-    terminalNoticeRef.current = null;
-    window.localStorage.setItem(jobStorageKey, nextJobId);
-    setJob(null);
-    setJobId(nextJobId);
-    setSelectedIndex(0);
-    setStreamState("idle");
-    setStreamVersion((version) => version + 1);
     setError(null);
   }
 
@@ -384,17 +477,24 @@ export function PaperAnswering({
   }
 
   function startAnotherPaper() {
-    if (integratedWithPapers) {
-      onBack?.(initialPaperUnitId);
+    if (initialPaperUnitId && onOpenPaper) {
+      onOpenPaper(initialPaperUnitId);
       return;
     }
-    resetPaper();
+    if (onBack) {
+      onBack(initialPaperUnitId);
+      return;
+    }
+    resetPaperDraft();
     openCreateWorkflow();
   }
 
   function handleHistoryDeleted(deletedJobId: string) {
-    if (jobId === deletedJobId || job?.job_id === deletedJobId) resetPaper();
+    if (jobId === deletedJobId || job?.job_id === deletedJobId) {
+      onBack?.(initialPaperUnitId);
+    }
   }
+
 
   const selected = job?.questions[selectedIndex] ?? null;
   const selectedAgentSteps = selected
@@ -413,7 +513,6 @@ export function PaperAnswering({
       {!embedded && <header className="page-heading">
         <div>
           <h1>{job ? (job.answer_mode === "uploaded" ? "外部答卷" : "AI 作答") : "作答记录"}</h1>
-          {integratedWithPapers && !job && <p>统一查看归属于试卷的 AI 作答和外部答卷。</p>}
         </div>
         {integratedWithPapers ? (
           <button className="secondary" onClick={() => onBack?.(initialPaperUnitId)} type="button">
@@ -426,39 +525,60 @@ export function PaperAnswering({
         )}
       </header>}
 
-      {!job && (
+      {!job && !jobId && (
         <PaperJobHistory
+          embedded={embedded}
           currentJobId={jobId}
           onDeleted={handleHistoryDeleted}
-          onOpen={(nextJobId, paperUnitId) => {
-            if (onOpenJob) onOpenJob(nextJobId, paperUnitId);
-            else openHistoryJob(nextJobId);
-          }}
+          onOpen={(nextJobId, paperUnitId) => onOpenJob(nextJobId, paperUnitId)}
           onSubjectChange={changeRecordSubject}
           refreshKey={historyVersion}
           subject={subject}
+          paperUnitId={initialPaperUnitId}
           subjects={subjects}
         />
       )}
+      {jobId && !job && !error && (
+        <div className="paper-processing-empty paper-detail-loading" role="status">
+          <span className="paper-processing-empty-icon"><LoaderCircle className="spin" size={24} /></span>
+          <strong>正在加载作答详情</strong>
+          <p>正在连接任务进度并同步逐题答案与证据。</p>
+        </div>
+      )}
+      {jobId && !job && error && (
+        <div className="paper-unavailable-state" role="status">
+          <ErrorBanner message={error} />
+          <p>作答详情暂时不可用。建议先重新加载；若任务已被删除，请返回作答记录选择其他任务。</p>
+          <button className="secondary" onClick={() => setStreamVersion((version) => version + 1)} type="button">
+            <RefreshCw size={15} />重新加载作答详情
+          </button>
+        </div>
+      )}
 
       {job && (
-        <div className="paper-current-context">
-          <button className="stage-back paper-current-back" onClick={() => integratedWithPapers ? onBack?.(initialPaperUnitId) : resetPaper()} type="button">
+        <header className="paper-current-context">
+          <button className="stage-back paper-current-back" onClick={() => onBack?.(initialPaperUnitId)} type="button">
             <ArrowLeft size={15} />{embedded ? "返回作答记录" : initialPaperUnitId ? "返回试卷详情" : "返回作答记录"}
           </button>
           <div className="paper-current-meta">
-            <b className={`paper-answer-origin ${job.answer_mode === "uploaded" ? "uploaded" : "generated"}`}>
-              {job.answer_mode === "uploaded" ? "外部答卷" : "AI 作答"}
-            </b>
-            <span title={subject?.title ?? job.subject_code}>{subject?.title ?? job.subject_code}</span>
-            <i aria-hidden="true" />
-            <span>{PAPER_JOB_STAGE_LABELS[job.stage]}</span>
-            {!embedded && <strong title={job.display_name || job.filename}>{job.display_name || job.filename}</strong>}
+            <strong title={job.display_name || job.filename}>{job.display_name || job.filename}</strong>
+            <span className="paper-current-meta-line">
+              <b className={`paper-answer-origin ${job.answer_mode === "uploaded" ? "uploaded" : "generated"}`}>
+                {job.answer_mode === "uploaded" ? "外部答卷" : "AI 作答"}
+              </b>
+              <span title={subject?.title ?? job.subject_code}>{subject?.title ?? job.subject_code}</span>
+              <i aria-hidden="true" />
+              <span>{PAPER_JOB_STAGE_LABELS[job.stage]}</span>
+            </span>
+            <small title={job.filename}>
+              {job.display_name && job.display_name !== job.filename ? `原文件 · ${job.filename} · ` : ""}
+              任务 {job.job_id}
+            </small>
             {job.source_booklet_filename && (
               <small title={job.source_booklet_filename}><BookOpen size={13} />资料册 · {job.source_booklet_filename}</small>
             )}
           </div>
-        </div>
+        </header>
       )}
 
       {job && !integratedWithPapers && (
@@ -477,6 +597,7 @@ export function PaperAnswering({
           dismissible={!uploading}
           initialFocusSelector="#paper-workflow-title"
           onOpenChange={setCreateOpen}
+          rootClassName="app-viewport-dialog app-dialog-root"
           open
           title={createStep === 1 ? "选择科目" : "上传试卷并设置参考范围"}
         >
@@ -562,7 +683,7 @@ export function PaperAnswering({
             className="secondary"
             disabled={replacing}
             onClick={() => {
-              if (job.replaced_by_job_id) openHistoryJob(job.replaced_by_job_id);
+              if (job.replaced_by_job_id) onOpenJob(job.replaced_by_job_id, initialPaperUnitId);
               else void replaceCurrentJob();
             }}
             type="button"
@@ -680,254 +801,239 @@ export function PaperAnswering({
                 {terminal ? <FileText size={24} /> : <LoaderCircle className="spin" size={24} />}
               </span>
               <strong>{terminal ? "未识别到可作答题目" : "正在识别试卷题目"}</strong>
-              <p>{terminal ? "当前任务已经结束，但没有生成逐题结果。" : "完成后将自动展示逐题结果，你可以关闭弹窗继续处理其他工作。"}</p>
+              <p>{terminal ? "任务已结束，但没有生成逐题结果。建议检查原卷是否包含清晰题面，再重新上传。" : "完成后将自动展示逐题结果；任务会继续在后台处理。"}</p>
+              {terminal && <button className="secondary" onClick={startAnotherPaper} type="button"><UploadCloud size={15} />重新选择试卷</button>}
             </div>
           )}
-          {job.questions.length > 0 && <>
-            <div className="paper-summary">
-              <strong>{job.total_questions}</strong><span>题目</span>
-              <strong>{job.completed_questions}</strong><span>已处理</span>
-              <strong className={job.failed_questions ? "failed" : ""}>{job.failed_questions}</strong><span>处理失败</span>
-              <em title={job.display_name || job.filename}>{job.display_name || job.filename}</em>
-              {terminal && (
-                <button className="secondary" onClick={startAnotherPaper} type="button">
-                  <UploadCloud size={15} />
-                  {job.status === "failed" ? "上传另一份试卷" : "作答另一份试卷"}
-                </button>
-              )}
-            </div>
+          {job.questions.length > 0 && (
             <div className="paper-workspace">
-            <div className="question-nav">
-              {job.questions.map((item, index) => {
-                const latestStep = item.agent_steps[item.agent_steps.length - 1];
-                return (
-                <button
-                  className={selectedIndex === index ? "active" : ""}
-                  key={`${item.position}-${item.number}`}
-                  onClick={() => setSelectedIndex(index)}
-                  aria-pressed={selectedIndex === index}
-                  type="button"
-                >
-                  <b>Q{item.number}</b>
-                  <span>
-                    {item.status === "answering"
-                      ? (latestStep?.message ?? paperQuestionStatusLabel(item))
-                      : paperQuestionStatusLabel(item)}
-                  </span>
-                  <i className={item.error ? "failed" : item.status === "completed" && item.grounded ? "done" : "warn"} />
-                </button>
-                );
-              })}
-            </div>
-            <article className="paper-answer">
-              {selected && (
-                <>
-                  <div className="result-meta">
-                    <span
-                      className={
-                        selected.status === "completed" && selected.grounded
-                          ? "grounded"
-                          : "ungrounded"
-                      }
-                    >
-                      Q{selected.number} · {paperQuestionStatusLabel(selected)}
-                    </span>
-                    <div>
-                      <span className="confidence-label">答案可信度</span>
-                      <Confidence value={selected.confidence} />
-                      {selectedCanRetry && (
+              <QuestionNavigator
+                onSelect={setSelectedIndex}
+                questions={job.questions}
+                selectedIndex={selectedIndex}
+              />
+              <MobileReadingTabs
+                evidenceCount={selected ? selected.citations.length + selected.knowledge_points.length : 0}
+                onChange={setMobilePane}
+                pane={mobilePane}
+              />
+
+              <AnswerReadingPane active={mobilePane === "answer"}>
+                {selected && (
+                  <>
+                    <div className="result-meta">
+                      <span className={selected.status === "completed" && selected.grounded ? "grounded" : "ungrounded"}>
+                        Q{selected.number} · {paperQuestionStatusLabel(selected)}
+                      </span>
+                      <div>
+                        <Tooltip title="这是模型对本次生成结果的内部置信信号，不代表引用质量、证据充分性或答案正确性。">
+                          <span className="confidence-label" tabIndex={0}>模型置信信号 <CircleHelp aria-hidden="true" size={13} /></span>
+                        </Tooltip>
+                        <Confidence
+                          accessibleLabel="模型置信信号"
+                          helpText="模型对本次生成结果的内部信号；不代表引用质量、证据充分性或答案正确性"
+                          value={selected.confidence}
+                        />
+                        {selectedCanRetry && (
+                          <button
+                            className="secondary question-retry"
+                            disabled={retryingQuestion === selected.position}
+                            onClick={() => void retryQuestion(selected.position)}
+                            type="button"
+                          >
+                            {retryingQuestion === selected.position
+                              ? <LoaderCircle className="spin" size={15} />
+                              : <RefreshCw size={15} />}
+                            重试本题
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <section className="question-block" aria-labelledby="current-question-title">
+                      <div className="question-block-header">
+                        <div>
+                          <span>原题</span>
+                          <h2 id="current-question-title">Question {selected.number}</h2>
+                        </div>
+                        <div className="question-block-actions">
+                          {selected.total_marks != null && <small>{selected.total_marks} marks</small>}
+                          <button
+                            aria-expanded={questionExpanded}
+                            className="question-collapse-button"
+                            onClick={() => setQuestionExpanded((expanded) => !expanded)}
+                            type="button"
+                          >
+                            {questionExpanded ? "收起题目" : "展开题目"}
+                            <ChevronDown aria-hidden="true" className={questionExpanded ? "expanded" : ""} size={15} />
+                          </button>
+                        </div>
+                      </div>
+                      {questionExpanded && (
+                        <div className="question-block-content">
+                          {selected.answer_requirements.length > 0 && (
+                            <div className="answer-requirements" aria-label="答案交付要求">
+                              {selected.answer_requirements.map((requirement, index) => (
+                                <span key={`${requirement.label}-${index}`}>
+                                  <b>{requirement.label}</b>
+                                  {requirement.marks != null ? `${requirement.marks}分` : ""}
+                                  {requirement.accuracy ? ` · ${requirement.accuracy}` : ""}
+                                  {requirement.required_tool ? " · 需图形产物" : ""}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          <div className="question-copy">
+                            <QuestionMarkdown subjectId={subjectId}>{selected.question_markdown}</QuestionMarkdown>
+                          </div>
+                        </div>
+                      )}
+                    </section>
+                    {selected.source_warnings.length > 0 && (
+                      <div className="question-source-warnings">
+                        {selected.source_warnings.map((warning) => (
+                          <p key={warning}><TriangleAlert size={16} />{warning}</p>
+                        ))}
+                      </div>
+                    )}
+                    <div className="question-source-actions">
+                      {job.filename.toLowerCase().endsWith(".pdf") && selectedSourcePages.length > 0 && (
                         <button
-                          className="secondary question-retry"
-                          disabled={retryingQuestion === selected.position}
-                          onClick={() => void retryQuestion(selected.position)}
+                          className="source-preview-button"
+                          onClick={() => setSourcePreviewOpen(true)}
+                          ref={sourcePreviewButtonRef}
                           type="button"
                         >
-                          {retryingQuestion === selected.position
-                            ? <LoaderCircle className="spin" size={15} />
-                            : <RefreshCw size={15} />}
-                          重试本题
+                          <Eye size={17} />
+                          查看原题 / 原卷 · {selectedSourcePages.length} 页
                         </button>
                       )}
-                    </div>
-                  </div>
-                  <section className="question-block" aria-labelledby="current-question-title">
-                    <div className="question-block-header">
-                      <div>
-                        <span>原题</span>
-                        <h2 id="current-question-title">Question {selected.number}</h2>
-                      </div>
-                      <div className="question-block-actions">
-                        {selected.total_marks != null && <small>{selected.total_marks} marks</small>}
-                        <button
-                          aria-expanded={questionExpanded}
-                          className="question-collapse-button"
-                          onClick={() => setQuestionExpanded((expanded) => !expanded)}
-                          type="button"
-                        >
-                          {questionExpanded ? "收起题目" : "展开题目"}
-                          <ChevronDown aria-hidden="true" className={questionExpanded ? "expanded" : ""} size={15} />
-                        </button>
-                      </div>
-                    </div>
-                    {questionExpanded && (
-                      <div className="question-block-content">
-                        {selected.answer_requirements.length > 0 && (
-                          <div className="answer-requirements" aria-label="答案交付要求">
-                            {selected.answer_requirements.map((requirement, index) => (
-                              <span key={`${requirement.label}-${index}`}>
-                                <b>{requirement.label}</b>
-                                {requirement.marks != null ? `${requirement.marks}分` : ""}
-                                {requirement.accuracy ? ` · ${requirement.accuracy}` : ""}
-                                {requirement.required_tool ? " · 需图形产物" : ""}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                        <div className="question-copy">
-                          <QuestionMarkdown subjectId={subjectId}>{selected.question_markdown}</QuestionMarkdown>
-                        </div>
-                      </div>
-                    )}
-                  </section>
-                  {selected.source_warnings.length > 0 && (
-                    <div className="question-source-warnings">
-                      {selected.source_warnings.map((warning) => (
-                        <p key={warning}><TriangleAlert size={16} />{warning}</p>
-                      ))}
-                    </div>
-                  )}
-                  <div className="question-source-actions">
-                    {job.filename.toLowerCase().endsWith(".pdf") && selectedSourcePages.length > 0 && (
-                      <button
-                        className="source-preview-button"
-                        onClick={() => setSourcePreviewOpen(true)}
-                        ref={sourcePreviewButtonRef}
-                        type="button"
+                      <a
+                        className="source-paper-link"
+                        href={backendResourceUrl(`/papers/jobs/${job.job_id}/source`, subjectId)}
+                        target="_blank"
+                        rel="noreferrer"
                       >
-                        <Eye size={17} />
-                        查看原题 / 原卷 · {selectedSourcePages.length} 页
-                      </button>
-                    )}
-                    <a
-                      className="source-paper-link"
-                      href={backendResourceUrl(`/papers/jobs/${job.job_id}/source`, subjectId)}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      <FileText size={15} />
-                      完整 PDF 兜底
-                    </a>
-                  </div>
-                  {sourcePreviewOpen && selectedSourcePages.length > 0 && createPortal(
-                    <SourcePreviewDialog
-                      jobId={job.job_id}
-                      onClose={() => setSourcePreviewOpen(false)}
-                      pages={selectedSourcePages}
-                      questionNumber={selected.number}
-                      subjectId={subjectId}
-                      ref={sourcePreviewDialogRef}
-                    />,
-                    document.body,
-                  )}
-                  {selected.status === "pending" || selected.status === "answering" ? (
-                    <div className="answer-block pending-answer"><LoaderCircle className="spin" size={18} />{paperQuestionStatusLabel(selected)}</div>
-                  ) : selected.error ? <ErrorBanner message={selected.error} /> : (
-                    <section className="answer-block" aria-labelledby="current-answer-title">
-                      <h2 id="current-answer-title">证据化解答</h2>
-                      <AnswerArtifactFlow
-                        answerMarkdown={selected.answer_markdown}
-                        diagrams={selected.diagrams ?? []}
-                        images={selected.images ?? []}
+                        <FileText size={15} />
+                        打开完整原卷
+                      </a>
+                    </div>
+                    {sourcePreviewOpen && selectedSourcePages.length > 0 && createPortal(
+                      <SourcePreviewDialog
                         jobId={job.job_id}
+                        onClose={() => setSourcePreviewOpen(false)}
+                        pages={selectedSourcePages}
+                        questionNumber={selected.number}
                         subjectId={subjectId}
-                        renderMarkdown={(markdown, key) => (
-                          <div className="markdown" key={key}>
-                            <CitationMarkdown
-                              citations={selected.citations}
-                              query={selected.question_markdown.slice(0, 300)}
-                              subjectId={subjectId}
-                            >
-                              {markdown}
-                            </CitationMarkdown>
-                          </div>
-                        )}
-                      />
+                        ref={sourcePreviewDialogRef}
+                      />,
+                      document.body,
+                    )}
+                    {selected.status === "pending" || selected.status === "answering" ? (
+                      <div className="answer-block pending-answer"><LoaderCircle className="spin" size={18} />{paperQuestionStatusLabel(selected)}</div>
+                    ) : selected.error ? (
+                      <div className="paper-question-error">
+                        <ErrorBanner message={selected.error} />
+                        <p>{selectedCanRetry ? "建议仅重试本题；其他题目的结果不会被重新处理。" : "本题当前不可重试。建议核对原题，并返回作答记录查看任务状态。"}</p>
+                      </div>
+                    ) : (
+                      <section className="answer-block" aria-labelledby="current-answer-title">
+                        <h2 id="current-answer-title">证据化解答</h2>
+                        <AnswerArtifactFlow
+                          answerMarkdown={selected.answer_markdown}
+                          diagrams={selected.diagrams ?? []}
+                          images={selected.images ?? []}
+                          jobId={job.job_id}
+                          subjectId={subjectId}
+                          renderMarkdown={(markdown, key) => (
+                            <div className="markdown" key={key}>
+                              <CitationMarkdown
+                                citations={selected.citations}
+                                query={selected.question_markdown.slice(0, 300)}
+                                subjectId={subjectId}
+                              >
+                                {markdown}
+                              </CitationMarkdown>
+                            </div>
+                          )}
+                        />
+                      </section>
+                    )}
+                  </>
+                )}
+              </AnswerReadingPane>
+
+              <EvidenceReadingPane active={mobilePane === "evidence"}>
+                {selected && (
+                  <>
+                    <header className="paper-evidence-header">
+                      <div>
+                        <span>同步依据</span>
+                        <h2>证据与知识</h2>
+                      </div>
+                      <span>{selected.citations.length} 条引用 · {selected.knowledge_points.length} 个知识点</span>
+                    </header>
+                    <section className="paper-evidence-group" aria-labelledby="paper-citations-title">
+                      <div className="paper-evidence-group-heading">
+                        <h3 id="paper-citations-title">答案引用</h3>
+                        <span>{selected.citations.length ? "可打开并核对原文" : "未检索到可展示引用"}</span>
+                      </div>
+                      {selected.citations.length === 0 ? (
+                        <p className="paper-evidence-empty">当前答案没有可定位引用。建议结合原题与答案内容人工核对。</p>
+                      ) : (
+                        <CitationReferenceList
+                          citations={selected.citations}
+                          query={selected.question_markdown.slice(0, 300)}
+                          subjectId={subjectId}
+                        />
+                      )}
                     </section>
-                  )}
-                  {selectedAgentSteps.length > 0 && (
-                    <details className="agent-step-panel">
-                      <summary>
-                        <div>
-                          <strong>作答过程</strong>
-                          <span>第 {selected.attempts} 次尝试 · 展开查看检索与解题记录</span>
-                        </div>
-                        <ChevronDown aria-hidden="true" size={16} />
-                      </summary>
-                      <ol>
-                        {selectedAgentSteps.map((step, index) => {
-                          const recovered = step.status === "failed"
-                            && Boolean(step.tool_name)
-                            && selectedAgentSteps.slice(index + 1).some(
-                              (later) => later.tool_name === step.tool_name
-                                && later.status === "completed",
+                    <section className="paper-evidence-group" aria-labelledby="paper-knowledge-title">
+                      <div className="paper-evidence-group-heading">
+                        <h3 id="paper-knowledge-title">知识与难度</h3>
+                        <span>{selected.knowledge_points.length ? "展开条目查看难度依据" : "未可靠映射"}</span>
+                      </div>
+                      <div className="paper-knowledge">
+                        {selected.knowledge_points.length === 0 && <p className="paper-evidence-empty">当前题目未能可靠映射知识点。建议以题面和引用原文为准。</p>}
+                        {selected.knowledge_points.map((point, index) => (
+                          <KnowledgeEvidenceCard point={point} index={index} key={point.code} subjectId={subjectId} />
+                        ))}
+                      </div>
+                    </section>
+                    {selectedAgentSteps.length > 0 && (
+                      <details className="agent-step-panel">
+                        <summary>
+                          <div>
+                            <strong>运行轨迹</strong>
+                            <span>第 {selected.attempts} 次尝试 · 检索与解题诊断</span>
+                          </div>
+                          <ChevronDown aria-hidden="true" size={16} />
+                        </summary>
+                        <ol>
+                          {selectedAgentSteps.map((step, index) => {
+                            const recovered = step.status === "failed"
+                              && Boolean(step.tool_name)
+                              && selectedAgentSteps.slice(index + 1).some(
+                                (later) => later.tool_name === step.tool_name
+                                  && later.status === "completed",
+                              );
+                            return (
+                              <li
+                                className={recovered ? "recovered" : step.status}
+                                key={`${step.run_attempt}-${step.sequence}`}
+                              >
+                                <i />
+                                <span>{step.message}{recovered ? "，后续已自动恢复" : ""}</span>
+                              </li>
                             );
-                          return (
-                            <li
-                              className={recovered ? "recovered" : step.status}
-                              key={`${step.run_attempt}-${step.sequence}`}
-                            >
-                              <i />
-                              <span>
-                                {step.message}
-                                {recovered ? "，后续已自动恢复" : ""}
-                              </span>
-                            </li>
-                          );
-                        })}
-                      </ol>
-                    </details>
-                  )}
-                  <details className="paper-evidence-section">
-                    <summary>
-                      <h3>关联知识点与难度</h3>
-                      <span>
-                        {selected.knowledge_points.length
-                          ? `${selected.knowledge_points.length} 个知识点`
-                          : "未可靠映射"}
-                      </span>
-                      <ChevronDown aria-hidden="true" size={17} />
-                    </summary>
-                    <div className="paper-knowledge">
-                      {selected.knowledge_points.length === 0 && <p>未能可靠映射知识点。</p>}
-                      {selected.knowledge_points.map((point, index) => (
-                        <KnowledgeEvidenceCard point={point} index={index} key={point.code} subjectId={subjectId} />
-                      ))}
-                    </div>
-                  </details>
-                  <details className="paper-evidence-section">
-                    <summary>
-                      <h3>本题答案引用</h3>
-                      <span>
-                        {selected.citations.length
-                          ? `${selected.citations.length} 条引用`
-                          : "暂无引用"}
-                      </span>
-                      <ChevronDown aria-hidden="true" size={17} />
-                    </summary>
-                    <div className="citations">
-                      {selected.citations.length === 0 && <p>没有检索到可展示的引用。</p>}
-                      <CitationReferenceList
-                        citations={selected.citations}
-                        query={selected.question_markdown.slice(0, 300)}
-                        subjectId={subjectId}
-                      />
-                    </div>
-                  </details>
-                </>
-              )}
-            </article>
-          </div>
-          </>}
+                          })}
+                        </ol>
+                      </details>
+                    )}
+                  </>
+                )}
+              </EvidenceReadingPane>
+            </div>
+          )}
         </>
       )}
     </section>

@@ -272,7 +272,10 @@ def _scripted_runtime(
             )
         ),
         runner=(
-            ReActHarnessRunner(final_answer_provider=final_answer_provider)
+            ReActHarnessRunner(
+                final_answer_provider=final_answer_provider,
+                finalization_reserve_seconds=45,
+            )
             if final_answer_provider is not None
             else None
         ),
@@ -303,6 +306,7 @@ def test_react_loop_normalizes_common_single_tool_variants(
             (
                 "Answer: "
                 '{"answer_markdown":"The discriminant is $b^2-4ac$. [S1]",'
+                '"citation_ids":["S1"],'
                 '"confidence":0.9,"grounded":true,"warnings":[]}'
             ),
         )
@@ -329,6 +333,7 @@ def test_react_loop_self_repairs_a_malformed_response_within_bounds() -> None:
             (
                 "Answer: "
                 '{"answer_markdown":"The discriminant is $b^2-4ac$. [S1]",'
+                '"citation_ids":["S1"],'
                 '"confidence":0.9,"grounded":true,"warnings":[]}'
             ),
         )
@@ -367,6 +372,7 @@ def test_react_loop_recovers_a_complete_answer_followed_by_json() -> None:
             (
                 "The complete answer is the discriminant formula.\n"
                 '{"answer_markdown":"The discriminant is $b^2-4ac$. [S1]",'
+                '"citation_ids":["S1"],'
                 '"confidence":0.9,"grounded":true,"warnings":[]}'
             ),
         )
@@ -391,11 +397,13 @@ def test_react_loop_retries_when_legacy_json_contains_private_protocol() -> None
             (
                 "Answer: "
                 '{"answer_markdown":"Thought: private protocol\\nThe answer is [S1]",'
+                '"citation_ids":["S1"],'
                 '"confidence":0.9,"grounded":true,"warnings":[]}'
             ),
             (
                 "Answer: "
                 '{"answer_markdown":"The discriminant is $b^2-4ac$. [S1]",'
+                '"citation_ids":["S1"],'
                 '"confidence":0.9,"grounded":true,"warnings":[]}'
             ),
         )
@@ -427,6 +435,7 @@ def test_react_loop_requests_a_final_answer_when_tool_budget_is_exhausted() -> N
             (
                 "Answer: "
                 '{"answer_markdown":"The discriminant is $b^2-4ac$. [S1]",'
+                '"citation_ids":["S1"],'
                 '"confidence":0.85,"grounded":true,"warnings":[]}'
             ),
         )
@@ -462,6 +471,7 @@ def test_react_loop_suppresses_an_identical_failed_tool_call() -> None:
             (
                 "Answer: "
                 '{"answer_markdown":"The discriminant is $b^2-4ac$. [S1]",'
+                '"citation_ids":["S1"],'
                 '"confidence":0.8,"grounded":true,'
                 '"warnings":["Calculation omitted after tool failure."]}'
             ),
@@ -496,6 +506,7 @@ def test_react_loop_forces_finalization_after_iteration_budget() -> None:
             (
                 "Answer: "
                 '{"answer_markdown":"The discriminant is $b^2-4ac$. [S1]",'
+                '"citation_ids":["S1"],'
                 '"confidence":0.8,"grounded":true,"warnings":[]}'
             ),
         )
@@ -546,7 +557,12 @@ def test_react_loop_renders_exact_question_contract_labels_from_structured_bodie
                 "Action: knowledge_search\n"
                 'Action Input: {"query": "triangle congruence", "top_k": 3}'
             ),
-            "Answer: The two requested results follow from the evidence.",
+            (
+                "Answer: "
+                '{"answer_markdown":"The two requested results follow from the evidence. [S1]",'
+                '"citation_ids":["S1"],"confidence":0.8,'
+                '"grounded":true,"warnings":[]}'
+            ),
         )
     )
     finalizer = CapturingFinalAnswerProvider(
@@ -580,7 +596,7 @@ def test_react_loop_renders_exact_question_contract_labels_from_structured_bodie
     assert finalizer.required_subpart_labels == ("(a)", "(b)")
 
 
-def test_react_loop_falls_back_once_when_structured_finalizer_fails() -> None:
+def test_react_loop_skips_finalizer_for_locally_valid_structured_payload() -> None:
     llm = ScriptedReActLLM(
         responses=(
             (
@@ -591,6 +607,7 @@ def test_react_loop_falls_back_once_when_structured_finalizer_fails() -> None:
             (
                 "Answer: "
                 '{"answer_markdown":"The discriminant is $b^2-4ac$. [S1]",'
+                '"citation_ids":["S1"],'
                 '"confidence":0.84,"grounded":true,"warnings":[]}'
             ),
         )
@@ -602,36 +619,40 @@ def test_react_loop_falls_back_once_when_structured_finalizer_fails() -> None:
     )
 
     assert result.grounded is True
+    assert finalizer.calls == 0
+    assert not any("兼容恢复" in step.message for step in result.steps)
+
+
+@pytest.mark.parametrize("citation_ids", ('["S2"]', "[]"))
+def test_runtime_rejects_unvalidated_structured_citations_after_finalizer_failure(
+    citation_ids: str,
+) -> None:
+    llm = ScriptedReActLLM(
+        responses=(
+            (
+                "Thought: I need grounded evidence.\n"
+                "Action: knowledge_search\n"
+                'Action Input: {"query": "quadratic discriminant", "top_k": 3}'
+            ),
+            (
+                "Answer: "
+                '{"answer_markdown":"The discriminant is $b^2-4ac$. [S1]",'
+                f'"citation_ids":{citation_ids},'
+                '"confidence":0.84,"grounded":true,"warnings":[]}'
+            ),
+        )
+    )
+    finalizer = CapturingFinalAnswerProvider(error=RuntimeError("schema unavailable"))
+
+    with pytest.raises(
+        RuntimeError,
+        match="could not produce a valid final answer after recovery",
+    ):
+        _scripted_runtime(llm, final_answer_provider=finalizer).solve(
+            AnswerTask(subject_code="9660", question="State the quadratic discriminant.")
+        )
+
     assert finalizer.calls == 1
-    assert any(
-        "兼容恢复" in step.message and "RuntimeError" in step.message for step in result.steps
-    )
-
-
-def test_react_loop_derives_compatibility_citations_from_public_markdown() -> None:
-    llm = ScriptedReActLLM(
-        responses=(
-            (
-                "Thought: I need grounded evidence.\n"
-                "Action: knowledge_search\n"
-                'Action Input: {"query": "quadratic discriminant", "top_k": 3}'
-            ),
-            (
-                "Answer: "
-                '{"answer_markdown":"The discriminant is $b^2-4ac$. [S1]",'
-                '"citation_ids":["S2"],'
-                '"confidence":0.84,"grounded":true,"warnings":[]}'
-            ),
-        )
-    )
-    finalizer = CapturingFinalAnswerProvider(error=RuntimeError("schema unavailable"))
-
-    result = _scripted_runtime(llm, final_answer_provider=finalizer).solve(
-        AnswerTask(subject_code="9660", question="State the quadratic discriminant.")
-    )
-
-    assert result.answer_markdown.endswith("[S1]")
-    assert result.grounded is True
 
 
 def test_iteration_budget_uses_structured_finalizer_without_an_extra_react_call() -> None:
@@ -671,14 +692,15 @@ def test_runtime_rejects_fabricated_structured_citation_ids() -> None:
             (
                 "Answer: "
                 '{"answer_markdown":"The discriminant is $b^2-4ac$. [S1]",'
+                '"citation_ids":["S2"],'
                 '"confidence":0.82,"grounded":true,"warnings":[]}'
             ),
         )
     )
     finalizer = CapturingFinalAnswerProvider(
         AgentFinalPayload(
-            answer_markdown="The discriminant is $b^2-4ac$. [S2]",
-            citation_ids=["S2"],
+            answer_markdown="The discriminant is $b^2-4ac$. [S1]",
+            citation_ids=["S1"],
             confidence=0.9,
             grounded=True,
             warnings=[],
@@ -693,10 +715,10 @@ def test_runtime_rejects_fabricated_structured_citation_ids() -> None:
 
     assert result.answer_markdown.endswith("[S1]")
     assert result.grounded is True
-    assert any("兼容恢复" in step.message for step in result.steps)
+    assert finalizer.calls == 1
 
 
-def test_runtime_rejects_empty_structured_citation_declaration() -> None:
+def test_runtime_routes_omitted_structured_citations_through_finalizer() -> None:
     llm = ScriptedReActLLM(
         responses=(
             (
@@ -707,6 +729,7 @@ def test_runtime_rejects_empty_structured_citation_declaration() -> None:
             (
                 "Answer: "
                 '{"answer_markdown":"The discriminant is $b^2-4ac$. [S1]",'
+                '"citation_ids":[],'
                 '"confidence":0.82,"grounded":true,"warnings":[]}'
             ),
         )
@@ -714,7 +737,7 @@ def test_runtime_rejects_empty_structured_citation_declaration() -> None:
     finalizer = CapturingFinalAnswerProvider(
         AgentFinalPayload(
             answer_markdown="The discriminant is $b^2-4ac$. [S1]",
-            citation_ids=[],
+            citation_ids=["S1"],
             confidence=0.9,
             grounded=True,
             warnings=[],
@@ -728,7 +751,7 @@ def test_runtime_rejects_empty_structured_citation_declaration() -> None:
 
     assert result.answer_markdown.endswith("[S1]")
     assert result.grounded is True
-    assert any("兼容恢复" in step.message for step in result.steps)
+    assert finalizer.calls == 1
 
 
 def test_structured_finalizer_timeout_preserves_time_for_compatible_fallback() -> None:
@@ -740,9 +763,8 @@ def test_structured_finalizer_timeout_preserves_time_for_compatible_fallback() -
                 'Action Input: {"query": "quadratic discriminant", "top_k": 3}'
             ),
             (
-                "Answer: "
-                '{"answer_markdown":"The discriminant is $b^2-4ac$. [S1]",'
-                '"confidence":0.82,"grounded":true,"warnings":[]}'
+                "Thought: I can now prepare the public answer.\n"
+                "Answer: The discriminant is supported by the retrieved source [S1]."
             ),
         )
     )

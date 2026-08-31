@@ -1,4 +1,6 @@
 import re
+from collections.abc import Callable
+from dataclasses import dataclass
 
 _ANSWER_VISUAL_REQUEST = re.compile(
     r"""
@@ -107,7 +109,23 @@ def select_economics_answer_visual_tool(question: str) -> str | None:
     return "economics_diagram" if _ECONOMICS_VISUAL_REQUEST.search(question) else None
 
 
+@dataclass(frozen=True)
+class AnswerVisualPolicy:
+    required_tool_selector: Callable[[str], str | None]
+    source_plot_overlay_selector: Callable[[str], str | None] | None = None
+
+
+ANSWER_VISUAL_POLICIES = {
+    "mathematics-answer-visual-v1": AnswerVisualPolicy(
+        required_tool_selector=select_mathematics_answer_visual_tool,
+        source_plot_overlay_selector=mathematics_source_plot_overlay_mode,
+    ),
+    "economics-answer-visual-v1": AnswerVisualPolicy(
+        required_tool_selector=select_economics_answer_visual_tool,
+    ),
+}
+
+# Compatibility projection for callers that only need tool selection.
 VISUAL_TOOL_POLICIES = {
-    "mathematics-answer-visual-v1": select_mathematics_answer_visual_tool,
-    "economics-answer-visual-v1": select_economics_answer_visual_tool,
+    key: policy.required_tool_selector for key, policy in ANSWER_VISUAL_POLICIES.items()
 }

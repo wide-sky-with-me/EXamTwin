@@ -30,6 +30,12 @@ def test_health_and_knowledge_graph() -> None:
         subject = client.get("/api/v1/subject", headers=headers)
         assert subject.status_code == 200
         assert subject.json()["subject_code"] == "9660"
+        economics = client.get(
+            "/api/v1/subject",
+            headers={"X-ExamTwin-Subject": "oxfordaqa-economics-9640"},
+        )
+        assert economics.status_code == 200
+        assert economics.json()["subject_code"] == "9640"
         assert {item["code"] for item in subject.json()["units"]} == {
             "P1",
             "PSM1",

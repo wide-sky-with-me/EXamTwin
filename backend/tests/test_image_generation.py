@@ -4,7 +4,6 @@ import base64
 from pathlib import Path
 from typing import Any
 
-import httpx
 import pymupdf
 import pytest
 from examtwin.app.api.papers import answer_image_asset
@@ -18,7 +17,7 @@ from examtwin.assessment.answering_agent.tools.image_generate import (
     AnswerImageStore,
     GeneratedImage,
     ImageGenerationTool,
-    OpenAICompatibleImageProvider,
+    LiteLLMImageProvider,
     _normalize_png,
 )
 from examtwin.contracts import SubpartRequirement
@@ -35,25 +34,24 @@ def _png(width: int = 1024, height: int = 1024) -> bytes:
 async def test_image_provider_retries_transient_status_and_validates_png(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    request = httpx.Request("POST", "https://images.invalid/v1/images/generations")
-    responses = [
-        httpx.Response(503, request=request, json={"error": {"message": "temporary"}}),
-        httpx.Response(
-            200,
-            request=request,
-            json={"data": [{"b64_json": base64.b64encode(_png()).decode("ascii")}]},
-        ),
-    ]
     calls: list[dict[str, Any]] = []
 
-    async def fake_post(*_args: Any, **kwargs: Any) -> httpx.Response:
-        calls.append(kwargs)
-        return responses.pop(0)
+    class TransientProviderError(RuntimeError):
+        status_code = 503
 
-    monkeypatch.setattr(
-        "examtwin.assessment.answering_agent.tools.image_generate.httpx.AsyncClient.post",
-        fake_post,
-    )
+    responses: list[Any] = [
+        TransientProviderError("temporary"),
+        {"data": [{"b64_json": base64.b64encode(_png()).decode("ascii")}]},
+    ]
+
+    async def fake_generate(**kwargs: Any) -> dict[str, Any]:
+        calls.append(kwargs)
+        response = responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+    monkeypatch.setattr("litellm.aimage_generation", fake_generate)
 
     async def no_sleep(_seconds: float) -> None:
         return None
@@ -62,10 +60,11 @@ async def test_image_provider_retries_transient_status_and_validates_png(
         "examtwin.assessment.answering_agent.tools.image_generate.asyncio.sleep",
         no_sleep,
     )
-    provider = OpenAICompatibleImageProvider(
+    provider = LiteLLMImageProvider(
         "gpt-image-2",
         "https://images.invalid/v1",
         "test-key",
+        provider="openai",
         timeout=90,
         max_attempts=2,
         max_output_bytes=64 * 1024,
@@ -80,8 +79,12 @@ async def test_image_provider_retries_transient_status_and_validates_png(
     assert generated.width == 1024
     assert generated.height == 1024
     assert len(calls) == 2
-    assert calls[1]["json"]["model"] == "gpt-image-2"
-    assert calls[1]["headers"]["Authorization"] == "Bearer test-key"
+    assert calls[1]["model"] == "openai/gpt-image-2"
+    assert calls[1]["api_base"] == "https://images.invalid/v1"
+    assert calls[1]["api_key"] == "test-key"
+    assert calls[1]["output_format"] == "png"
+    assert calls[1]["max_retries"] == 0
+    assert "response_format" not in calls[1]
 
 
 def test_full_png_decode_rejects_a_truncated_payload() -> None:

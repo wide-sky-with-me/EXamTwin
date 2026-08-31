@@ -4,7 +4,11 @@ import argparse
 import json
 from pathlib import Path
 
-from examtwin.app.main import app
+from examtwin.platform.config_contract import seed_example_environment
+
+seed_example_environment()
+
+from examtwin.app.main import app  # noqa: E402 - schema defaults must exist before app import
 
 
 def rendered_schema() -> str:

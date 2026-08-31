@@ -1,14 +1,17 @@
+import { Button, Checkbox, Dropdown } from "antd";
 import {
   BookOpenCheck,
   FileClock,
   Check,
   LoaderCircle,
   Pencil,
+  ListChecks,
+  MoreHorizontal,
   RefreshCw,
   Trash2,
   X,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 
 import {
   deletePaperJobs,
@@ -26,14 +29,14 @@ import type {
 import { ErrorBanner } from "./Feedback";
 import { useToast } from "./toast-context";
 import {
+  DEFAULT_LIST_PAGE_SIZE,
+  DEFAULT_LIST_PAGE_SIZES,
   ListFilterBar,
   ListFilterSelect,
   ListPagination,
 } from "./ui/ListControls";
 import { AppConfirmDialog } from "./ui/AppConfirmDialog";
 
-const DEFAULT_PAGE_SIZE = 10;
-const PAGE_SIZES = [10, 20, 50] as const;
 const TERMINAL_STATUSES = new Set<PaperJobSummary["status"]>([
   "completed",
   "partial_failed",
@@ -44,6 +47,37 @@ const DATE_FORMATTER = new Intl.DateTimeFormat("zh-CN", {
   timeStyle: "short",
 });
 type HistoryRange = "all" | "7" | "30" | "90";
+
+function isPaperJobDeletable(item: PaperJobSummary) {
+  return !item.replacement_for_job_id && !item.replaced_by_job_id;
+}
+
+type HistoryShellProps = {
+  busy: boolean;
+  children: ReactNode;
+};
+
+function StandaloneHistoryShell({ busy, children }: HistoryShellProps) {
+  return (
+    <article aria-busy={busy} className="panel paper-history">
+      <header>
+        <div>
+          <FileClock size={19} />
+          <div><h2>全部作答记录</h2></div>
+        </div>
+      </header>
+      {children}
+    </article>
+  );
+}
+
+function EmbeddedHistoryShell({ busy, children }: HistoryShellProps) {
+  return (
+    <article aria-busy={busy} className="paper-history paper-history-embedded">
+      {children}
+    </article>
+  );
+}
 
 
 function createdAfter(range: HistoryRange): string | undefined {
@@ -74,8 +108,8 @@ export function PaperJobHistory({
   subjects?: SubjectPack[];
   currentJobId: string | null;
   refreshKey: number;
-  onOpen: (jobId: string, paperUnitId?: string | null) => void;
-  onGrade?: (jobId: string, paperUnitId?: string | null) => void;
+  onOpen: (jobId: string, paperUnitId: string | null) => void;
+  onGrade?: (jobId: string, paperUnitId: string | null) => void;
   onDeleted: (jobId: string) => void;
   onSubjectChange?: (subjectId: string) => void;
   paperUnitId?: string;
@@ -91,10 +125,11 @@ export function PaperJobHistory({
   const [unitCode, setUnitCode] = useState("");
   const [range, setRange] = useState<HistoryRange>("all");
   const [page, setPage] = useState(0);
-  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [pageSize, setPageSize] = useState(DEFAULT_LIST_PAGE_SIZE);
   const [localRefresh, setLocalRefresh] = useState(0);
   const [deleteCandidate, setDeleteCandidate] = useState<PaperJobSummary | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [selectionMode, setSelectionMode] = useState(false);
   const [bulkConfirming, setBulkConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [repairingId, setRepairingId] = useState<string | null>(null);
@@ -103,6 +138,7 @@ export function PaperJobHistory({
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const { notify } = useToast();
   const subjectId = subject?.id ?? null;
+  const scopedToPaper = Boolean(paperUnitId);
 
   useEffect(() => {
     if (!subjectId) {
@@ -142,6 +178,7 @@ export function PaperJobHistory({
     setSelectedIds(new Set());
     setBulkConfirming(false);
     setDeleteCandidate(null);
+    setSelectionMode(false);
   }, [answerMode, query, range, status, subjectId, unitCode]);
 
   function applyQuery() {
@@ -259,7 +296,7 @@ export function PaperJobHistory({
 
   const selectableIds =
     history?.items
-      .filter((item) => !item.replacement_for_job_id && !item.replaced_by_job_id)
+      .filter(isPaperJobDeletable)
       .map((item) => item.job_id) ?? [];
   const allPageSelected =
     selectableIds.length > 0 && selectableIds.every((jobId) => selectedIds.has(jobId));
@@ -277,30 +314,42 @@ export function PaperJobHistory({
       return next;
     });
   }
+  const HistoryShell = embedded ? EmbeddedHistoryShell : StandaloneHistoryShell;
+  const refreshButton = (
+    <>
+      <Button
+        aria-label={selectionMode ? "退出批量选择" : "进入批量选择"}
+        disabled={loading || !subject}
+        icon={<ListChecks size={15} />}
+        onClick={() => {
+          if (selectionMode) setSelectedIds(new Set());
+          setBulkConfirming(false);
+          setSelectionMode((current) => !current);
+        }}
+        type={selectionMode ? "primary" : "default"}
+      >
+        {selectionMode ? "完成选择" : "批量选择"}
+      </Button>
+      <Button
+        aria-label="刷新试卷作答记录"
+        disabled={loading || !subject}
+        icon={loading ? <LoaderCircle className="spin" size={15} /> : <RefreshCw size={15} />}
+        onClick={() => setLocalRefresh((value) => value + 1)}
+      >
+        刷新
+      </Button>
+    </>
+  );
+
 
 
   return (
-    <article aria-busy={loading} className={`panel paper-history${embedded ? " paper-history-embedded" : ""}`}>
-      <header>
-        <div>
-          <FileClock size={19} />
-          <div>
-            <h2>{embedded ? "作答记录" : "全部作答记录"}</h2>
-          </div>
-        </div>
-        <button
-          aria-label="刷新试卷作答记录"
-          className="secondary"
-          disabled={loading || !subject}
-          onClick={() => setLocalRefresh((value) => value + 1)}
-          type="button"
-        >
-          {loading ? <LoaderCircle className="spin" size={15} /> : <RefreshCw size={15} />}
-          刷新
-        </button>
-      </header>
+    <HistoryShell busy={loading}>
+
+      <div className="paper-history-controls">
 
       <ListFilterBar
+        actions={refreshButton}
         ariaLabel="作答记录搜索与筛选"
         onQueryChange={setQueryDraft}
         onReset={resetFilters}
@@ -310,7 +359,7 @@ export function PaperJobHistory({
         queryPlaceholder="搜索作答名称或文件名"
         resetDisabled={!queryDraft && !query && !status && !answerMode && !unitCode && range === "all"}
       >
-        {!embedded && (
+        {!scopedToPaper && (
           <ListFilterSelect
             ariaLabel="按科目筛选"
             onValueChange={(value) => {
@@ -353,7 +402,7 @@ export function PaperJobHistory({
           ]}
           value={answerMode}
         />
-        {!embedded && (
+        {!scopedToPaper && (
           <ListFilterSelect
             ariaLabel="按单元筛选"
             onValueChange={(value) => {
@@ -385,6 +434,7 @@ export function PaperJobHistory({
           value={range}
         />
       </ListFilterBar>
+      </div>
 
       <ErrorBanner message={error} />
       {selectedIds.size > 0 && (
@@ -401,39 +451,38 @@ export function PaperJobHistory({
         <p className="paper-history-loading"><LoaderCircle className="spin" size={16} />正在加载作答记录…</p>
       ) : history?.items.length ? (
         <>
-        <div className="paper-history-select-all">
-          <label>
-            <input
+        {selectionMode && (
+          <div className="paper-history-select-all">
+            <Checkbox
               aria-label="全选当前页可删除记录"
               checked={allPageSelected}
               disabled={!selectableIds.length}
+              indeterminate={somePageSelected && !allPageSelected}
               onChange={toggleCurrentPage}
-              ref={(element) => {
-                if (element) element.indeterminate = somePageSelected && !allPageSelected;
-              }}
-              type="checkbox"
-            />
-            选择当前页
-          </label>
-          {selectedIds.size > 0 && <span>跨页保留选择</span>}
-        </div>
-        <ul className="paper-history-list">
+            >
+              选择当前页
+            </Checkbox>
+            {selectedIds.size > 0 && <span>跨页保留选择</span>}
+          </div>
+        )}
+        <ul className={`paper-history-list${selectionMode ? " is-selecting" : ""}`}>
           {history.items.map((item) => {
-            const selectable = !item.replacement_for_job_id && !item.replaced_by_job_id;
+            const selectable = isPaperJobDeletable(item);
             const unverified = item.source_integrity_status === "legacy_unverified"
               || item.source_integrity_status === "replacement_queued";
             const repairingThis = repairingId === item.job_id;
             return (
               <li aria-current={item.job_id === currentJobId ? "true" : undefined} key={item.job_id}>
-                <input
-                  aria-label={`选择记录 ${item.display_name || item.filename}`}
-                  checked={selectedIds.has(item.job_id)}
-                  className="paper-history-checkbox"
-                  disabled={!selectable || deleting}
-                  onChange={() => toggleSelection(item.job_id)}
-                  title={selectable ? "选择记录" : "具有替代审计关系的记录不能删除"}
-                  type="checkbox"
-                />
+                {selectionMode && (
+                  <Checkbox
+                    aria-label={`选择记录 ${item.display_name || item.filename}`}
+                    checked={selectedIds.has(item.job_id)}
+                    className="paper-history-checkbox"
+                    disabled={!selectable || deleting}
+                    onChange={() => toggleSelection(item.job_id)}
+                    title={selectable ? "选择记录" : "具有替代审计关系的记录不能删除"}
+                  />
+                )}
                 <div className="paper-history-main">
                   {editingId === item.job_id ? (
                     <input
@@ -504,62 +553,66 @@ export function PaperJobHistory({
                       </>
                     ) : (
                       <>
-                    <button className="secondary" onClick={() => onOpen(item.job_id, item.paper_unit_id)} type="button">
-                      查看
-                    </button>
-                    {onGrade && ["completed", "partial_failed"].includes(item.status) && (
-                      <button className="secondary" onClick={() => onGrade(item.job_id, item.paper_unit_id)} type="button">
-                        <BookOpenCheck size={14} />评分
-                      </button>
-                    )}
-                    {item.replaced_by_job_id ? (
-                      <button
-                        className="secondary"
-                        onClick={() => onOpen(item.replaced_by_job_id!, item.paper_unit_id)}
-                        type="button"
-                      >
-                        查看替代任务
-                      </button>
-                    ) : unverified && selectable ? (
-                      <button
-                        className="secondary"
-                        disabled={repairingThis}
-                        onClick={() => void repairJob(item)}
-                        type="button"
-                      >
-                        {repairingThis
-                          ? <LoaderCircle className="spin" size={14} />
-                          : <RefreshCw size={14} />}
-                        修复并重跑
-                      </button>
-                    ) : null}
-                    <button
-                      aria-label={`修改 ${item.display_name || item.filename} 的显示名称`}
-                      className="paper-history-icon-action"
-                      onClick={() => {
-                        setEditingId(item.job_id);
-                        setDraftName(item.display_name || item.filename);
-                        setError(null);
-                      }}
-                      title="修改显示名称"
-                      type="button"
-                    >
-                      <Pencil size={15} />
-                    </button>
-                    {selectable && (
-                      <button
-                        aria-label={`删除记录 ${item.display_name || item.filename}`}
-                        className="paper-history-delete"
-                        onClick={() => {
-                          setBulkConfirming(false);
-                          setDeleteCandidate(item);
-                        }}
-                        title={TERMINAL_STATUSES.has(item.status) ? "删除记录" : "取消并删除任务"}
-                        type="button"
-                      >
-                        <Trash2 size={15} />
-                      </button>
-                    )}
+                        <Button
+                          onClick={() => onOpen(item.job_id, item.paper_unit_id)}
+                          size="small"
+                          type="primary"
+                        >
+                          查看
+                        </Button>
+                        <Dropdown
+                          menu={{
+                            items: [
+                              ...(onGrade && ["completed", "partial_failed"].includes(item.status)
+                                ? [{ key: "grade", icon: <BookOpenCheck size={14} />, label: "评分" }]
+                                : []),
+                              ...(item.replaced_by_job_id
+                                ? [{ key: "replacement", icon: <FileClock size={14} />, label: "查看替代任务" }]
+                                : []),
+                              ...(unverified && selectable && !item.replaced_by_job_id
+                                ? [{ key: "repair", disabled: repairingThis, icon: repairingThis ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />, label: "修复并重跑" }]
+                                : []),
+                              { key: "rename", icon: <Pencil size={14} />, label: "修改显示名称" },
+                              ...(selectable
+                                ? [
+                                    { type: "divider" as const },
+                                    {
+                                      key: "delete",
+                                      danger: true,
+                                      icon: <Trash2 size={14} />,
+                                      label: TERMINAL_STATUSES.has(item.status) ? "删除记录" : "取消并删除任务",
+                                    },
+                                  ]
+                                : []),
+                            ],
+                            onClick: ({ key }) => {
+                              if (key === "grade") onGrade?.(item.job_id, item.paper_unit_id);
+                              if (key === "replacement" && item.replaced_by_job_id) {
+                                onOpen(item.replaced_by_job_id, item.paper_unit_id);
+                              }
+                              if (key === "repair") void repairJob(item);
+                              if (key === "rename") {
+                                setEditingId(item.job_id);
+                                setDraftName(item.display_name || item.filename);
+                                setError(null);
+                              }
+                              if (key === "delete") {
+                                setBulkConfirming(false);
+                                setDeleteCandidate(item);
+                              }
+                            },
+                          }}
+                          placement="bottomRight"
+                          trigger={["click"]}
+                        >
+                          <Button
+                            aria-label={`更多作答记录操作：${item.display_name || item.filename}`}
+                            icon={<MoreHorizontal size={16} />}
+                            size="small"
+                          >
+                            更多
+                          </Button>
+                        </Dropdown>
                       </>
                     )}
                   </div>
@@ -569,7 +622,19 @@ export function PaperJobHistory({
         </ul>
         </>
       ) : (
-        <p className="paper-history-empty">没有符合当前条件的作答记录。</p>
+        <div className="paper-history-empty">
+          <strong>{query || status || answerMode || unitCode || range !== "all" ? "没有符合当前条件的作答记录" : "还没有作答记录"}</strong>
+          <span>
+            {query || status || answerMode || unitCode || range !== "all"
+              ? "建议重置筛选，查看当前范围内的全部记录。"
+              : scopedToPaper
+                ? "建议返回试卷详情，开始 AI 作答或导入外部答卷。"
+                : "建议选择一份试卷并开始作答。"}
+          </span>
+          {(query || status || answerMode || unitCode || range !== "all") && (
+            <Button onClick={resetFilters} size="small">重置筛选</Button>
+          )}
+        </div>
       )}
 
       {history && (
@@ -585,7 +650,7 @@ export function PaperJobHistory({
           }}
           page={page}
           pageSize={pageSize}
-          pageSizes={PAGE_SIZES}
+          pageSizes={DEFAULT_LIST_PAGE_SIZES}
           total={history.total}
           pageSizeLabel="每页显示条数"
           visibleCount={history.items.length}
@@ -616,6 +681,6 @@ export function PaperJobHistory({
         open={bulkConfirming}
         title="确认批量删除"
       />
-    </article>
+    </HistoryShell>
   );
 }

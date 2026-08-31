@@ -6,4 +6,5 @@ OXFORDAQA = BoardPack(
     official_source_types=frozenset(
         {"syllabus", "question_paper", "mark_scheme", "examiner_report", "insert"}
     ),
+    filename_subject_code_pattern=r"\baqa[-_ ]?(?P<subject_code>\d{4,5})(?!\d)",
 )

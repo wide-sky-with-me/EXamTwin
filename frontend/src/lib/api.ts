@@ -1,6 +1,6 @@
 import createClient from "openapi-fetch";
 
-import type { paths } from "../generated/openapi";
+import type { components, paths } from "../generated/openapi";
 import type {
   PaperJobBulkDeleteResult,
   PaperJobCreated,
@@ -13,7 +13,96 @@ import type {
   SourceContextResult,
   SourceDocument,
 } from "../types";
-const API_BASE = import.meta.env.VITE_API_BASE ?? "/api/v1";
+import { API_PREFIX, resolveApiBase } from "./api-config";
+
+export { API_PREFIX } from "./api-config";
+
+const API_BASE = resolveApiBase(import.meta.env.VITE_API_BASE);
+
+
+
+export type DifficultyRunSummary = components["schemas"]["DifficultyRunSummary"];
+export type DifficultyRunDetail = components["schemas"]["DifficultyRunDetail"];
+export type DifficultyReviewRequest = components["schemas"]["DifficultyReviewRequest"];
+
+export async function listDifficultyEvidenceRuns(
+  subjectId: string,
+): Promise<DifficultyRunSummary[]> {
+  return unwrapApi(apiClient.GET(
+    "/api/v1/subject-workspaces/{workspace_id}/difficulty-evidence/runs",
+    {
+      headers: subjectHeaders(subjectId),
+      params: { path: { workspace_id: subjectId } },
+    },
+  ));
+}
+
+
+export async function createDifficultyEvidenceRun(
+  subjectId: string,
+  sourceDocumentId: string,
+): Promise<DifficultyRunDetail> {
+  return unwrapApi(apiClient.POST(
+    "/api/v1/subject-workspaces/{workspace_id}/difficulty-evidence/runs",
+    {
+      headers: subjectHeaders(subjectId),
+      params: { path: { workspace_id: subjectId } },
+      body: { source_document_id: sourceDocumentId },
+    },
+  ));
+}
+
+export async function getDifficultyEvidenceRun(
+  subjectId: string,
+  runId: string,
+): Promise<DifficultyRunDetail> {
+  return unwrapApi(apiClient.GET(
+    "/api/v1/subject-workspaces/{workspace_id}/difficulty-evidence/runs/{run_id}",
+    {
+      headers: subjectHeaders(subjectId),
+      params: { path: { workspace_id: subjectId, run_id: runId } },
+    },
+  ));
+}
+
+export async function reviewDifficultyEvidenceCandidate(
+  subjectId: string,
+  runId: string,
+  candidateId: string,
+  body: DifficultyReviewRequest,
+): Promise<DifficultyRunDetail> {
+  return unwrapApi(apiClient.POST(
+    "/api/v1/subject-workspaces/{workspace_id}/difficulty-evidence/runs/{run_id}/candidates/{candidate_id}/reviews",
+    {
+      headers: subjectHeaders(subjectId),
+      params: {
+        path: {
+          workspace_id: subjectId,
+          run_id: runId,
+          candidate_id: candidateId,
+        },
+      },
+      body,
+    },
+  ));
+}
+
+export async function publishDifficultyEvidenceRun(
+  subjectId: string,
+  runId: string,
+  expectedRunFingerprint: string,
+): Promise<DifficultyRunDetail> {
+  return unwrapApi(apiClient.POST(
+    "/api/v1/subject-workspaces/{workspace_id}/difficulty-evidence/runs/{run_id}/publish",
+    {
+      headers: subjectHeaders(subjectId),
+      params: { path: { workspace_id: subjectId, run_id: runId } },
+      body: {
+        expected_run_fingerprint: expectedRunFingerprint,
+      },
+    },
+  ));
+}
 
 export function subjectHeaders(subjectId: string, headers?: HeadersInit): Headers {
   if (!subjectId) throw new Error("科目请求缺少 subjectId");
@@ -23,8 +112,8 @@ export function subjectHeaders(subjectId: string, headers?: HeadersInit): Header
 }
 
 const RESOLVED_API_BASE = new URL(API_BASE, window.location.origin);
-const API_ORIGIN = API_BASE.endsWith("/api/v1")
-  ? RESOLVED_API_BASE.href.slice(0, -"/api/v1".length)
+const API_ORIGIN = API_BASE.endsWith(API_PREFIX)
+  ? RESOLVED_API_BASE.href.slice(0, -API_PREFIX.length)
   : RESOLVED_API_BASE.href.replace(/\/$/, "");
 
 export const apiClient = createClient<paths>({
@@ -44,10 +133,14 @@ export function websocketUrl(path: string, subjectId: string): string {
 }
 
 export function backendResourceUrl(path: string, subjectId: string): string {
-  const apiPath = path.startsWith("/api/v1") ? path.slice("/api/v1".length) : path;
+  const apiPath = path.startsWith(API_PREFIX) ? path.slice(API_PREFIX.length) : path;
   const resource = apiUrl(apiPath.startsWith("/") ? apiPath : `/${apiPath}`);
   const separator = resource.includes("?") ? "&" : "?";
   return `${resource}${separator}subject=${encodeURIComponent(subjectId)}`;
+}
+
+export function isBackendResourcePath(path: string | undefined): path is string {
+  return Boolean(path?.startsWith(`${API_PREFIX}/`));
 }
 
 export class ApiError extends Error {
@@ -401,8 +494,8 @@ export async function getSourceContext(
   contentUrl?: string | null,
 ): Promise<SourceContextResult> {
   if (contentUrl) {
-    const apiPath = contentUrl.startsWith("/api/v1")
-      ? contentUrl.slice("/api/v1".length)
+    const apiPath = contentUrl.startsWith(API_PREFIX)
+      ? contentUrl.slice(API_PREFIX.length)
       : contentUrl;
     const response = await checkedFetch(subjectId, apiPath);
     return response.json() as Promise<SourceContextResult>;

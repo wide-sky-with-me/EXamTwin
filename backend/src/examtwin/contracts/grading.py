@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from examtwin.contracts.base import SerializedResponse
 from examtwin.contracts.evidence import Citation
+from examtwin.contracts.papers import PaperAnswerMode
 
 
 class ExpectedExpression(BaseModel):
@@ -97,6 +98,11 @@ class ReviewQueueItem(SerializedResponse):
     id: str
     subject_code: str
     subject_id: str
+    paper_job_id: str | None
+    paper_display_name: str | None
+    paper_filename: str | None
+    question_position: int | None
+    answer_mode: PaperAnswerMode | None
     question_ref: str | None
     total_awarded: float
     total_available: float

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
@@ -10,6 +11,7 @@ from examtwin.assessment.paper_vision import (
     parse_physical_page_markdown,
 )
 from examtwin.platform.config import Settings
+from examtwin.platform.litellm_provider import provider_model_name
 from pypdf import PdfWriter
 
 
@@ -30,9 +32,31 @@ def _classified_page(
     }
 
 
+def _completion_via(client: httpx.Client):
+    """Exercise the production LiteLLM request contract through a mock HTTP transport."""
+
+    def completion(**kwargs: Any) -> dict[str, Any]:
+        api_base = str(kwargs.pop("api_base"))
+        api_key = str(kwargs.pop("api_key"))
+        timeout = float(kwargs.pop("timeout"))
+        kwargs.pop("max_retries")
+        kwargs["model"] = provider_model_name(str(kwargs["model"]), "openai")
+        response = client.post(
+            f"{api_base}/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}"},
+            json=kwargs,
+            timeout=timeout,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    return completion
+
+
 def test_vision_review_retries_and_restores_missing_subpart(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     source = tmp_path / "paper.pdf"
     writer = PdfWriter()
@@ -42,23 +66,24 @@ def test_vision_review_retries_and_restores_missing_subpart(
 
     calls = 0
     sent_image = False
-    requested_url = ""
-    authorization = ""
+    captured_request: dict[str, object] = {}
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal authorization, calls, requested_url, sent_image
+    class TransientProviderError(RuntimeError):
+        status_code = 503
+
+    def fake_completion(**request_body: Any) -> dict[str, object]:
+        nonlocal calls, sent_image
         calls += 1
-        requested_url = str(request.url)
-        authorization = request.headers.get("Authorization", "")
-        request_body = json.loads(request.content)
+        captured_request.update(request_body)
         blocks = request_body["messages"][0]["content"]
+        assert isinstance(blocks, list)
         sent_image = any(
             block.get("type") == "image_url"
             and block.get("image_url", {}).get("url", "").startswith("data:image/jpeg;base64,")
             for block in blocks
         )
         if calls < 3:
-            return httpx.Response(503, json={"error": "temporary unavailable"})
+            raise TransientProviderError("temporary unavailable")
         corrected = json.dumps(
             {
                 "pages": [
@@ -73,29 +98,37 @@ def test_vision_review_retries_and_restores_missing_subpart(
                 "confidence": 0.98,
             }
         )
-        return httpx.Response(
-            200,
-            json={"choices": [{"message": {"content": corrected}}]},
-        )
+        return {"choices": [{"message": {"content": corrected}}]}
+
+    monkeypatch.setattr("litellm.completion", fake_completion)
 
     settings = Settings(
-        openai_compat_base_url="https://active.invalid/v1/",
-        openai_compat_api_key="active-key",
+        llm_base_url="https://active.invalid/v1/",
+        llm_api_key="active-key",
         paper_vision_max_attempts=3,
         paper_vision_retry_delay_seconds=0,
+        paper_vision_max_output_tokens=4_321,
     )
-    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
-        result = PaperVisionReviewer(settings, client=client).review_chunk(
-            source,
-            "6 (b) Find the area of the square. [4 marks]",
-            1,
-            1,
-        )
+    result = PaperVisionReviewer(settings).review_chunk(
+        source,
+        "6 (b) Find the area of the square. [4 marks]",
+        1,
+        1,
+    )
 
     assert calls == 3
     assert sent_image is True
-    assert requested_url == "https://active.invalid/v1/chat/completions"
-    assert authorization == "Bearer active-key"
+    assert captured_request["model"] == f"openai/{settings.paper_vision_model}"
+    assert captured_request["api_base"] == "https://active.invalid/v1"
+    assert captured_request["api_key"] == "active-key"
+    assert captured_request["reasoning_effort"] == "low"
+    assert captured_request["max_tokens"] == 4_321
+    assert "temperature" not in captured_request
+    assert "enable_thinking" not in captured_request
+    response_format = captured_request["response_format"]
+    assert isinstance(response_format, dict)
+    assert response_format["type"] == "json_schema"
+    assert response_format["json_schema"]["strict"] is True
     assert "6 (a)" in result.markdown
     assert "Answer ___" not in result.markdown
     assert result.repairs == ("Restored question 6(a) from the page image.",)
@@ -111,7 +144,7 @@ def test_vision_review_retries_and_restores_missing_subpart(
     assert retry_records[0].page_end == 1
     assert retry_records[0].attempt == 1
     assert retry_records[0].max_attempts == 3
-    assert retry_records[0].error_type == "HTTPStatusError"
+    assert retry_records[0].error_type == "TransientProviderError"
 
 
 def test_vision_review_retries_when_mineru_image_position_is_lost(tmp_path: Path) -> None:
@@ -145,7 +178,7 @@ def test_vision_review_retries_when_mineru_image_position_is_lost(tmp_path: Path
         )
 
     settings = Settings(
-        openai_compat_api_key="test-key",
+        llm_api_key="test-key",
         paper_vision_max_attempts=2,
         paper_vision_retry_delay_seconds=0,
     )
@@ -153,7 +186,7 @@ def test_vision_review_retries_when_mineru_image_position_is_lost(tmp_path: Path
         f"1 Use the diagram.\n\n![Force diagram]({image_url})\n\nCalculate the force. [2 marks]"
     )
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
-        result = PaperVisionReviewer(settings, client=client).review_chunk(
+        result = PaperVisionReviewer(settings, completion=_completion_via(client)).review_chunk(
             source,
             markdown,
             1,
@@ -198,7 +231,7 @@ def test_vision_review_preserves_source_page_when_image_is_always_lost(
         )
 
     settings = Settings(
-        openai_compat_api_key="test-key",
+        llm_api_key="test-key",
         paper_vision_max_attempts=2,
         paper_vision_retry_delay_seconds=0,
     )
@@ -206,7 +239,7 @@ def test_vision_review_preserves_source_page_when_image_is_always_lost(
         f"1 Use the diagram.\n\n![Force diagram]({image_url})\n\nCalculate the force. [2 marks]"
     )
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
-        result = PaperVisionReviewer(settings, client=client).review_chunk(
+        result = PaperVisionReviewer(settings, completion=_completion_via(client)).review_chunk(
             source,
             markdown,
             1,
@@ -261,13 +294,13 @@ def test_vision_review_allows_model_to_discard_verified_non_question_page_image(
         )
 
     settings = Settings(
-        openai_compat_api_key="test-key",
+        llm_api_key="test-key",
         paper_vision_max_attempts=2,
         paper_vision_retry_delay_seconds=0,
     )
     markdown = f"9 Incorrect OCR copied from an earlier page. [6 marks]\n\n![]({image_url})"
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
-        result = PaperVisionReviewer(settings, client=client).review_chunk(
+        result = PaperVisionReviewer(settings, completion=_completion_via(client)).review_chunk(
             source,
             markdown,
             1,
@@ -303,13 +336,13 @@ def test_vision_review_accepts_semantic_administrative_page_without_text_marker(
         return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
 
     settings = Settings(
-        openai_compat_api_key="test-key",
+        llm_api_key="test-key",
         paper_vision_max_attempts=1,
         paper_vision_retry_delay_seconds=0,
     )
     markdown = f"9 Incorrect OCR copied from an earlier page. [6 marks]\n\n![]({image_url})"
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
-        result = PaperVisionReviewer(settings, client=client).review_chunk(
+        result = PaperVisionReviewer(settings, completion=_completion_via(client)).review_chunk(
             source,
             markdown,
             1,
@@ -347,7 +380,7 @@ def test_vision_review_accepts_empty_multi_page_discardable_chunk(tmp_path: Path
         return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
 
     settings = Settings(
-        openai_compat_api_key="test-key",
+        llm_api_key="test-key",
         paper_vision_max_attempts=1,
         paper_vision_retry_delay_seconds=0,
     )
@@ -356,7 +389,7 @@ def test_vision_review_accepts_empty_multi_page_discardable_chunk(tmp_path: Path
         "<!-- examtwin:physical-page=2 -->\nCopyright information."
     )
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
-        result = PaperVisionReviewer(settings, client=client).review_chunk(
+        result = PaperVisionReviewer(settings, completion=_completion_via(client)).review_chunk(
             source,
             markdown,
             1,
@@ -404,7 +437,7 @@ def test_vision_review_rejects_empty_multi_page_chunk_without_safe_classificatio
         return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
 
     settings = Settings(
-        openai_compat_api_key="test-key",
+        llm_api_key="test-key",
         paper_vision_max_attempts=1,
         paper_vision_retry_delay_seconds=0,
     )
@@ -416,7 +449,7 @@ def test_vision_review_rejects_empty_multi_page_chunk_without_safe_classificatio
         httpx.Client(transport=httpx.MockTransport(handler)) as client,
         pytest.raises(ValueError, match="视觉模型没有返回可用的页段 Markdown"),
     ):
-        PaperVisionReviewer(settings, client=client).review_chunk(
+        PaperVisionReviewer(settings, completion=_completion_via(client)).review_chunk(
             source,
             markdown,
             1,
@@ -452,13 +485,13 @@ def test_vision_review_preserves_source_without_retry_when_model_discards_questi
         )
 
     settings = Settings(
-        openai_compat_api_key="test-key",
+        llm_api_key="test-key",
         paper_vision_max_attempts=2,
         paper_vision_retry_delay_seconds=0,
     )
     markdown = f"1 Use the diagram.\n\n![]({image_url})\n\nFind x. [2 marks]"
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
-        result = PaperVisionReviewer(settings, client=client).review_chunk(
+        result = PaperVisionReviewer(settings, completion=_completion_via(client)).review_chunk(
             source,
             markdown,
             1,
@@ -511,12 +544,12 @@ def test_vision_review_preserves_source_after_unsafe_non_question_discard(
         return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
 
     settings = Settings(
-        openai_compat_api_key="test-key",
+        llm_api_key="test-key",
         paper_vision_max_attempts=1,
         paper_vision_retry_delay_seconds=0,
     )
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
-        result = PaperVisionReviewer(settings, client=client).review_chunk(
+        result = PaperVisionReviewer(settings, completion=_completion_via(client)).review_chunk(
             source,
             f"Reference material.\n\n![]({image_url})",
             1,
@@ -545,7 +578,7 @@ def test_vision_review_does_not_retry_permanent_http_error(tmp_path: Path) -> No
         return httpx.Response(404, json={"error": "route not found"})
 
     settings = Settings(
-        openai_compat_api_key="test-key",
+        llm_api_key="test-key",
         paper_vision_max_attempts=3,
         paper_vision_retry_delay_seconds=0,
     )
@@ -553,7 +586,7 @@ def test_vision_review_does_not_retry_permanent_http_error(tmp_path: Path) -> No
         httpx.Client(transport=httpx.MockTransport(handler)) as client,
         pytest.raises(httpx.HTTPStatusError),
     ):
-        PaperVisionReviewer(settings, client=client).review_chunk(
+        PaperVisionReviewer(settings, completion=_completion_via(client)).review_chunk(
             source,
             "1 Find x. [2 marks]",
             1,
@@ -607,13 +640,13 @@ def test_vision_review_scopes_multi_page_requests_and_recovers_only_current_page
         )
 
     settings = Settings(
-        openai_compat_api_key="test-key",
+        llm_api_key="test-key",
         paper_vision_max_attempts=1,
     )
     page_one_image = f"/api/v1/papers/jobs/job-1/question-images/p0001-{'a' * 64}.png"
     markdown = f"MinerU multi-page chunk.\n\n![]({page_one_image})"
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
-        result = PaperVisionReviewer(settings, client=client).review_chunk(
+        result = PaperVisionReviewer(settings, completion=_completion_via(client)).review_chunk(
             source,
             markdown,
             1,

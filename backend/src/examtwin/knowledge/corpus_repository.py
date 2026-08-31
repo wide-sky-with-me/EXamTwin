@@ -87,9 +87,12 @@ class CorpusRepository:
     ) -> str:
         """Register a physical location while preserving one logical document identity."""
 
+        subject_code = str(document.get("subject_code") or "").strip()
+        if not subject_code:
+            raise ValueError("source discovery requires an explicit subject_code")
+
         now = utcnow()
         values: dict[str, Any] = {
-            "subject_code": "9660",
             "subject_id": None,
             "knowledge_base_id": None,
             "authority_tier": "supplementary",
@@ -109,6 +112,7 @@ class CorpusRepository:
             "identity_status": "not_applicable",
             "identity_error": None,
             **dict(document),
+            "subject_code": subject_code,
             "created_at": now,
             "updated_at": now,
         }

@@ -7,7 +7,11 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from examtwin.platform.database.models import AssessmentModel, ReviewModel
+from examtwin.platform.database.models import (
+    AssessmentModel,
+    PaperJobModel,
+    ReviewModel,
+)
 from examtwin.platform.database.session import utcnow
 
 
@@ -23,7 +27,8 @@ class AssessmentRepository:
 
     def pending(self, *, subject_code: str) -> list[dict[str, Any]]:
         statement = (
-            select(AssessmentModel)
+            select(AssessmentModel, PaperJobModel)
+            .outerjoin(PaperJobModel, AssessmentModel.paper_job_id == PaperJobModel.id)
             .where(
                 AssessmentModel.subject_code == subject_code,
                 AssessmentModel.status == "pending_review",
@@ -31,20 +36,25 @@ class AssessmentRepository:
             .order_by(AssessmentModel.created_at.desc())
         )
         with self.sessions() as session:
-            rows = list(session.scalars(statement))
+            rows = list(session.execute(statement).all())
         return [
             {
-                "id": row.id,
-                "subject_code": row.subject_code,
-                "question_ref": row.question_ref,
-                "total_awarded": row.total_awarded,
-                "total_available": row.total_available,
-                "confidence": row.confidence,
-                "status": row.status,
-                "result": json.loads(row.result_json),
-                "created_at": row.created_at,
+                "id": assessment.id,
+                "subject_code": assessment.subject_code,
+                "paper_job_id": assessment.paper_job_id,
+                "paper_display_name": paper_job.display_name if paper_job else None,
+                "paper_filename": paper_job.filename if paper_job else None,
+                "question_position": assessment.question_position,
+                "answer_mode": paper_job.answer_mode if paper_job else None,
+                "question_ref": assessment.question_ref,
+                "total_awarded": assessment.total_awarded,
+                "total_available": assessment.total_available,
+                "confidence": assessment.confidence,
+                "status": assessment.status,
+                "result": json.loads(assessment.result_json),
+                "created_at": assessment.created_at,
             }
-            for row in rows
+            for assessment, paper_job in rows
         ]
 
     def for_paper(self, paper_job_id: str, *, subject_code: str) -> list[dict[str, Any]]:

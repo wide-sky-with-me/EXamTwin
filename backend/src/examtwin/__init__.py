@@ -1,4 +1,4 @@
-"""ExamTwin 9660 knowledge and assessment backend."""
+"""ExamTwin multi-subject knowledge and assessment backend."""
 
 import os
 

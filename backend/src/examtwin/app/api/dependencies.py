@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import getpass
+
 from fastapi import Depends, Header, HTTPException, Query
 
 from examtwin.app.composition import (
     build_corpus_workspace_service,
+    build_difficulty_evidence_service,
     build_grading_service,
     build_object_store,
     build_paper_job_service,
@@ -11,6 +14,7 @@ from examtwin.app.composition import (
     build_rubric_service,
 )
 from examtwin.assessment.answering_agent.tools.image_generate import AnswerImageStore
+from examtwin.assessment.difficulty_evidence import DifficultyEvidenceService
 from examtwin.assessment.grading import GradingService
 from examtwin.assessment.paper_jobs import PaperJobService
 from examtwin.assessment.paper_units import PaperUnitService
@@ -21,6 +25,10 @@ from examtwin.platform.config import Settings, get_settings
 from examtwin.subjects.public import SubjectContext, subject_context
 
 SUBJECT_HEADER = "X-ExamTwin-Subject"
+
+
+def get_reviewer_identity() -> str:
+    return f"local:{getpass.getuser()}"
 
 
 def get_subject_context(
@@ -52,6 +60,12 @@ def get_paper_units(
     subject: SubjectContext = Depends(get_subject_context),
 ) -> PaperUnitService:
     return build_paper_unit_service(settings, subject)
+
+
+def get_difficulty_evidence_service(
+    settings: Settings = Depends(get_settings),
+) -> DifficultyEvidenceService:
+    return build_difficulty_evidence_service(settings)
 
 
 def get_grading_service(

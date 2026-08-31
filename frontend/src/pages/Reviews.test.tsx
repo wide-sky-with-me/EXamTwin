@@ -8,6 +8,11 @@ const item: ReviewItem = {
   id: "assessment-1",
   subject_code: "9660",
   subject_id: "oxfordaqa-mathematics-9660",
+  paper_job_id: "paper-job-1",
+  paper_display_name: "June 2026 U1",
+  paper_filename: "question-paper.pdf",
+  question_position: 1,
+  answer_mode: "uploaded",
   question_ref: "Q1",
   total_awarded: 1,
   total_available: 2,
@@ -33,6 +38,50 @@ const item: ReviewItem = {
 
 describe("Reviews", () => {
   beforeEach(() => window.localStorage.clear());
+  test("groups linked reviews by paper and isolates every unlinked assessment", () => {
+    const secondQuestion: ReviewItem = {
+      ...item,
+      id: "assessment-2",
+      question_ref: "Q2",
+      question_position: 2,
+      result: {
+        ...item.result,
+        assessment_id: "assessment-2",
+        question_ref: "Q2",
+      },
+    };
+    const standalone: ReviewItem = {
+      ...item,
+      id: "assessment-standalone",
+      paper_job_id: null,
+      paper_display_name: null,
+      paper_filename: null,
+      question_position: null,
+      answer_mode: null,
+      question_ref: "Q3",
+      result: {
+        ...item.result,
+        assessment_id: "assessment-standalone",
+        question_ref: "Q3",
+      },
+    };
+
+    const { container } = render(
+      <Reviews items={[secondQuestion, standalone, item]} refresh={vi.fn()} />,
+    );
+
+    const groups = container.querySelectorAll(".review-paper-group");
+    const linkedGroupText = groups[0].textContent ?? "";
+    expect(groups).toHaveLength(2);
+    expect(screen.getByRole("heading", { name: "June 2026 U1" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "独立评估 · Q3" })).toBeInTheDocument();
+    expect(screen.getAllByText("外部答卷")).toHaveLength(2);
+    expect(screen.getByText("来源未记录")).toBeInTheDocument();
+    expect(groups[0]).toHaveTextContent("2 项待复核");
+    expect(linkedGroupText.indexOf("Q1")).toBeLessThan(linkedGroupText.indexOf("Q2"));
+    expect(groups[1]).toHaveTextContent("未关联试卷 · 旧版或独立评估");
+  });
+
 
   test("submits an explicit reviewer and override mark", async () => {
     const user = userEvent.setup();

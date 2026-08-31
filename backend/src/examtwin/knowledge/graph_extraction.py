@@ -101,12 +101,13 @@ class KnowledgeGraphBuildService:
         if model is not None:
             self.model = model
         else:
-            key = settings.openai_compat_api_key
+            key = settings.llm_api_key
             if key is None:
-                raise ValueError("知识图谱抽取需要 OPENAI_COMPAT_API_KEY")
+                raise ValueError("知识图谱抽取需要 LLM_API_KEY")
             self.model = LiteLLMStructuredModel(
                 model=settings.knowledge_graph_model,
-                api_base=settings.openai_compat_base_url,
+                provider=settings.litellm_provider,
+                api_base=settings.llm_base_url,
                 api_key=key.get_secret_value(),
                 reasoning_effort=settings.knowledge_graph_reasoning_effort,
             )
@@ -146,7 +147,7 @@ class KnowledgeGraphBuildService:
                     (
                         f"[BLOCK {block['id']}] source_document={block['document_id']} "
                         f"page={block.get('page')} section={block.get('section') or '-'}\n"
-                        f"{str(block['content'])[:12_000]}"
+                        f"{str(block['content'])[: self.settings.knowledge_graph_block_max_chars]}"
                     )
                     for block in batch
                 )

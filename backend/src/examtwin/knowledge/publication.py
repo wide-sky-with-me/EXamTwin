@@ -14,7 +14,7 @@ from examtwin.knowledge.difficulty_assessment import (
 )
 from examtwin.knowledge.knowledge_repository import KnowledgeRepository
 from examtwin.platform.database.session import utcnow
-from examtwin.subjects.public import SubjectPack, get_subject_pack
+from examtwin.subjects.public import SubjectPack
 
 
 def _point_id(
@@ -43,10 +43,9 @@ def _relation(
 
 def extract_syllabus_objectives(
     markdown: str,
-    subject_pack: SubjectPack | None = None,
+    subject_pack: SubjectPack,
 ) -> list[dict[str, Any]]:
     """Compatibility projection from the reusable curriculum extractor."""
-    subject_pack = subject_pack or get_subject_pack("oxfordaqa-mathematics-9660")
     candidate = get_curriculum_extractor(subject_pack).extract(
         markdown,
         subject_pack,

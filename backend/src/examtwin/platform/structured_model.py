@@ -7,6 +7,11 @@ from pydantic import BaseModel
 
 from examtwin.platform.agent_runtime.model import HarnessMessage
 from examtwin.platform.agent_runtime.structured import StructuredModelPort
+from examtwin.platform.litellm_provider import (
+    completion_options,
+    configure_litellm,
+    provider_model_name,
+)
 from examtwin.platform.model_json import validate_structured_response
 
 StructuredResultT = TypeVar("StructuredResultT", bound=BaseModel)
@@ -19,6 +24,7 @@ class LiteLLMStructuredModel(StructuredModelPort):
         self,
         *,
         model: str,
+        provider: str,
         api_base: str,
         api_key: str,
         reasoning_effort: str | None = None,
@@ -32,15 +38,16 @@ class LiteLLMStructuredModel(StructuredModelPort):
             raise ValueError("structured model API key is required")
         if max_retries < 0:
             raise ValueError("structured model retries cannot be negative")
-        self.model = model if model.startswith("openai/") else f"openai/{model}"
-        self.api_base = api_base
+        self.model = provider_model_name(model, provider)
+        self.provider = provider
+        self.api_base = api_base.rstrip("/")
         self.api_key = api_key
         self.reasoning_effort = reasoning_effort
         self.max_retries = max_retries
 
     @property
     def model_name(self) -> str:
-        return self.model.removeprefix("openai/")
+        return self.model
 
     def complete(
         self,
@@ -52,20 +59,23 @@ class LiteLLMStructuredModel(StructuredModelPort):
         if timeout <= 0:
             raise ValueError("structured model timeout must be positive")
         # Keep LiteLLM's optional model-cost refresh out of deterministic imports.
+        configure_litellm()
         from litellm import completion
 
         request_options: dict[str, Any] = {
-            "model": self.model,
-            "api_base": self.api_base,
-            "api_key": self.api_key,
+            **completion_options(
+                model=self.model,
+                provider=self.provider,
+                api_base=self.api_base,
+                api_key=self.api_key,
+                reasoning_effort=self.reasoning_effort,
+                timeout=timeout,
+                max_retries=self.max_retries,
+            ),
             "messages": [
                 {"role": message.role, "content": message.content} for message in messages
             ],
             "response_format": response_model,
-            "timeout": timeout,
-            "max_retries": self.max_retries,
         }
-        if self.reasoning_effort not in {None, "none"}:
-            request_options["reasoning_effort"] = self.reasoning_effort
         response = completion(**request_options)
         return validate_structured_response(response, response_model)

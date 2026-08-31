@@ -19,6 +19,9 @@ from examtwin.assessment.answering_agent.contracts import (
     QuestionImage,
 )
 from examtwin.assessment.answering_agent.finalization import citation_ids_in_markdown
+from examtwin.assessment.answering_agent.host_capabilities import (
+    answer_artifact_capabilities,
+)
 from examtwin.assessment.paper_parsing import (
     QuestionSourcePageResolutionError,
     QuestionSourceStructureError,
@@ -41,14 +44,14 @@ from examtwin.knowledge.public import (
     list_knowledge_points,
     parse_exam_identity,
 )
+from examtwin.platform.agent_runtime.model import HarnessMessage
 from examtwin.platform.agent_runtime.structured import (
     StructuredModelPort,
     StructuredTask,
     StructuredTaskRunner,
 )
 from examtwin.platform.config import Settings
-from examtwin.platform.model_json import parse_json_response
-from examtwin.platform.providers import build_llm
+from examtwin.platform.providers import required_secret
 from examtwin.platform.structured_model import LiteLLMStructuredModel
 from examtwin.subjects.public import SubjectContext
 
@@ -97,6 +100,12 @@ class _QuestionRepairPlan(BaseModel):
     groups: list[_QuestionRepairGroup] = Field(min_length=1)
 
 
+class _QuestionSplitPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    questions: list[dict[str, Any]]
+
+
 class _QuestionCandidateConflict(ValueError):
     """A same-source overlap conflict that may be resolved against the trusted source."""
 
@@ -106,23 +115,40 @@ class _QuestionCandidateConflict(ValueError):
 
 
 def _build_question_repair_model(settings: Settings) -> StructuredModelPort:
-    api_key = settings.llm_provider_api_key
+    api_key = settings.llm_api_key
     if api_key is None:
-        raise RuntimeError("Question structure repair requires OPENAI_COMPAT_API_KEY")
+        raise RuntimeError("Question structure repair requires LLM_API_KEY")
     return LiteLLMStructuredModel(
         model=settings.paper_split_model,
-        api_base=settings.llm_provider_base_url,
+        provider=settings.litellm_provider,
+        api_base=settings.llm_base_url,
         api_key=api_key.get_secret_value(),
         reasoning_effort=settings.paper_split_reasoning_effort,
     )
 
 
-def _split_markdown_batches(markdown: str, *, max_chars: int) -> list[str]:
+def _build_question_split_model(settings: Settings) -> StructuredModelPort:
+    return LiteLLMStructuredModel(
+        model=settings.paper_split_model,
+        provider=settings.litellm_provider,
+        api_base=settings.llm_base_url,
+        api_key=required_secret(settings.llm_api_key),
+        reasoning_effort=settings.paper_split_reasoning_effort,
+        max_retries=1,
+    )
+
+
+def _split_markdown_batches(
+    markdown: str,
+    *,
+    max_chars: int,
+    overlap_max_chars: int = 4_000,
+) -> list[str]:
     if len(markdown) <= max_chars:
         return [markdown]
     sections = [item for item in PAGE_SECTION.split(markdown) if item.strip()]
     if len(sections) == 1:
-        overlap = min(4_000, max_chars // 10)
+        overlap = min(overlap_max_chars, max_chars // 10)
         return [
             markdown[max(0, start - overlap) : start + max_chars]
             for start in range(0, len(markdown), max_chars - overlap)
@@ -856,6 +882,13 @@ class PaperAnswerService:
         save_checkpoint: SplitCheckpointSaver | None = None,
     ) -> list[dict[str, Any]]:
         del catalog
+        artifact_capabilities = answer_artifact_capabilities(
+            self.subject.package.require_skill().tool_names
+        )
+        artifact_capability_text = (
+            ", ".join(f"{name} ({shape} artifact)" for name, shape in artifact_capabilities)
+            or "none"
+        )
 
         def split_batch(batch: str, source_kind: str) -> list[dict[str, Any]]:
             source_instruction = (
@@ -892,13 +925,11 @@ Extract an `answer_requirements` item for every visible subpart, or one item lab
 `whole` when there are no subparts. Preserve the printed subpart label and marks.
 Start every printed subpart on a new line with its exact label, for example `(a)` or
 `(a)(i)`. This allows deterministic repair when one question crosses batch boundaries.
-`answer_kind` must be one of text, numeric, expression, proof, table, math_plot,
-math_diagram, economics_diagram, image. Copy an explicit accuracy instruction and required units.
-Set `required_tool` only when the candidate must create that answer artifact:
-math_plot for coordinate/statistical plots, math_diagram for exact geometry or other
-mathematical vector diagrams, economics_diagram for a required economics graph or
-diagram, and image_generate only for a genuinely pictorial response. Merely
-reading a printed source figure does not require an answer artifact.
+`answer_kind` must be one of text, numeric, expression, proof, table, diagram, image.
+Copy an explicit accuracy instruction and required units. Set `required_tool` only when
+the candidate must create an answer artifact, and only to one of the current subject
+capabilities listed here: {artifact_capability_text}. Use the installed subject policy to
+choose among them. Merely reading a printed source figure does not require an answer artifact.
 
 Return only:
 {{
@@ -926,13 +957,7 @@ Return only:
 Paper Markdown:
 {batch}
 """.strip()
-            llm = build_llm(
-                self.settings,
-                model=self.settings.paper_split_model,
-                timeout=self.settings.paper_split_timeout,
-                max_retries=1,
-                reasoning_effort=self.settings.paper_split_reasoning_effort,
-            )
+            split_model = _build_question_split_model(self.settings)
             last_error: Exception | None = None
             for attempt in range(1, self.settings.paper_split_max_attempts + 1):
                 retry_instruction = (
@@ -942,11 +967,12 @@ Paper Markdown:
                     "object again, with every key followed by a colon and every string escaped."
                 )
                 try:
-                    payload = parse_json_response(llm.complete(prompt + retry_instruction).text)
-                    questions = payload.get("questions")
-                    if not isinstance(questions, list):
-                        raise ValueError("模型没有返回可用的试卷题目列表")
-                    return [item for item in questions if isinstance(item, dict)]
+                    payload = split_model.complete(
+                        (HarnessMessage(role="user", content=prompt + retry_instruction),),
+                        _QuestionSplitPayload,
+                        timeout=self.settings.paper_split_timeout,
+                    )
+                    return payload.questions
                 except (TypeError, ValueError, json.JSONDecodeError) as error:
                     last_error = error
                     if attempt < self.settings.paper_split_max_attempts:
@@ -992,6 +1018,7 @@ Paper Markdown:
             for batch in _split_markdown_batches(
                 source_markdown,
                 max_chars=self.settings.paper_split_max_chars,
+                overlap_max_chars=self.settings.paper_split_overlap_max_chars,
             )
         ]
         completed: dict[int, list[dict[str, Any]]] = {}
@@ -1250,7 +1277,13 @@ Paper Markdown:
         items: list[dict[str, Any]],
         unresolved_numbers: tuple[str, ...],
     ) -> list[dict[str, Any]]:
-        excerpt_limit = max(800, min(3_000, 80_000 // len(items)))
+        excerpt_limit = max(
+            800,
+            min(
+                self.settings.paper_repair_candidate_max_chars,
+                self.settings.paper_repair_candidate_budget_chars // len(items),
+            ),
+        )
         candidates = [
             {
                 "candidate_index": index,
@@ -1262,11 +1295,14 @@ Paper Markdown:
             }
             for index, item in enumerate(items)
         ]
-        if len(source_markdown) > 60_000:
+        source_limit = self.settings.paper_repair_source_max_chars
+        if len(source_markdown) > source_limit:
+            leading_chars = source_limit // 2
+            trailing_chars = source_limit - leading_chars
             source_excerpt = (
-                source_markdown[:30_000]
+                source_markdown[:leading_chars]
                 + "\n\n[... trusted source middle omitted ...]\n\n"
-                + source_markdown[-30_000:]
+                + source_markdown[-trailing_chars:]
             )
         else:
             source_excerpt = source_markdown
