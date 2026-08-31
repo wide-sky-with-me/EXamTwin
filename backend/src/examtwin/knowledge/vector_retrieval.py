@@ -15,6 +15,7 @@ from llama_index.core.vector_stores import (
 )
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient, models
+from qdrant_client.local.qdrant_local import QdrantLocal
 
 HYBRID_INDEX_SCHEMA_VERSION = "lexical-hybrid-v2"
 DENSE_VECTOR_NAME = "text-dense"
@@ -141,17 +142,38 @@ def collection_supports_hybrid(client: QdrantClient, collection_name: str) -> bo
     return isinstance(sparse, dict) and SPARSE_VECTOR_NAME in sparse
 
 
+def _supports_payload_indexes(client: QdrantClient) -> bool:
+    """Return whether this client is backed by a Qdrant server.
+
+    QdrantLocal executes payload filters but deliberately does not build payload
+    indexes. Asking it to create them only emits a warning and provides no
+    performance benefit.
+    """
+
+    return not isinstance(getattr(client, "_client", None), QdrantLocal)
+
+
 def qdrant_vector_store(
     client: QdrantClient,
     collection_name: str,
     *,
     hybrid: bool,
 ) -> QdrantVectorStore:
+    supports_payload_indexes = _supports_payload_indexes(client)
     kwargs: dict[str, Any] = {
         "client": client,
         "collection_name": collection_name,
         "dense_vector_name": DENSE_VECTOR_NAME,
+        "index_doc_id": supports_payload_indexes,
     }
+    if supports_payload_indexes:
+        kwargs["payload_indexes"] = [
+            {
+                "field_name": field,
+                "field_schema": models.PayloadSchemaType.KEYWORD,
+            }
+            for field in FILTER_PAYLOAD_FIELDS
+        ]
     if hybrid:
         kwargs.update(
             {
@@ -163,13 +185,6 @@ def qdrant_vector_store(
                     index=models.SparseIndexParams(on_disk=False),
                     modifier=models.Modifier.IDF,
                 ),
-                "payload_indexes": [
-                    {
-                        "field_name": field,
-                        "field_schema": models.PayloadSchemaType.KEYWORD,
-                    }
-                    for field in FILTER_PAYLOAD_FIELDS
-                ],
             }
         )
     return QdrantVectorStore(**kwargs)

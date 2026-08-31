@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import json
 import uuid
+import warnings
 from datetime import UTC, datetime
+from typing import cast
+from unittest.mock import patch
 
 from examtwin.assessment.rag import RagService
 from examtwin.knowledge.retrieval_trace_repository import RetrievalTraceRepository
@@ -40,6 +43,46 @@ def _node(text: str, *, subject: str, unit: str) -> TextNode:
     )
     node.embedding = [1.0, 0.0]
     return node
+
+
+def test_local_qdrant_skips_unsupported_payload_indexes() -> None:
+    client = QdrantClient(":memory:")
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        store = qdrant_vector_store(client, "local-no-payload-index", hybrid=True)
+        store.add([_node("Local filters still work.", subject="9660", unit="P1")])
+
+    assert store.index_doc_id is False
+    assert store._payload_indexes is None  # noqa: SLF001
+
+
+def test_server_qdrant_indexes_filters_in_dense_compat_mode() -> None:
+    class ServerBackedClient:
+        _client = object()
+
+    with patch("examtwin.knowledge.vector_retrieval.QdrantVectorStore") as constructor:
+        qdrant_vector_store(
+            cast(QdrantClient, ServerBackedClient()),
+            "server-dense",
+            hybrid=False,
+        )
+
+    kwargs = constructor.call_args.kwargs
+    assert kwargs["index_doc_id"] is True
+    assert [item["field_name"] for item in kwargs["payload_indexes"]] == [
+        "subject_code",
+        "unit_code",
+        "pair_key",
+        "source_type",
+        "authority_tier",
+        "source_role",
+        "node_kind",
+        "index_build_id",
+        "index_schema_version",
+        "embedding_identity",
+        "node_fingerprint",
+    ]
 
 
 def test_hybrid_qdrant_search_prefilters_before_dense_and_lexical_fusion() -> None:
