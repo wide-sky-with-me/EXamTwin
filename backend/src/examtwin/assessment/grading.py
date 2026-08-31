@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sympy import simplify
 
 from examtwin.assessment.assessment_repository import AssessmentRepository
+from examtwin.assessment.policies import GRADING_REVIEW_CONFIDENCE_THRESHOLD
 from examtwin.assessment.symbolic import parse_safe_expression
 from examtwin.contracts.evidence import Citation
 from examtwin.contracts.grading import (
@@ -90,12 +91,13 @@ def _withheld_non_verbatim_awards(
 
 
 def _grading_model(settings: Settings) -> StructuredModelPort:
-    credential = settings.llm_provider_api_key
+    credential = settings.llm_api_key
     if credential is None or not credential.get_secret_value():
         raise RuntimeError("LLM credential is required for grading")
     return LiteLLMStructuredModel(
         model=settings.grading_model,
-        api_base=settings.llm_provider_base_url,
+        provider=settings.litellm_provider,
+        api_base=settings.llm_base_url,
         api_key=credential.get_secret_value(),
         reasoning_effort=settings.grading_reasoning_effort,
         max_retries=1,
@@ -233,13 +235,13 @@ class GradingService:
 
         user_content = f"""
 QUESTION:
-{question[:16000]}
+{question[: self.settings.grading_question_max_chars]}
 
 MARK SCHEME:
-{mark_scheme[:28000]}
+{mark_scheme[: self.settings.grading_mark_scheme_max_chars]}
 
 STUDENT ANSWER:
-{request.answer_markdown[:16000]}
+{request.answer_markdown[: self.settings.grading_answer_max_chars]}
 
 CAS CHECKS:
 {cas_context}
@@ -307,7 +309,7 @@ RELEVANT KNOWLEDGE CODES:
             max(item.max_marks, 0.001) for item in awards
         )
         warnings.extend(payload.warnings)
-        if confidence < 0.75:
+        if confidence < GRADING_REVIEW_CONFIDENCE_THRESHOLD:
             warnings.append("Low-confidence marking requires careful human review.")
 
         assessment_id = str(uuid.uuid4())

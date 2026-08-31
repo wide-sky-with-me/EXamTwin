@@ -681,6 +681,7 @@ def test_holistic_best_fit_descriptors_are_one_non_additive_criterion() -> None:
         payload,
         mark_scheme,
         question={"number": "20", "total_marks": 12},
+        settings=Settings(),
     )
 
     assert len(collapsed.criteria) == 1
@@ -701,7 +702,7 @@ def test_mark_scheme_context_keeps_level_grid_after_question_table() -> None:
         "<table><tr><td>21</td><td>Assess.</td><td>20</td></tr></table>"
     )
 
-    context = _mark_scheme_context(source, "20")
+    context = _mark_scheme_context(source, "20", settings=Settings())
 
     assert "best-fit" in context
     assert "Sound analysis" in context

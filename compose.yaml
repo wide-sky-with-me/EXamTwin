@@ -7,7 +7,7 @@ x-examtwin-python: &examtwin-python
   environment:
     DATABASE_URL: postgresql://${POSTGRES_USER:-examtwin}:${POSTGRES_PASSWORD:-examtwin_dev}@127.0.0.1:55432/${POSTGRES_DB:-examtwin}
     QDRANT_URL: http://127.0.0.1:6333
-    CORPUS_ROOT: /app/data/牛津AQA/数学
+    CORPUS_ROOT: /app/data/牛津AQA
     OBJECT_STORE_BACKEND: ${OBJECT_STORE_BACKEND:-local}
     OBJECT_STORE_LOCAL_ROOT: /app/var
     OBJECT_STORE_CACHE_DIR: /app/var/object-cache
@@ -98,7 +98,7 @@ services:
       context: .
       dockerfile: Dockerfile.worker
       network: host
-    command: ["uvicorn", "examtwin.app.main:app", "--host", "${API_BIND_HOST:-127.0.0.1}", "--port", "8000"]
+    command: ["uvicorn", "examtwin.app.main:app", "--host", "${API_BIND_HOST:-127.0.0.1}", "--port", "${API_PORT:-8000}"]
     healthcheck:
       test: ["CMD", "examtwin-healthcheck"]
       interval: 5s

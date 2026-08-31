@@ -1,5 +1,6 @@
 import uuid
 
+import pytest
 from examtwin.knowledge.document_block_repository import DocumentBlockRepository
 from examtwin.knowledge.ingestion import (
     TABLE_EMBED_CHAR_LIMIT,
@@ -18,6 +19,7 @@ from sqlalchemy.orm import Session, sessionmaker
 def _row() -> dict:
     return {
         "id": "doc-1",
+        "subject_code": "9999",
         "path": "book.md",
         "filename": "book.md",
         "source_type": "textbook",
@@ -25,6 +27,14 @@ def _row() -> dict:
         "pair_key": None,
         "unit_code": "P2",
     }
+
+
+def test_document_ingestion_requires_explicit_subject_metadata() -> None:
+    row = _row()
+    row.pop("subject_code")
+
+    with pytest.raises(ValueError, match="explicit subject_code"):
+        _documents_with_pages("# Evidence", row)
 
 
 def test_section_provenance_does_not_invent_a_page() -> None:

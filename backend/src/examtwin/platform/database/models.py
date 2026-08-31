@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     DateTime,
     Float,
     ForeignKey,
@@ -658,6 +659,106 @@ class KnowledgeRelationModel(Base):
     source_ref: Mapped[str] = mapped_column(Text)
 
 
+class DifficultyEvidenceRunModel(Base):
+    __tablename__ = "difficulty_evidence_runs"
+    __table_args__ = (UniqueConstraint("subject_id", "input_hash"),)
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    subject_id: Mapped[str] = mapped_column(Text, ForeignKey("subjects.id", ondelete="CASCADE"))
+    subject_code: Mapped[str] = mapped_column(Text)
+    source_document_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("source_documents.id", ondelete="RESTRICT")
+    )
+    source_checksum: Mapped[str] = mapped_column(Text)
+    question_paper_document_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("source_documents.id", ondelete="RESTRICT")
+    )
+    question_paper_checksum: Mapped[str] = mapped_column(Text)
+    question_catalog_json: Mapped[str] = mapped_column(Text)
+    question_catalog_hash: Mapped[str] = mapped_column(Text)
+    pair_key: Mapped[str] = mapped_column(Text)
+    input_hash: Mapped[str] = mapped_column(Text)
+    package_digest: Mapped[str] = mapped_column(Text)
+    extractor_version: Mapped[str] = mapped_column(Text)
+    model_name: Mapped[str] = mapped_column(Text)
+    prompt_digest: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text)
+    candidate_count: Mapped[int] = mapped_column(Integer, default=0)
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class DifficultyEvidenceCandidateModel(Base):
+    __tablename__ = "difficulty_evidence_candidates"
+    __table_args__ = (
+        UniqueConstraint("run_id", "question_number", "page_number", "quote_hash"),
+        Index("idx_difficulty_candidates_run_status", "run_id", "validation_status"),
+        CheckConstraint(
+            "(evidence_level = 'B' AND evidence_type = 'qualitative' "
+            "AND metric_name IS NULL AND metric_text IS NULL AND metric_value IS NULL "
+            "AND metric_scale IS NULL AND metric_direction IS NULL "
+            "AND metric_comparator IS NULL AND difficulty_score IS NULL) OR "
+            "(evidence_level = 'A' AND evidence_type = 'quantitative' "
+            "AND metric_name IS NOT NULL AND metric_text IS NOT NULL "
+            "AND metric_value IS NOT NULL AND metric_scale IS NOT NULL "
+            "AND metric_direction IS NOT NULL "
+            "AND metric_comparator IN ('eq', 'approx', 'gt', 'gte', 'lt', 'lte'))",
+            name="ck_difficulty_candidate_level_shape",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    run_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("difficulty_evidence_runs.id", ondelete="CASCADE")
+    )
+    subject_id: Mapped[str] = mapped_column(Text, ForeignKey("subjects.id", ondelete="CASCADE"))
+    subject_code: Mapped[str] = mapped_column(Text)
+    source_document_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("source_documents.id", ondelete="RESTRICT")
+    )
+    source_checksum: Mapped[str] = mapped_column(Text)
+    pair_key: Mapped[str] = mapped_column(Text)
+    unit_code: Mapped[str | None] = mapped_column(Text)
+    question_number: Mapped[str] = mapped_column(Text)
+    page_number: Mapped[int] = mapped_column(Integer)
+    evidence_level: Mapped[str] = mapped_column(Text)
+    evidence_type: Mapped[str] = mapped_column(Text)
+    metric_name: Mapped[str | None] = mapped_column(Text)
+    metric_text: Mapped[str | None] = mapped_column(Text)
+    metric_value: Mapped[float | None] = mapped_column(Float)
+    metric_scale: Mapped[str | None] = mapped_column(Text)
+    metric_direction: Mapped[str | None] = mapped_column(Text)
+    metric_comparator: Mapped[str | None] = mapped_column(Text)
+    difficulty_score: Mapped[float | None] = mapped_column(Float)
+    quote: Mapped[str] = mapped_column(Text)
+    quote_hash: Mapped[str] = mapped_column(Text)
+    block_hash: Mapped[str] = mapped_column(Text)
+    source_ref: Mapped[str] = mapped_column(Text)
+    model_confidence: Mapped[float | None] = mapped_column(Float)
+    validation_status: Mapped[str] = mapped_column(Text)
+    validation_errors_json: Mapped[str] = mapped_column(Text, default="[]")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class DifficultyEvidenceReviewModel(Base):
+    __tablename__ = "difficulty_evidence_reviews"
+    __table_args__ = (UniqueConstraint("candidate_id", "sequence"),)
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    candidate_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("difficulty_evidence_candidates.id", ondelete="CASCADE")
+    )
+    sequence: Mapped[int] = mapped_column(Integer)
+    decision: Mapped[str] = mapped_column(Text)
+    replacement_json: Mapped[str] = mapped_column(Text, default="{}")
+    reviewer: Mapped[str] = mapped_column(Text)
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class QuestionDifficultyModel(Base):
     __tablename__ = "question_difficulty"
     __table_args__ = (UniqueConstraint("source_document_id", "question_number"),)
@@ -667,14 +768,18 @@ class QuestionDifficultyModel(Base):
     question_ref: Mapped[str] = mapped_column(Text)
     pair_key: Mapped[str | None] = mapped_column(Text)
     question_number: Mapped[str] = mapped_column(Text)
-    difficulty_score: Mapped[float] = mapped_column(Float)
-    difficulty_label: Mapped[str] = mapped_column(Text)
-    confidence: Mapped[float] = mapped_column(Float)
+    difficulty_score: Mapped[float | None] = mapped_column(Float)
+    difficulty_label: Mapped[str | None] = mapped_column(Text)
+    confidence: Mapped[float | None] = mapped_column(Float)
     evidence_level: Mapped[str] = mapped_column(Text)
     knowledge_codes_json: Mapped[str] = mapped_column(Text, default="[]")
     evidence_json: Mapped[str] = mapped_column(Text)
     source_ref: Mapped[str] = mapped_column(Text)
+    publication_run_id: Mapped[str | None] = mapped_column(
+        Text, ForeignKey("difficulty_evidence_runs.id", ondelete="RESTRICT")
+    )
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class RetrievalTraceModel(Base):

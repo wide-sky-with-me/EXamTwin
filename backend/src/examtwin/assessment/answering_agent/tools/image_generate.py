@@ -4,20 +4,26 @@ import asyncio
 import base64
 import binascii
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 from uuid import uuid4
 
-import httpx
 import pymupdf
 from llama_index.core.tools import BaseTool, FunctionTool
 from pydantic import BaseModel, ConfigDict, Field
 
 from examtwin.assessment.answering_agent.contracts import AgentRunContext
 from examtwin.contracts.evidence import AnswerImage
+from examtwin.contracts.system import API_PREFIX
 from examtwin.platform.database.session import utcnow
+from examtwin.platform.litellm_provider import (
+    configure_litellm,
+    litellm_model_name,
+    retryable_provider_error,
+)
 from examtwin.platform.storage import LocalObjectStore, ManagedObjectStore, ObjectMetadata
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -77,8 +83,8 @@ class ImageGenerationProvider(Protocol):
     ) -> GeneratedImage: ...
 
 
-class OpenAICompatibleImageProvider:
-    """Bounded adapter for the OpenAI-compatible Image API."""
+class LiteLLMImageProvider:
+    """Bounded image generation adapter routed through LiteLLM."""
 
     def __init__(
         self,
@@ -86,6 +92,7 @@ class OpenAICompatibleImageProvider:
         api_base: str,
         api_key: str,
         *,
+        provider: str,
         timeout: float,
         max_attempts: int,
         max_output_bytes: int,
@@ -103,7 +110,8 @@ class OpenAICompatibleImageProvider:
         if max_output_bytes < 64 * 1024:
             raise ValueError("Image generation output limit is too small")
         self.model = model
-        self.url = f"{api_base.rstrip('/')}/images/generations"
+        self.litellm_model = litellm_model_name(model, provider)
+        self.api_base = api_base.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
         self.max_attempts = max_attempts
@@ -115,51 +123,41 @@ class OpenAICompatibleImageProvider:
         size: ImageSize,
         quality: ImageQuality,
     ) -> GeneratedImage:
-        payload = {
-            "model": self.model,
-            "prompt": (
-                "Create a clear educational answer illustration. Keep the composition "
-                "focused, use a clean light background, and do not add explanatory prose "
-                "outside the requested visual. "
-                f"\n\nRequested visual:\n{prompt}"
-            ),
-            "size": size,
-            "quality": quality,
-            "n": 1,
-        }
+        generated_prompt = (
+            "Create a clear educational answer illustration. Keep the composition "
+            "focused, use a clean light background, and do not add explanatory prose "
+            "outside the requested visual. "
+            f"\n\nRequested visual:\n{prompt}"
+        )
         for attempt in range(1, self.max_attempts + 1):
             try:
-                async with httpx.AsyncClient(timeout=self.timeout) as client:
-                    response = await client.post(
-                        self.url,
-                        headers={"Authorization": f"Bearer {self.api_key}"},
-                        json=payload,
-                    )
-            except httpx.TimeoutException as error:
-                if attempt == self.max_attempts:
-                    raise TimeoutError("Image generation provider timed out") from error
-                await asyncio.sleep(attempt)
-                continue
-            except httpx.HTTPError as error:
-                if attempt == self.max_attempts:
-                    raise RuntimeError("Image generation provider connection failed") from error
-                await asyncio.sleep(attempt)
-                continue
+                configure_litellm()
+                from litellm import aimage_generation
 
-            if response.status_code == 429 or response.status_code >= 500:
-                if attempt < self.max_attempts:
+                response = await aimage_generation(
+                    model=self.litellm_model,
+                    api_base=self.api_base,
+                    api_key=self.api_key,
+                    prompt=generated_prompt,
+                    size=size,
+                    quality=quality,
+                    n=1,
+                    output_format="png",
+                    timeout=self.timeout,
+                    max_retries=0,
+                )
+            except Exception as error:
+                if attempt < self.max_attempts and retryable_provider_error(error):
                     await asyncio.sleep(attempt)
                     continue
-            if response.is_error:
-                raise RuntimeError(
-                    f"Image generation provider rejected the request ({response.status_code})"
-                )
-            if len(response.content) > self.max_output_bytes * 2:
-                raise ValueError("Image generation response exceeds the configured limit")
+                raise RuntimeError("Image generation provider request failed") from error
             try:
-                body = response.json()
-                encoded = body["data"][0]["b64_json"]
-            except (KeyError, IndexError, TypeError, ValueError) as error:
+                data = response.get("data") if isinstance(response, Mapping) else response.data
+                if not data:
+                    raise ValueError("missing image data")
+                item: Any = data[0]
+                encoded = item.get("b64_json") if isinstance(item, Mapping) else item.b64_json
+            except (AttributeError, KeyError, IndexError, TypeError, ValueError) as error:
                 raise ValueError(
                     "Image generation provider returned an invalid response"
                 ) from error
@@ -220,7 +218,7 @@ class AnswerImageStore:
         return AnswerImage(
             title=title,
             caption=caption,
-            content_url=f"/api/v1/answer-assets/{asset_id}.png",
+            content_url=f"{API_PREFIX}/answer-assets/{asset_id}.png",
             width=generated.width,
             height=generated.height,
         )
@@ -234,7 +232,7 @@ class AnswerImageStore:
             raise LookupError("Generated answer image does not exist") from error
 
     def delete(self, image: AnswerImage) -> None:
-        prefix = "/api/v1/answer-assets/"
+        prefix = f"{API_PREFIX}/answer-assets/"
         if not image.content_url.startswith(prefix) or not image.content_url.endswith(".png"):
             raise ValueError("Generated answer image URL is invalid")
         asset_id = image.content_url[len(prefix) : -len(".png")]

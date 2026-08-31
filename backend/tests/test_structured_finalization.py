@@ -8,6 +8,7 @@ from examtwin.assessment.answering_agent.finalization import (
     AgentFinalPayload,
     FinalAnswerProviderUnavailable,
     LiteLLMFinalAnswerProvider,
+    finalize_payload,
     materialize_final_answer,
 )
 from examtwin.assessment.providers import build_final_answer_provider
@@ -119,17 +120,20 @@ def test_materialize_final_answer_accepts_question_prefixed_decimal_subparts() -
 def test_build_final_answer_provider_maps_settings_and_caps_timeout() -> None:
     settings = Settings(
         llm_model="factory-model",
-        openai_compat_base_url="https://factory.invalid/compatible-mode/v1",
-        openai_compat_api_key="factory-key",
+        llm_base_url="https://factory.invalid/compatible-mode/v1",
+        llm_api_key="factory-key",
         answer_agent_timeout=600,
+        answer_agent_finalization_draft_max_chars=4_321,
     )
 
     provider = build_final_answer_provider(settings)
 
-    assert provider.model == "openai/factory-model"
+    assert provider.model == "factory-model"
+    assert provider.provider == "openai"
     assert provider.api_base == "https://factory.invalid/compatible-mode/v1"
     assert provider.api_key == "factory-key"
     assert provider.timeout == 45
+    assert provider.draft_max_chars == 4_321
     assert provider.max_retries == 0
     assert provider.reasoning_effort == settings.llm_reasoning_effort
 
@@ -141,7 +145,7 @@ def test_build_final_answer_provider_maps_settings_and_caps_timeout() -> None:
         ("openai/qwen3.7-plus", "openai/qwen3.7-plus"),
     ],
 )
-async def test_finalize_routes_openai_compatible_model_and_forwards_schema(
+async def test_finalize_routes_configured_model_and_forwards_schema(
     monkeypatch: pytest.MonkeyPatch,
     configured_model: str,
     expected_model: str,
@@ -158,8 +162,10 @@ async def test_finalize_routes_openai_compatible_model_and_forwards_schema(
     )
     provider = LiteLLMFinalAnswerProvider(
         model=configured_model,
+        provider="openai",
         api_base="https://models.invalid/compatible-mode/v1",
         api_key="test-key",
+        draft_max_chars=24_000,
         timeout=37,
         max_retries=2,
     )
@@ -190,8 +196,10 @@ async def test_gpt56_finalizer_uses_reasoning_without_unsupported_temperature(
     )
     provider = LiteLLMFinalAnswerProvider(
         model="gpt-5.6-sol",
+        provider="openai",
         api_base="https://models.invalid/v1",
         api_key="test-key",
+        draft_max_chars=24_000,
         reasoning_effort="medium",
     )
 
@@ -216,8 +224,10 @@ async def test_finalize_preserves_messages_and_appends_draft_for_public_finaliza
     )
     provider = LiteLLMFinalAnswerProvider(
         model="qwen3.7-plus",
+        provider="openai",
         api_base="https://models.invalid/v1",
         api_key="test-key",
+        draft_max_chars=24_000,
         timeout=30,
         max_retries=1,
     )
@@ -265,13 +275,14 @@ async def test_finalize_requires_structured_bodies_for_printed_subparts(
     )
     provider = LiteLLMFinalAnswerProvider(
         model="gpt-5.6-sol",
+        provider="openai",
         api_base="https://models.invalid/v1",
         api_key="test-key",
+        draft_max_chars=24_000,
     )
 
     result = await provider.finalize(
         [ChatMessage(role=MessageRole.USER, content="Answer both parts.")],
-        allowed_citation_ids=("S1",),
         required_subpart_labels=("(a)", "(b)"),
     )
 
@@ -293,8 +304,10 @@ async def test_finalize_validates_json_content_with_pydantic(
     )
     provider = LiteLLMFinalAnswerProvider(
         model="qwen3.7-plus",
+        provider="openai",
         api_base="https://models.invalid/v1",
         api_key="test-key",
+        draft_max_chars=24_000,
         timeout=30,
         max_retries=1,
     )
@@ -326,8 +339,10 @@ async def test_finalize_prefers_raw_json_to_preserve_latex_backslashes(
     )
     provider = LiteLLMFinalAnswerProvider(
         model="qwen3.7-plus",
+        provider="openai",
         api_base="https://models.invalid/v1",
         api_key="test-key",
+        draft_max_chars=24_000,
     )
 
     result = await provider.finalize(
@@ -363,8 +378,10 @@ async def test_finalize_accepts_litellm_parsed_payload(
     )
     provider = LiteLLMFinalAnswerProvider(
         model="qwen3.7-plus",
+        provider="openai",
         api_base="https://models.invalid/v1",
         api_key="test-key",
+        draft_max_chars=24_000,
         timeout=30,
         max_retries=1,
     )
@@ -406,8 +423,10 @@ async def test_finalize_rejects_invalid_payload_schema(
     )
     provider = LiteLLMFinalAnswerProvider(
         model="qwen3.7-plus",
+        provider="openai",
         api_base="https://models.invalid/v1",
         api_key="test-key",
+        draft_max_chars=24_000,
         timeout=30,
         max_retries=1,
     )
@@ -430,8 +449,10 @@ async def test_finalize_rejects_empty_or_non_json_content(
     )
     provider = LiteLLMFinalAnswerProvider(
         model="qwen3.7-plus",
+        provider="openai",
         api_base="https://models.invalid/v1",
         api_key="test-key",
+        draft_max_chars=24_000,
         timeout=30,
         max_retries=1,
     )
@@ -454,7 +475,7 @@ async def test_finalize_rejects_empty_or_non_json_content(
         ),
     ],
 )
-async def test_finalize_rejects_citations_outside_server_contract(
+async def test_provider_defers_business_contract_validation_to_workflow_boundary(
     monkeypatch: pytest.MonkeyPatch,
     payload: dict[str, Any],
 ) -> None:
@@ -467,17 +488,20 @@ async def test_finalize_rejects_citations_outside_server_contract(
     )
     provider = LiteLLMFinalAnswerProvider(
         model="qwen3.7-plus",
+        provider="openai",
         api_base="https://models.invalid/v1",
         api_key="test-key",
+        draft_max_chars=24_000,
         timeout=30,
         max_retries=0,
     )
 
+    result = await provider.finalize(
+        [ChatMessage(role=MessageRole.USER, content="Solve the question.")],
+    )
+
     with pytest.raises(ValueError):
-        await provider.finalize(
-            [ChatMessage(role=MessageRole.USER, content="Solve the question.")],
-            allowed_citation_ids=("S1",),
-        )
+        finalize_payload(result, allowed_citation_ids=("S1",))
 
 
 async def test_finalize_ignores_reasoning_content(
@@ -499,8 +523,10 @@ async def test_finalize_ignores_reasoning_content(
     )
     provider = LiteLLMFinalAnswerProvider(
         model="qwen3.7-plus",
+        provider="openai",
         api_base="https://models.invalid/v1",
         api_key="test-key",
+        draft_max_chars=24_000,
         timeout=30,
         max_retries=1,
     )
@@ -528,8 +554,10 @@ async def test_finalize_does_not_fall_back_to_reasoning_content(
     )
     provider = LiteLLMFinalAnswerProvider(
         model="qwen3.7-plus",
+        provider="openai",
         api_base="https://models.invalid/v1",
         api_key="test-key",
+        draft_max_chars=24_000,
         timeout=30,
         max_retries=1,
     )
@@ -554,8 +582,10 @@ async def test_repeated_failures_open_shared_provider_circuit(
     )
     provider = LiteLLMFinalAnswerProvider(
         model="qwen3.7-plus",
+        provider="openai",
         api_base="https://models.invalid/v1",
         api_key="test-key",
+        draft_max_chars=24_000,
         timeout=1,
         max_retries=0,
         circuit_failure_threshold=2,
@@ -590,8 +620,10 @@ async def test_provider_owned_timeouts_open_shared_provider_circuit(
     )
     provider = LiteLLMFinalAnswerProvider(
         model="qwen3.7-plus",
+        provider="openai",
         api_base="https://models.invalid/v1",
         api_key="test-key",
+        draft_max_chars=24_000,
         timeout=1,
         max_retries=0,
         circuit_failure_threshold=2,
@@ -630,8 +662,10 @@ async def test_external_task_cancellation_does_not_open_provider_circuit(
     )
     provider = LiteLLMFinalAnswerProvider(
         model="qwen3.7-plus",
+        provider="openai",
         api_base="https://models.invalid/v1",
         api_key="test-key",
+        draft_max_chars=24_000,
         timeout=1,
         max_retries=0,
         circuit_failure_threshold=1,

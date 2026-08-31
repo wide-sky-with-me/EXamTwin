@@ -5,7 +5,7 @@ import re
 from statistics import mean
 from typing import Any
 
-from examtwin.knowledge.public import CorpusRepository, DifficultyRepository
+from examtwin.knowledge.public import CorpusRepository, DifficultyRepository, difficulty_label
 from examtwin.platform.cache_paths import MarkdownCacheMissing, resolve_markdown_cache_path
 from examtwin.platform.config import Settings, get_settings
 from examtwin.platform.database.session import utcnow
@@ -221,7 +221,7 @@ def extract_examiner_evidence(
             else:
                 continue
             score = max(0.0, min(1.0, score))
-            label = "easy" if score < 0.34 else "medium" if score < 0.67 else "hard"
+            label = difficulty_label(score)
             question_ref = (
                 f"{row['pair_key']}:Q{int(number)}"
                 if row["pair_key"]

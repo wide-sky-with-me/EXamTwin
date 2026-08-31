@@ -34,6 +34,7 @@ class ProtocolToolCall:
 class ProtocolFinal:
     draft: str
     output_json: str | None = None
+    structured: bool = False
 
 
 @dataclass(frozen=True)

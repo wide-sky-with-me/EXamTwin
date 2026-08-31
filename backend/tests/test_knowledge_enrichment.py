@@ -1,7 +1,9 @@
 from datetime import UTC, datetime
 
 from examtwin.knowledge.knowledge_repository import KnowledgeRepository
-from examtwin.knowledge.publication import extract_syllabus_objectives
+from examtwin.knowledge.publication import (
+    extract_syllabus_objectives as _extract_syllabus_objectives,
+)
 from examtwin.knowledge.queries import (
     build_retrieval_cards,
     list_knowledge_points,
@@ -14,8 +16,16 @@ from examtwin.platform.database.models import (
     KnowledgeRelationModel,
     SourceDocumentModel,
 )
+from examtwin.subjects.public import get_subject_pack
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
+
+
+def extract_syllabus_objectives(markdown: str) -> list[dict[str, object]]:
+    return _extract_syllabus_objectives(
+        markdown,
+        get_subject_pack("oxfordaqa-mathematics-9660"),
+    )
 
 
 def test_extract_syllabus_objectives_builds_stable_child_codes() -> None:

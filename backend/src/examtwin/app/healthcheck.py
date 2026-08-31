@@ -4,9 +4,8 @@ import json
 from typing import Any
 from urllib.request import urlopen
 
-from examtwin.contracts.system import API_CAPABILITIES, API_CONTRACT_VERSION
-
-DEFAULT_HEALTH_URL = "http://127.0.0.1:8000/api/v1/health"
+from examtwin.contracts.system import API_CAPABILITIES, API_CONTRACT_VERSION, API_PREFIX
+from examtwin.platform.config import get_settings
 
 
 def health_payload_is_valid(payload: dict[str, Any]) -> bool:
@@ -18,8 +17,10 @@ def health_payload_is_valid(payload: dict[str, Any]) -> bool:
 
 
 def main() -> int:
+    settings = get_settings()
+    health_url = f"http://127.0.0.1:{settings.api_port}{API_PREFIX}/health"
     try:
-        with urlopen(DEFAULT_HEALTH_URL, timeout=3) as response:  # noqa: S310 - fixed loopback URL
+        with urlopen(health_url, timeout=3) as response:  # noqa: S310 - fixed loopback URL
             payload = json.load(response)
         if not health_payload_is_valid(payload):
             raise ValueError("contract or infrastructure is degraded")

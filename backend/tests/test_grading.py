@@ -200,6 +200,62 @@ def test_symbolic_check_rejects_unsafe_input() -> None:
     assert result[0].equivalent is None
 
 
+def test_pending_reviews_include_paper_provenance_and_preserve_legacy_rows() -> None:
+    common = {
+        "subject_code": "9640",
+        "question_ref": "Q2",
+        "total_awarded": 3.0,
+        "total_available": 5.0,
+        "confidence": 0.8,
+        "status": "pending_review",
+        "result_json": '{"status": "pending_review"}',
+        "created_at": "2026-08-17T00:00:00Z",
+    }
+    linked = SimpleNamespace(
+        **common,
+        id="assessment-linked",
+        paper_job_id="job-1",
+        question_position=2,
+    )
+    legacy = SimpleNamespace(
+        **common,
+        id="assessment-legacy",
+        paper_job_id=None,
+        question_position=None,
+    )
+    paper_job = SimpleNamespace(
+        display_name="Economics June U1",
+        filename="qp-june-u1.pdf",
+        answer_mode="uploaded",
+    )
+    captured_statements: list[str] = []
+
+    class FakeSession:
+        def execute(self, statement: object) -> SimpleNamespace:
+            captured_statements.append(str(statement))
+            return SimpleNamespace(all=lambda: [(linked, paper_job), (legacy, None)])
+
+    @contextmanager
+    def sessions() -> Any:
+        yield FakeSession()
+
+    repository = AssessmentRepository(cast(Any, sessions))
+
+    items = repository.pending(subject_code="9640")
+
+    assert "LEFT OUTER JOIN paper_jobs" in captured_statements[0]
+    assert items[0]["paper_job_id"] == "job-1"
+    assert items[0]["paper_display_name"] == "Economics June U1"
+    assert items[0]["paper_filename"] == "qp-june-u1.pdf"
+    assert items[0]["question_position"] == 2
+    assert items[0]["answer_mode"] == "uploaded"
+    assert items[1]["paper_job_id"] is None
+    assert items[1]["paper_display_name"] is None
+    assert items[1]["paper_filename"] is None
+    assert items[1]["question_position"] is None
+    assert items[1]["answer_mode"] is None
+
+
 def _review_repository(
     *,
     total_awarded: float = 1,

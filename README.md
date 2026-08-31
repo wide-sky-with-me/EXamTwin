@@ -17,10 +17,10 @@ OxfordAQA International AS/A-level Mathematics (9660)，科目边界由版本化
 |---|---|
 | Python | `uv`、FastAPI；内部 provider-neutral Agent Harness，LlamaIndex/LiteLLM 作为适配器 |
 | 文档解析 | `llama-index-readers-mineru`，precision 模式；超大 PDF 物理分片，旧 PPT 经 LibreOffice 转 PDF 后可续跑 |
-| 解题/评分 | OpenAI-compatible API，默认 `gpt-5.6-sol`，解题为 medium reasoning |
+| 解题/评分 | LiteLLM → DMXAPI，默认 `gpt-5.6-sol`，解题为 medium reasoning |
 | 试卷视觉复核 | PyMuPDF 渲染页图，`gpt-5.6-terra` 对照 MinerU 逐页修复并保存检查点 |
-| 整卷拆题 | OpenAI-compatible API，默认 `gpt-5.6-luna`，独立 90 秒超时 |
-| 通用答案图片 | `gpt-image-2` 生成受控 PNG artifact；数学精确图仍优先使用本地矢量工具 |
+| 整卷拆题 | LiteLLM → DMXAPI，默认 `gpt-5.6-luna`，独立 90 秒超时 |
+| 通用答案图片 | LiteLLM → DMXAPI `gpt-image-2-ssvip` 生成受控 PNG artifact；数学精确图仍优先使用本地矢量工具 |
 | Embedding | 硅基流动 `Qwen/Qwen3-Embedding-8B` |
 | Rerank | 硅基流动 `Qwen/Qwen3-Reranker-8B` |
 | 关系与任务数据 | Docker 中的 PostgreSQL，SQLAlchemy Repository + Alembic 分批迁移 |
@@ -290,6 +290,10 @@ M/A/B/FT 评分原子最初都是 `pending`：
 逐题自动结果仍进入 `pending_review`。教师最后通过
 `POST /api/v1/grading/reviews/{assessment_id}` 确认或改分，之后状态才变为
 `confirmed` 或 `overridden`。
+
+待复核列表通过 `GET /api/v1/grading/reviews/all` 跨科目返回，并携带
+`paper_job_id`、试卷显示名/文件名、题位和 `answer_mode` 来源信息。Web 端据此按试卷分组、
+按题位排序，并区分外部答卷、AI 作答与未记录来源；未关联试卷的旧评估仍作为独立复核项展示。
 
 ## 测试
 

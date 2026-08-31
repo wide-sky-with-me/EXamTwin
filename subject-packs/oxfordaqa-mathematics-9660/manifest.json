@@ -4,6 +4,8 @@
   "id": "oxfordaqa-mathematics-9660",
   "subject_code": "9660",
   "title": "OxfordAQA International AS/A-level Mathematics (9660)",
+  "icon": "calculator",
+  "color": "#2563EB",
   "board_id": "oxfordaqa",
   "specification_ref": "data/牛津AQA/数学/1.AQA-alevel数学-考试大纲/oxfordaqa-a-level-mathematics-specification.pdf",
   "runtime": {

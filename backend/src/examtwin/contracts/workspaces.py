@@ -6,17 +6,12 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from examtwin.contracts.base import SerializedResponse
-
-SubjectIcon = Literal[
-    "book-open",
-    "calculator",
-    "chart-no-axes-combined",
-    "flask-conical",
-    "languages",
-    "landmark",
-    "atom",
-    "graduation-cap",
-]
+from examtwin.contracts.common import (
+    DEFAULT_SUBJECT_COLOR,
+    DEFAULT_SUBJECT_ICON,
+    SUBJECT_COLOR_PATTERN_TEXT,
+    SubjectIcon,
+)
 
 
 class KnowledgeBaseVersionResponse(SerializedResponse):
@@ -50,8 +45,8 @@ class CreateSubjectRequest(BaseModel):
     board_name: str = Field(min_length=1, max_length=200)
     language: str = Field(default="en", min_length=2, max_length=16)
     capability_profile_id: str | None = None
-    icon: SubjectIcon = "book-open"
-    color: str = Field(default="#2F6FED", pattern=r"^#[0-9A-Fa-f]{6}$")
+    icon: SubjectIcon = DEFAULT_SUBJECT_ICON
+    color: str = Field(default=DEFAULT_SUBJECT_COLOR, pattern=SUBJECT_COLOR_PATTERN_TEXT)
 
 
 class UpdateSubjectRequest(BaseModel):
@@ -59,7 +54,7 @@ class UpdateSubjectRequest(BaseModel):
 
     title: str = Field(min_length=1, max_length=200)
     icon: SubjectIcon
-    color: str = Field(pattern=r"^#[0-9A-Fa-f]{6}$")
+    color: str = Field(pattern=SUBJECT_COLOR_PATTERN_TEXT)
 
 
 class BatchDeleteSubjectsRequest(BaseModel):

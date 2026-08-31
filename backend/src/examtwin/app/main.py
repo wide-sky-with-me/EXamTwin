@@ -12,6 +12,7 @@ from examtwin.app.api.request_limits import UploadBodyLimitMiddleware
 from examtwin.app.api.router import router
 from examtwin.app.composition import build_object_store
 from examtwin.assessment.paper_parsing import MAX_UPLOAD_BYTES
+from examtwin.contracts.system import API_PREFIX
 from examtwin.platform.config import get_settings
 from examtwin.platform.database.migrations import upgrade_database
 from examtwin.platform.database.session import create_session_factory
@@ -47,13 +48,13 @@ app.add_middleware(
 )
 app.add_middleware(
     UploadBodyLimitMiddleware,
-    upload_path=f"{settings.api_prefix}/papers/answer",
+    upload_path=f"{API_PREFIX}/papers/answer",
     # Multipart boundaries and form fields add a small amount beyond the file itself.
     max_body_bytes=MAX_UPLOAD_BYTES + 256 * 1024,
 )
 app.add_middleware(LocalOnlyMiddleware, enabled=settings.local_access_only)
 app.add_middleware(RequestContextMiddleware)
-app.include_router(router, prefix=settings.api_prefix)
+app.include_router(router, prefix=API_PREFIX)
 app.add_exception_handler(Exception, unhandled_api_error)
 
 
@@ -62,5 +63,5 @@ def root() -> dict[str, str]:
     return {
         "name": settings.app_name,
         "docs": "/docs",
-        "health": f"{settings.api_prefix}/health",
+        "health": f"{API_PREFIX}/health",
     }

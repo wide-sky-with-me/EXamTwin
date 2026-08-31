@@ -28,11 +28,16 @@ const TONES: DiagramTone[] = [
   "muted",
 ];
 
-const TOOL_LABELS: Record<NonNullable<AnswerDiagram["tool_name"]>, string> = {
+const TOOL_LABELS: Record<string, string> = {
   math_plot: "函数与坐标绘图",
   math_diagram: "几何与示意绘图",
   economics_diagram: "经济学标准图",
 };
+
+function toolLabel(toolName: string | null | undefined) {
+  if (!toolName) return "矢量图";
+  return TOOL_LABELS[toolName] ?? toolName.replace(/[._]+/g, " ");
+}
 
 function hasMathNotation(value: string) {
   return /(?:^|[^\\])\$[^$]+\$|\\\(.+?\\\)|\\\[.+?\\\]/s.test(value);
@@ -195,7 +200,7 @@ function DiagramScene({
       <title>{diagram.title}</title>
       <desc id={descriptionId}>
         {diagram.caption ||
-          `由答题 Agent 创建的${TOOL_LABELS[diagram.tool_name ?? "math_diagram"]}。`}
+          `由答题 Agent 创建的${toolLabel(diagram.tool_name)}。`}
       </desc>
       <defs>
         {TONES.map((markerTone) => (
@@ -330,7 +335,7 @@ export function AnswerDiagramView({
   const descriptionId = `answer-diagram-description-${id}`;
   const [zoom, setZoom] = useState(1);
   const [expanded, setExpanded] = useState(false);
-  const toolName = diagram.tool_name ?? "math_diagram";
+  const toolName = diagram.tool_name;
   const containerRef = useModalFocus(expanded, setExpanded);
   const [, , viewBoxWidth, viewBoxHeight] = diagram.view_box;
   const diagramInlineSize = Math.min(
@@ -362,7 +367,7 @@ export function AnswerDiagramView({
           <span>
             {diagram.source
               ? `原图校准矢量叠绘 · 原卷第 ${diagram.source.page_number} 页`
-              : `${TOOL_LABELS[toolName]} · 安全矢量图`}
+              : `${toolLabel(toolName)} · 安全矢量图`}
           </span>
         </div>
       </div>

@@ -3,31 +3,17 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Callable
-from typing import Protocol
 
 from llama_index.core.llms import LLM
 from llama_index.core.schema import NodeWithScore
 
-from examtwin.assessment.answering_agent.capabilities import AgentTool, CapabilityRegistry
+from examtwin.assessment.answering_agent.capabilities import CapabilityRegistry
+from examtwin.assessment.answering_agent.factory_contracts import AnswerEvidenceReader
 from examtwin.assessment.answering_agent.finalization import FinalAnswerProvider
+from examtwin.assessment.answering_agent.host_capabilities import build_host_answering_tools
 from examtwin.assessment.answering_agent.mcp import MCPServerConfig, MCPToolProvider
 from examtwin.assessment.answering_agent.react_runner import ReActHarnessRunner, WorkflowRunner
 from examtwin.assessment.answering_agent.runtime import AnsweringAgentRuntime
-from examtwin.assessment.answering_agent.tools import (
-    AnswerImageStore,
-    EconomicsCalculateTool,
-    EconomicsDiagramTool,
-    ImageGenerationTool,
-    KnowledgeSearchTool,
-    MathCalculateTool,
-    MathDiagramTool,
-    MathPlotTool,
-    PairedExamLookupTool,
-    ProbabilityCalculateTool,
-    QuestionVisionTool,
-    SourceReadTool,
-)
-from examtwin.assessment.answering_agent.tools.paired_exam import PairedExamReader
 from examtwin.assessment.answering_agent.tools.question_vision import (
     QUESTION_VISION_CONTRACT_VERSION,
 )
@@ -37,9 +23,8 @@ from examtwin.assessment.providers import (
     build_question_vision_provider,
 )
 from examtwin.contracts.evidence import Citation
-from examtwin.knowledge.public import SourceDocumentReader
 from examtwin.platform.config import Settings
-from examtwin.platform.providers import build_llm
+from examtwin.platform.providers import build_chat_model
 from examtwin.platform.storage import ManagedObjectStore
 from examtwin.subjects.public import SubjectPackage, get_subject_package
 
@@ -92,70 +77,49 @@ def build_answering_runtime(
     question_vision_provider = (
         None if vision_llm is not None else build_question_vision_provider(settings)
     )
-    tools: list[AgentTool] = [
-        QuestionVisionTool(
-            vision_llm,
-            timeout_seconds=settings.paper_vision_timeout + 5,
-            provider=question_vision_provider,
+    image_generation_provider = (
+        build_image_generation_provider(settings)
+        if settings.image_generation_enabled and settings.image_provider_api_key is not None
+        else None
+    )
+    skill = package.require_skill()
+    mcp_providers = _mcp_providers(settings)
+    mcp_tool_names = frozenset(
+        str(tool_name)
+        for server in settings.answer_agent_mcp_servers
+        for tool_name in server.get("allowed_tools", [])
+    )
+    tools = build_host_answering_tools(
+        settings,
+        allowed_names=skill.tool_names,
+        required_names=tuple(
+            dict.fromkeys((*skill.required_tool_names, *skill.mandatory_tool_names))
         ),
-        KnowledgeSearchTool(
-            retriever,
-            citation_factory,
-            timeout_seconds=min(settings.answer_agent_timeout / 2, 90),
-        ),
-        MathCalculateTool(),
-        ProbabilityCalculateTool(),
-        EconomicsCalculateTool(),
-        EconomicsDiagramTool(),
-        MathPlotTool(),
-        MathDiagramTool(),
-    ]
-    if settings.image_generation_enabled and settings.image_provider_api_key is not None:
-        tools.append(
-            ImageGenerationTool(
-                build_image_generation_provider(settings),
-                AnswerImageStore(
-                    object_store or settings.object_store_root / "answer-artifacts",
-                    retention_days=settings.answer_artifact_retention_days,
-                ),
-                timeout_seconds=(
-                    settings.image_generation_timeout * settings.image_generation_max_attempts
-                    + settings.image_generation_max_attempts
-                ),
-            )
-        )
-    if documents is not None:
-        tools.extend(
-            (
-                PairedExamLookupTool(
-                    documents,
-                    settings,
-                    timeout_seconds=min(settings.answer_agent_timeout / 3, 45),
-                    vision_provider=question_vision_provider,
-                    object_store=object_store,
-                ),
-                SourceReadTool(
-                    documents,
-                    settings,
-                    timeout_seconds=min(settings.answer_agent_timeout / 3, 45),
-                ),
-            )
-        )
+        known_external_names=mcp_tool_names,
+        retriever=retriever,
+        citation_factory=citation_factory,
+        question_vision_provider=question_vision_provider,
+        vision_llm=vision_llm,
+        image_generation_provider=image_generation_provider,
+        documents=documents,
+        object_store=object_store,
+    )
     registry = CapabilityRegistry(
-        tools=tuple(tools),
-        providers=_mcp_providers(settings),
+        tools=tools,
+        providers=mcp_providers,
     )
     resolved_runner = runner
     if resolved_runner is None:
         resolved_runner = ReActHarnessRunner(
-            final_answer_provider=final_answer_provider or build_final_answer_provider(settings)
+            final_answer_provider=final_answer_provider or build_final_answer_provider(settings),
+            finalization_reserve_seconds=settings.answer_agent_finalization_timeout,
         )
     question_vision_replay_identity = None
     if vision_llm is None:
         vision_identity = json.dumps(
             {
                 "contract": QUESTION_VISION_CONTRACT_VERSION,
-                "provider_base_url": settings.llm_provider_base_url,
+                "provider_base_url": settings.llm_base_url,
                 "model": settings.paper_vision_model,
                 "reasoning_effort": settings.paper_vision_reasoning_effort,
             },
@@ -164,11 +128,15 @@ def build_answering_runtime(
         )
         question_vision_replay_identity = hashlib.sha256(vision_identity.encode()).hexdigest()
     return AnsweringAgentRuntime(
-        llm=llm
-        or build_llm(
-            settings,
-            timeout=settings.answer_agent_timeout,
-            max_retries=1,
+        llm=llm,
+        model=(
+            None
+            if llm is not None
+            else build_chat_model(
+                settings,
+                timeout=settings.answer_agent_timeout,
+                max_retries=1,
+            )
         ),
         skills=(package.require_skill(),),
         registry=registry,
@@ -178,7 +146,3 @@ def build_answering_runtime(
         timeout=settings.answer_agent_timeout,
         question_vision_replay_identity=question_vision_replay_identity,
     )
-
-
-class AnswerEvidenceReader(SourceDocumentReader, PairedExamReader, Protocol):
-    """Documents exposed to answer tools through reviewed read-only methods."""

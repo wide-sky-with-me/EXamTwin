@@ -208,9 +208,6 @@ def _validated_final_json(text: str) -> str | None:
             payload = AgentFinalPayload.model_validate(parse_json_response(candidate))
         except (TypeError, ValueError, json.JSONDecodeError):
             continue
-        payload = payload.model_copy(
-            update={"citation_ids": citation_ids_in_markdown(payload.answer_markdown)}
-        )
         return payload.model_dump_json()
     return None
 

@@ -1,27 +1,43 @@
 from typing import Any
 
+import pytest
+from examtwin.platform.agent_runtime.model import HarnessMessage
 from examtwin.platform.config import Settings
 from examtwin.platform.providers import (
-    SiliconFlowReranker,
+    IndexResultsReranker,
     _embedding_batch_with_fallback,
-    build_llm,
+    build_chat_model,
 )
 from llama_index.core.schema import NodeWithScore, TextNode
 
 
-def test_gpt56_llamaindex_adapter_uses_supported_sampling_and_reasoning() -> None:
+@pytest.mark.asyncio
+async def test_chat_model_routes_through_litellm_without_model_family_hardcoding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    async def fake_completion(**kwargs: Any) -> dict[str, Any]:
+        captured.update(kwargs)
+        return {"choices": [{"message": {"content": "EXAMTWIN_OK"}}]}
+
+    monkeypatch.setattr("litellm.acompletion", fake_completion)
     settings = Settings(
-        openai_compat_base_url="https://models.invalid/v1",
-        openai_compat_api_key="test-key",
+        llm_base_url="https://models.invalid/v1",
+        llm_api_key="test-key",
         llm_model="gpt-5.6-sol",
         llm_reasoning_effort="medium",
     )
 
-    llm = build_llm(settings, max_retries=0)
+    model = build_chat_model(settings, max_retries=0)
+    result = await model.complete((HarnessMessage(role="user", content="ping"),))
 
-    assert llm.temperature == 1
-    assert llm.additional_kwargs["reasoning_effort"] == "medium"
-    assert llm.api_base == "https://models.invalid/v1"
+    assert result == "EXAMTWIN_OK"
+    assert model.model_name == "gpt-5.6-sol"
+    assert captured["model"] == "openai/gpt-5.6-sol"
+    assert captured["reasoning_effort"] == "medium"
+    assert captured["api_base"] == "https://models.invalid/v1"
+    assert "temperature" not in captured
 
 
 def test_reranker_limits_table_projection_without_mutating_full_table(
@@ -74,11 +90,12 @@ def test_reranker_limits_table_projection_without_mutating_full_table(
         return FakeResponse()
 
     monkeypatch.setattr("examtwin.platform.providers.httpx.post", fake_post)
-    reranker = object.__new__(SiliconFlowReranker)
+    reranker = object.__new__(IndexResultsReranker)
     reranker.url = "https://reranker.invalid/rerank"
     reranker.api_key = "placeholder"
     reranker.model = "test-reranker"
     reranker.timeout = 30
+    reranker.document_max_chars = 20_000
 
     reranked = reranker.rerank("searchable content", [node], top_n=1)
 
@@ -90,7 +107,7 @@ def test_reranker_limits_table_projection_without_mutating_full_table(
     assert reranked[0].score == 0.91
 
 
-def test_embedding_batch_replays_transient_siliconflow_parameter_error() -> None:
+def test_embedding_batch_replays_transient_provider_parameter_error() -> None:
     calls = 0
 
     def fetch(texts: list[str]) -> list[list[float]]:
@@ -108,3 +125,21 @@ def test_embedding_batch_replays_transient_siliconflow_parameter_error() -> None
 
     assert result == [[5.0], [6.0]]
     assert calls == 2
+
+
+def test_embedding_batch_does_not_retry_deterministic_invalid_parameter() -> None:
+    calls = 0
+
+    def fetch(_texts: list[str]) -> list[list[float]]:
+        nonlocal calls
+        calls += 1
+        raise RuntimeError("Invalid model parameter: unsupported dimensions")
+
+    with pytest.raises(RuntimeError, match="unsupported dimensions"):
+        _embedding_batch_with_fallback(
+            fetch,
+            ["first", "second"],
+            pause=lambda _seconds: None,
+        )
+
+    assert calls == 1

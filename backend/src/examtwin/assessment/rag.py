@@ -42,7 +42,7 @@ from examtwin.knowledge.public import (
 )
 from examtwin.platform.config import Settings
 from examtwin.platform.database.session import utcnow
-from examtwin.platform.providers import SiliconFlowReranker, build_embedding
+from examtwin.platform.providers import IndexResultsReranker, build_embedding
 from examtwin.platform.storage import ManagedObjectStore
 from examtwin.subjects.public import SubjectContext
 
@@ -707,7 +707,7 @@ class RagService:
                 question,
                 filtered,
                 top_n=top_n,
-                rerank=SiliconFlowReranker(
+                rerank=IndexResultsReranker(
                     self.settings,
                     timeout=min(self.settings.rerank_timeout, query_provider_timeout),
                 ).rerank,

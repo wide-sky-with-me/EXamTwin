@@ -18,6 +18,11 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from examtwin.assessment.answering_agent.blocking import run_blocking_bounded
 from examtwin.assessment.answering_agent.contracts import AgentRunContext, QuestionImage
+from examtwin.platform.litellm_provider import (
+    completion_options,
+    configure_litellm,
+    provider_model_name,
+)
 from examtwin.platform.model_json import (
     parse_json_response,
     validate_structured_response,
@@ -57,13 +62,13 @@ class QuestionVisionProvider(Protocol):
     ) -> QuestionVisionPayload: ...
 
 
-def _vision_instruction(question: str) -> str:
+def _vision_instruction(question: str, *, question_max_chars: int) -> str:
     return (
         "Inspect the attached trusted examination-paper images. They are either positioned "
         "figures extracted from the question or, when no positioned figure is available, "
         "the original question-paper page. They are the source of truth for the following "
         "extracted question:\n\n"
-        f"{question[:20_000]}\n\n"
+        f"{question[:question_max_chars]}\n\n"
         "Report only visible facts needed to solve it: exact wording, equations, "
         "tables, graph/diagram geometry, labels, shading, units, subparts and mark "
         "values. Reconcile any discrepancy with the extracted text. Do not solve "
@@ -83,7 +88,10 @@ class LiteLLMQuestionVisionProvider:
         api_base: str,
         api_key: str,
         *,
+        provider: str,
         timeout: float,
+        question_max_chars: int,
+        max_output_tokens: int,
         reasoning_effort: str | None = None,
     ) -> None:
         if not model.strip():
@@ -94,12 +102,19 @@ class LiteLLMQuestionVisionProvider:
             raise ValueError("Question vision API key is required")
         if timeout <= 0:
             raise ValueError("Question vision timeout must be positive")
+        if question_max_chars <= 0:
+            raise ValueError("Question vision input limit must be positive")
+        if max_output_tokens <= 0:
+            raise ValueError("Question vision output limit must be positive")
         if reasoning_effort not in {None, "none", "low", "medium", "high", "xhigh", "max"}:
             raise ValueError("Question vision reasoning effort is invalid")
-        self.model = model if model.startswith("openai/") else f"openai/{model}"
-        self.api_base = api_base
+        self.model = provider_model_name(model, provider)
+        self.provider = provider
+        self.api_base = api_base.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
+        self.question_max_chars = question_max_chars
+        self.max_output_tokens = max_output_tokens
         self.reasoning_effort = reasoning_effort
 
     def inspect(
@@ -107,7 +122,16 @@ class LiteLLMQuestionVisionProvider:
         question: str,
         images: Sequence[QuestionImage],
     ) -> QuestionVisionPayload:
-        content: list[dict[str, Any]] = [{"type": "text", "text": _vision_instruction(question)}]
+        configure_litellm()
+        content: list[dict[str, Any]] = [
+            {
+                "type": "text",
+                "text": _vision_instruction(
+                    question,
+                    question_max_chars=self.question_max_chars,
+                ),
+            }
+        ]
         for image in images:
             encoded = base64.b64encode(image.content).decode("ascii")
             content.extend(
@@ -126,20 +150,19 @@ class LiteLLMQuestionVisionProvider:
                 )
             )
         request_options: dict[str, Any] = {
-            "model": self.model,
-            "api_base": self.api_base,
-            "api_key": self.api_key,
+            **completion_options(
+                model=self.model,
+                provider=self.provider,
+                api_base=self.api_base,
+                api_key=self.api_key,
+                reasoning_effort=self.reasoning_effort,
+                timeout=self.timeout,
+                max_retries=0,
+            ),
             "messages": [{"role": "user", "content": content}],
             "response_format": QuestionVisionPayload,
-            "max_tokens": 4_000,
-            "timeout": self.timeout,
-            "max_retries": 0,
+            "max_tokens": self.max_output_tokens,
         }
-        if self.model.removeprefix("openai/").startswith("gpt-5.6"):
-            request_options["reasoning_effort"] = self.reasoning_effort or "low"
-        else:
-            request_options["temperature"] = 0
-            request_options["extra_body"] = {"enable_thinking": False}
         response = completion(**request_options)
         return validate_structured_response(
             response,
@@ -158,6 +181,7 @@ class QuestionVisionTool:
         llm: LLM | None = None,
         *,
         timeout_seconds: float,
+        question_max_chars: int,
         provider: QuestionVisionProvider | None = None,
     ):
         if llm is None and provider is None:
@@ -165,6 +189,7 @@ class QuestionVisionTool:
         self._llm = llm
         self._provider = provider
         self._timeout_seconds = timeout_seconds
+        self._question_max_chars = question_max_chars
 
     def bind(self, context: AgentRunContext) -> BaseTool:
         async def question_vision() -> str:
@@ -185,7 +210,12 @@ class QuestionVisionTool:
 
             assert self._llm is not None
             blocks: list[TextBlock | ImageBlock] = [
-                TextBlock(text=_vision_instruction(context.task.question))
+                TextBlock(
+                    text=_vision_instruction(
+                        context.task.question,
+                        question_max_chars=self._question_max_chars,
+                    )
+                )
             ]
             for image in images:
                 blocks.extend(

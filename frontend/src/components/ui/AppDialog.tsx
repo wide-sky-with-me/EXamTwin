@@ -5,6 +5,7 @@ export function AppDialog({
   children,
   contentClassName = "",
   dismissible = true,
+  rootClassName,
   initialFocusSelector,
   onOpenChange,
   open,
@@ -14,6 +15,7 @@ export function AppDialog({
   contentClassName?: string;
   dismissible?: boolean;
   initialFocusSelector?: string;
+  rootClassName?: string;
   onOpenChange: (open: boolean) => void;
   open: boolean;
   title: string;
@@ -35,10 +37,38 @@ export function AppDialog({
         if (dismissible) onOpenChange(false);
       }}
       open={open}
+      rootClassName={rootClassName}
       title={null}
       width={1180}
     >
       <div ref={contentRef}>{children}</div>
+    </Modal>
+  );
+}
+
+export function TaskWorkspaceDialog({
+  children,
+  className,
+  onClose,
+  title,
+  width,
+}: {
+  children: ReactNode;
+  className: string;
+  onClose: () => void;
+  title: string;
+  width: number;
+}) {
+  return (
+    <Modal
+      footer={null}
+      onCancel={onClose}
+      open
+      rootClassName={`app-viewport-dialog app-task-workspace ${className}`}
+      title={title}
+      width={width}
+    >
+      {children}
     </Modal>
   );
 }

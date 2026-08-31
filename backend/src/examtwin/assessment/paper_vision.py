@@ -4,6 +4,7 @@ import base64
 import logging
 import re
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -11,7 +12,14 @@ from typing import Any
 import httpx
 import pymupdf
 
+from examtwin.contracts.system import API_PREFIX
 from examtwin.platform.config import Settings
+from examtwin.platform.litellm_provider import (
+    completion_options,
+    configure_litellm,
+    response_message_content,
+    retryable_provider_error,
+)
 from examtwin.platform.model_json import parse_json_response
 
 logger = logging.getLogger(__name__)
@@ -26,7 +34,7 @@ _LEGACY_PAGE_MARKER_RE = re.compile(
     re.IGNORECASE,
 )
 _QUESTION_IMAGE_URL_RE = re.compile(
-    r"/api/v1/papers/jobs/[A-Za-z0-9-]+/question-images/"
+    rf"{re.escape(API_PREFIX)}/papers/jobs/[A-Za-z0-9-]+/question-images/"
     r"p(?P<page>\d{4})-[0-9a-f]{64}\.(?:bmp|gif|jpeg|jpg|png|webp)"
 )
 _RETRYABLE_HTTP_STATUS_CODES = {408, 429}
@@ -44,6 +52,89 @@ _DISCARD_REASON_BY_PAGE_ROLE = {
     "administrative": "administrative_page",
     "blank": "blank_page",
 }
+_VISION_RESPONSE_FORMAT = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "paper_vision_review",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "pages": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 20,
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "page_number": {"type": "integer", "minimum": 1},
+                            "page_role": {
+                                "type": "string",
+                                "enum": sorted(_PAGE_ROLES),
+                            },
+                            "contains_question": {"type": "boolean"},
+                            "classification_evidence": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 500,
+                            },
+                            "classification_confidence": {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 1,
+                            },
+                            "markdown": {"type": "string"},
+                        },
+                        "required": [
+                            "page_number",
+                            "page_role",
+                            "contains_question",
+                            "classification_evidence",
+                            "classification_confidence",
+                            "markdown",
+                        ],
+                    },
+                },
+                "discarded_images": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "url": {"type": "string"},
+                            "reason": {
+                                "type": "string",
+                                "enum": [
+                                    "administrative_page",
+                                    "answer_space",
+                                    "blank_page",
+                                ],
+                            },
+                        },
+                        "required": ["url", "reason"],
+                    },
+                },
+                "repairs": {
+                    "type": "array",
+                    "items": {"type": "string", "maxLength": 500},
+                },
+                "confidence": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                },
+            },
+            "required": [
+                "pages",
+                "discarded_images",
+                "repairs",
+                "confidence",
+            ],
+        },
+    },
+}
 
 
 def _is_retryable_failure(error: Exception) -> bool:
@@ -52,7 +143,9 @@ def _is_retryable_failure(error: Exception) -> bool:
         return status_code in _RETRYABLE_HTTP_STATUS_CODES or 500 <= status_code <= 599
     if isinstance(error, httpx.TransportError):
         return True
-    return isinstance(error, (KeyError, TypeError, ValueError))
+    if isinstance(error, (KeyError, TypeError, ValueError)):
+        return True
+    return retryable_provider_error(error)
 
 
 def _without_answer_scaffolding(markdown: str) -> str:
@@ -325,10 +418,10 @@ class PaperVisionReviewer:
         self,
         settings: Settings,
         *,
-        client: httpx.Client | None = None,
+        completion: Callable[..., Any] | None = None,
     ):
         self.settings = settings
-        self.client = client
+        self.completion = completion
 
     def review_chunk(
         self,
@@ -338,7 +431,6 @@ class PaperVisionReviewer:
         page_end: int,
         _allow_empty: bool = False,
         _source_is_page_scoped: bool = True,
-        _client: httpx.Client | None = None,
     ) -> VisionReviewResult:
         if page_start != page_end:
             parsed_pages = parse_physical_page_markdown(markdown)
@@ -347,26 +439,17 @@ class PaperVisionReviewer:
                 if parsed_pages
                 else [(page_number, markdown) for page_number in range(page_start, page_end + 1)]
             )
-            own_client = _client is None and self.client is None
-            client = (
-                _client or self.client or httpx.Client(timeout=self.settings.paper_vision_timeout)
-            )
-            try:
-                results = [
-                    self.review_chunk(
-                        source_path,
-                        body,
-                        page_number,
-                        page_number,
-                        _allow_empty=True,
-                        _source_is_page_scoped=bool(parsed_pages),
-                        _client=client,
-                    )
-                    for page_number, body in page_inputs
-                ]
-            finally:
-                if own_client:
-                    client.close()
+            results = [
+                self.review_chunk(
+                    source_path,
+                    body,
+                    page_number,
+                    page_number,
+                    _allow_empty=True,
+                    _source_is_page_scoped=bool(parsed_pages),
+                )
+                for page_number, body in page_inputs
+            ]
             combined_markdown = "\n\n".join(result.markdown for result in results)
             combined_length = sum(
                 len(body.strip()) for _page, body in parse_physical_page_markdown(combined_markdown)
@@ -428,7 +511,6 @@ class PaperVisionReviewer:
                     if int(match.group("page")) == page_start
                 )
             ),
-            client=_client,
         )
         reviewed_length = sum(
             len(body.strip()) for _page, body in parse_physical_page_markdown(reviewed)
@@ -468,23 +550,17 @@ class PaperVisionReviewer:
         source_markdown: str,
         source_is_page_scoped: bool,
         required_image_urls: tuple[str, ...],
-        client: httpx.Client | None = None,
     ) -> tuple[dict[str, Any], str, dict[int, VisionPageClassification]]:
-        provider_api_key = self.settings.llm_provider_api_key
+        provider_api_key = self.settings.llm_api_key
         api_key = provider_api_key.get_secret_value() if provider_api_key else None
         if not api_key:
             raise RuntimeError("视觉复核需要配置模型供应商 API Key")
-        request = {
+        request: dict[str, Any] = {
             "model": self.settings.paper_vision_model,
             "messages": [{"role": "user", "content": content}],
-            "temperature": 0,
-            "max_tokens": 12000,
-            "enable_thinking": False,
+            "max_tokens": self.settings.paper_vision_max_output_tokens,
+            "response_format": _VISION_RESPONSE_FORMAT,
         }
-        own_client = client is None and self.client is None
-        request_client = (
-            client or self.client or httpx.Client(timeout=self.settings.paper_vision_timeout)
-        )
 
         def log_completed(attempt: int, attempt_started: float) -> None:
             logger.info(
@@ -504,192 +580,186 @@ class PaperVisionReviewer:
             )
 
         last_error: Exception | None = None
-        try:
-            for attempt in range(1, self.settings.paper_vision_max_attempts + 1):
-                attempt_started = time.monotonic()
-                try:
-                    response = request_client.post(
-                        f"{self.settings.llm_provider_base_url}/chat/completions",
-                        headers={"Authorization": f"Bearer {api_key}"},
-                        json=request,
+        for attempt in range(1, self.settings.paper_vision_max_attempts + 1):
+            attempt_started = time.monotonic()
+            try:
+                completion = self.completion
+                if completion is None:
+                    configure_litellm()
+                    from litellm import completion
+
+                response = completion(
+                    **completion_options(
+                        model=self.settings.paper_vision_model,
+                        provider=self.settings.litellm_provider,
+                        api_base=self.settings.llm_base_url,
+                        api_key=api_key,
+                        reasoning_effort=self.settings.paper_vision_reasoning_effort,
                         timeout=self.settings.paper_vision_timeout,
+                        max_retries=0,
+                    ),
+                    messages=request["messages"],
+                    max_tokens=request["max_tokens"],
+                    response_format=request["response_format"],
+                )
+                text = response_message_content(response)
+                payload = parse_json_response(text)
+                confidence = float(payload.get("confidence", 0))
+                if confidence < self.settings.paper_vision_min_confidence:
+                    raise ValueError(
+                        "视觉复核置信度过低："
+                        f"{confidence:.2f} < "
+                        f"{self.settings.paper_vision_min_confidence:.2f}"
                     )
-                    response.raise_for_status()
-                    body = response.json()
-                    message = body["choices"][0]["message"]
-                    text = message.get("content", "")
-                    if not isinstance(text, str) or not text.strip():
-                        raise ValueError("视觉模型没有返回文本内容")
-                    payload = parse_json_response(text)
-                    confidence = float(payload.get("confidence", 0))
-                    if confidence < self.settings.paper_vision_min_confidence:
-                        raise ValueError(
-                            "视觉复核置信度过低："
-                            f"{confidence:.2f} < "
-                            f"{self.settings.paper_vision_min_confidence:.2f}"
-                        )
-                    reviewed = format_physical_page_markdown(
-                        _reviewed_pages(payload, page_start, page_end)
-                    )
-                    page_classifications = _page_classifications(
+                reviewed = format_physical_page_markdown(
+                    _reviewed_pages(payload, page_start, page_end)
+                )
+                page_classifications = _page_classifications(
+                    payload,
+                    page_start,
+                    page_end,
+                    min_confidence=self.settings.paper_vision_min_confidence,
+                )
+                validate_physical_page_markdown(
+                    reviewed,
+                    page_start,
+                    page_end,
+                )
+                unsafe_discard_ignored = False
+                try:
+                    discarded_images = _discarded_non_question_image_urls(
                         payload,
-                        page_start,
-                        page_end,
-                        min_confidence=self.settings.paper_vision_min_confidence,
+                        required_image_urls=required_image_urls,
+                        page_classifications=page_classifications,
                     )
-                    validate_physical_page_markdown(
-                        reviewed,
-                        page_start,
-                        page_end,
+                except ValueError as discard_error:
+                    # discarded_images is only a model request. If it conflicts with
+                    # the independently validated page semantics, ignore it and let
+                    # the required-image gate below retain or restore the source page.
+                    # This fails closed on content loss without turning a safe source
+                    # fallback into a terminal whole-paper failure.
+                    discarded_images = set()
+                    unsafe_discard_ignored = True
+                    raw_repairs = payload.get("repairs")
+                    repairs = (
+                        [str(item) for item in raw_repairs] if isinstance(raw_repairs, list) else []
                     )
-                    unsafe_discard_ignored = False
-                    try:
-                        discarded_images = _discarded_non_question_image_urls(
-                            payload,
-                            required_image_urls=required_image_urls,
-                            page_classifications=page_classifications,
-                        )
-                    except ValueError as discard_error:
-                        # discarded_images is only a model request. If it conflicts with
-                        # the independently validated page semantics, ignore it and let
-                        # the required-image gate below retain or restore the source page.
-                        # This fails closed on content loss without turning a safe source
-                        # fallback into a terminal whole-paper failure.
-                        discarded_images = set()
-                        unsafe_discard_ignored = True
+                    repairs.append("视觉模型的图片排除声明未通过门禁；已忽略并保留来源图片。")
+                    payload["repairs"] = repairs
+                    payload["confidence"] = self.settings.paper_vision_min_confidence
+                    logger.warning(
+                        "paper vision unsafe image discard ignored",
+                        extra={
+                            "event": "paper_vision_discard_ignored",
+                            "stage": "vision_review",
+                            "page_start": page_start,
+                            "page_end": page_end,
+                            "error_type": type(discard_error).__name__,
+                        },
+                    )
+                missing_images = [
+                    url
+                    for url in required_image_urls
+                    if url not in reviewed and url not in discarded_images
+                ]
+                if missing_images:
+                    if unsafe_discard_ignored or attempt >= self.settings.paper_vision_max_attempts:
+                        if source_is_page_scoped:
+                            source_pages = parse_physical_page_markdown(source_markdown)
+                            if source_pages:
+                                validate_physical_page_markdown(
+                                    source_markdown,
+                                    page_start,
+                                    page_end,
+                                )
+                            elif page_start == page_end:
+                                source_pages = [(page_start, source_markdown)]
+                            else:
+                                raise ValueError("视觉复核无法安全恢复 MinerU 题目图片位置引用")
+                            reviewed = format_physical_page_markdown(source_pages)
+                            recovery_note = (
+                                "视觉模型持续遗漏来源图片；已保留该物理页的 MinerU 原文。"
+                            )
+                        else:
+                            reviewed_pages = validate_physical_page_markdown(
+                                reviewed,
+                                page_start,
+                                page_end,
+                            )
+                            [(page_number, page_body)] = reviewed_pages
+                            recovered_images = "\n\n".join(f"![]({url})" for url in missing_images)
+                            reviewed = format_physical_page_markdown(
+                                [
+                                    (
+                                        page_number,
+                                        "\n\n".join(
+                                            part for part in (page_body, recovered_images) if part
+                                        ),
+                                    )
+                                ]
+                            )
+                            recovery_note = (
+                                "视觉模型持续遗漏来源图片；已将当前物理页图片附回复核结果。"
+                            )
+                        still_missing = [url for url in missing_images if url not in reviewed]
+                        if still_missing:
+                            raise ValueError(
+                                "视觉复核无法从 MinerU 原文恢复题目图片位置引用："
+                                + ", ".join(still_missing)
+                            )
                         raw_repairs = payload.get("repairs")
                         repairs = (
                             [str(item) for item in raw_repairs]
                             if isinstance(raw_repairs, list)
                             else []
                         )
-                        repairs.append("视觉模型的图片排除声明未通过门禁；已忽略并保留来源图片。")
+                        repairs.append(recovery_note)
                         payload["repairs"] = repairs
                         payload["confidence"] = self.settings.paper_vision_min_confidence
                         logger.warning(
-                            "paper vision unsafe image discard ignored",
+                            "paper vision source page preserved after image omission",
                             extra={
-                                "event": "paper_vision_discard_ignored",
+                                "event": "paper_vision_source_fallback",
                                 "stage": "vision_review",
                                 "page_start": page_start,
                                 "page_end": page_end,
-                                "error_type": type(discard_error).__name__,
+                                "missing_image_count": len(missing_images),
+                                "source_is_page_scoped": source_is_page_scoped,
                             },
                         )
-                    missing_images = [
-                        url
-                        for url in required_image_urls
-                        if url not in reviewed and url not in discarded_images
-                    ]
-                    if missing_images:
-                        if (
-                            unsafe_discard_ignored
-                            or attempt >= self.settings.paper_vision_max_attempts
-                        ):
-                            if source_is_page_scoped:
-                                source_pages = parse_physical_page_markdown(source_markdown)
-                                if source_pages:
-                                    validate_physical_page_markdown(
-                                        source_markdown,
-                                        page_start,
-                                        page_end,
-                                    )
-                                elif page_start == page_end:
-                                    source_pages = [(page_start, source_markdown)]
-                                else:
-                                    raise ValueError("视觉复核无法安全恢复 MinerU 题目图片位置引用")
-                                reviewed = format_physical_page_markdown(source_pages)
-                                recovery_note = (
-                                    "视觉模型持续遗漏来源图片；已保留该物理页的 MinerU 原文。"
-                                )
-                            else:
-                                reviewed_pages = validate_physical_page_markdown(
-                                    reviewed,
-                                    page_start,
-                                    page_end,
-                                )
-                                [(page_number, page_body)] = reviewed_pages
-                                recovered_images = "\n\n".join(
-                                    f"![]({url})" for url in missing_images
-                                )
-                                reviewed = format_physical_page_markdown(
-                                    [
-                                        (
-                                            page_number,
-                                            "\n\n".join(
-                                                part
-                                                for part in (page_body, recovered_images)
-                                                if part
-                                            ),
-                                        )
-                                    ]
-                                )
-                                recovery_note = (
-                                    "视觉模型持续遗漏来源图片；已将当前物理页图片附回复核结果。"
-                                )
-                            still_missing = [url for url in missing_images if url not in reviewed]
-                            if still_missing:
-                                raise ValueError(
-                                    "视觉复核无法从 MinerU 原文恢复题目图片位置引用："
-                                    + ", ".join(still_missing)
-                                )
-                            raw_repairs = payload.get("repairs")
-                            repairs = (
-                                [str(item) for item in raw_repairs]
-                                if isinstance(raw_repairs, list)
-                                else []
-                            )
-                            repairs.append(recovery_note)
-                            payload["repairs"] = repairs
-                            payload["confidence"] = self.settings.paper_vision_min_confidence
-                            logger.warning(
-                                "paper vision source page preserved after image omission",
-                                extra={
-                                    "event": "paper_vision_source_fallback",
-                                    "stage": "vision_review",
-                                    "page_start": page_start,
-                                    "page_end": page_end,
-                                    "missing_image_count": len(missing_images),
-                                    "source_is_page_scoped": source_is_page_scoped,
-                                },
-                            )
-                            log_completed(attempt, attempt_started)
-                            return payload, reviewed, page_classifications
-                        raise ValueError(
-                            "视觉复核丢失 MinerU 题目图片位置引用：" + ", ".join(missing_images)
-                        )
-                    log_completed(attempt, attempt_started)
-                    return payload, reviewed, page_classifications
-                except (httpx.HTTPError, KeyError, TypeError, ValueError) as error:
-                    last_error = error
-                    if (
-                        attempt >= self.settings.paper_vision_max_attempts
-                        or not _is_retryable_failure(error)
-                    ):
-                        break
-                    delay = self.settings.paper_vision_retry_delay_seconds * (2 ** (attempt - 1))
-                    logger.warning(
-                        "paper vision request failed; retry scheduled",
-                        extra={
-                            "event": "paper_vision_retry",
-                            "stage": "vision_review",
-                            "page_start": page_start,
-                            "page_end": page_end,
-                            "attempt": attempt,
-                            "max_attempts": self.settings.paper_vision_max_attempts,
-                            "retry_in_seconds": delay,
-                            "duration_ms": round(
-                                (time.monotonic() - attempt_started) * 1000,
-                                2,
-                            ),
-                            "error_type": type(error).__name__,
-                        },
+                        log_completed(attempt, attempt_started)
+                        return payload, reviewed, page_classifications
+                    raise ValueError(
+                        "视觉复核丢失 MinerU 题目图片位置引用：" + ", ".join(missing_images)
                     )
-                    if delay:
-                        time.sleep(delay)
-        finally:
-            if own_client:
-                request_client.close()
+                log_completed(attempt, attempt_started)
+                return payload, reviewed, page_classifications
+            except Exception as error:
+                last_error = error
+                if attempt >= self.settings.paper_vision_max_attempts or not _is_retryable_failure(
+                    error
+                ):
+                    break
+                delay = self.settings.paper_vision_retry_delay_seconds * (2 ** (attempt - 1))
+                logger.warning(
+                    "paper vision request failed; retry scheduled",
+                    extra={
+                        "event": "paper_vision_retry",
+                        "stage": "vision_review",
+                        "page_start": page_start,
+                        "page_end": page_end,
+                        "attempt": attempt,
+                        "max_attempts": self.settings.paper_vision_max_attempts,
+                        "retry_in_seconds": delay,
+                        "duration_ms": round(
+                            (time.monotonic() - attempt_started) * 1000,
+                            2,
+                        ),
+                        "error_type": type(error).__name__,
+                    },
+                )
+                if delay:
+                    time.sleep(delay)
         assert last_error is not None
         raise last_error
 
@@ -712,8 +782,7 @@ class PaperVisionReviewer:
                 rendered.append((page_number, pixmap.tobytes("jpeg", jpg_quality=82)))
         return rendered
 
-    @staticmethod
-    def _prompt(markdown: str, page_start: int, page_end: int) -> str:
+    def _prompt(self, markdown: str, page_start: int, page_end: int) -> str:
         return f"""
 You are the visual quality gate for an examination question paper.
 Compare the MinerU Markdown with the rendered PDF pages {page_start}-{page_end}.
@@ -767,5 +836,5 @@ Return only JSON:
 }}
 
 MinerU Markdown:
-{markdown[:30000]}
+{markdown[: self.settings.paper_vision_markdown_max_chars]}
 """.strip()

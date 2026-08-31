@@ -140,7 +140,7 @@ class LlamaIndexReActProtocolAdapter(AgentProtocolPort):
     ) -> ProtocolTurn:
         final_json = _validated_final_json(content)
         if final_json is not None:
-            return ProtocolFinal(draft=content, output_json=final_json)
+            return ProtocolFinal(draft=content, output_json=final_json, structured=True)
 
         native_tools = _native_tools(tools)
         by_name: dict[str, BaseTool] = {}

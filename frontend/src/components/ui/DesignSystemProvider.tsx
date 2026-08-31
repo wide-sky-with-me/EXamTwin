@@ -4,6 +4,8 @@ import zhCN from "antd/locale/zh_CN";
 import { MotionConfig } from "motion/react";
 import { type ReactNode, useEffect, useState } from "react";
 
+import { APP_THEME_PALETTE } from "../../lib/theme";
+
 type ResolvedTheme = "light" | "dark";
 
 const queryClient = new QueryClient({
@@ -25,6 +27,7 @@ function currentTheme(): ResolvedTheme {
 
 export function DesignSystemProvider({ children }: { children: ReactNode }) {
   const [appearance, setAppearance] = useState<ResolvedTheme>(currentTheme);
+  const palette = APP_THEME_PALETTE[appearance];
 
   useEffect(() => {
     const syncTheme = () => setAppearance(currentTheme());
@@ -41,20 +44,20 @@ export function DesignSystemProvider({ children }: { children: ReactNode }) {
         cssVar: { key: "examtwin" },
         token: {
           borderRadius: 12,
-          colorBgBase: appearance === "dark" ? "#000000" : "#f5f5f7",
-          colorBgContainer: appearance === "dark" ? "#111113" : "#ffffff",
-          colorBorder: appearance === "dark" ? "#38383d" : "#d9d9df",
-          colorInfo: "#32ade6",
-          colorPrimary: "#0071e3",
-          colorSuccess: "#16846a",
-          colorText: appearance === "dark" ? "#f5f5f7" : "#1d1d1f",
+          colorBgBase: palette.base,
+          colorBgContainer: palette.container,
+          colorBorder: palette.border,
+          colorInfo: APP_THEME_PALETTE.common.info,
+          colorPrimary: APP_THEME_PALETTE.common.primary,
+          colorSuccess: APP_THEME_PALETTE.common.success,
+          colorText: palette.text,
           fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Segoe UI', sans-serif",
         },
         components: {
           Button: { controlHeight: 40, primaryShadow: "none" },
           Input: { controlHeight: 40 },
           Select: { controlHeight: 40 },
-          Table: { headerBg: appearance === "dark" ? "#1c1c1e" : "#f5f5f7" },
+          Table: { headerBg: palette.header },
         },
       }}
     >

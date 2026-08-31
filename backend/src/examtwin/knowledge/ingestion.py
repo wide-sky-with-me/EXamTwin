@@ -125,6 +125,10 @@ def _section_documents(
 
 
 def _documents_with_pages(text: str, row: dict[str, Any]) -> list[Document]:
+    subject_code = str(row.get("subject_code") or "").strip()
+    if not subject_code:
+        raise ValueError("document ingestion requires an explicit subject_code")
+
     common_metadata = {
         "document_id": row["id"],
         "source": row["path"],
@@ -135,7 +139,7 @@ def _documents_with_pages(text: str, row: dict[str, Any]) -> list[Document]:
         "knowledge_base_id": row.get("knowledge_base_id") or "",
         "pair_key": row["pair_key"] or "",
         "unit_code": row["unit_code"] or "",
-        "subject_code": row.get("subject_code") or "9660",
+        "subject_code": subject_code,
     }
     parts = re.split(r"<!--\s*page(?::|\s)\s*(\d+)\s*-->", text)
     if len(parts) == 1:
@@ -588,7 +592,7 @@ def build_vector_index(
         nodes: list[BaseNode] = [*evidence_nodes, *_knowledge_point_nodes(catalog)]
         index_schema_version = HYBRID_INDEX_SCHEMA_VERSION if hybrid_index else "dense-v0"
         embed_identity = embedding_identity(
-            base_url=settings.siliconflow_base_url,
+            base_url=settings.retrieval_base_url,
             model=settings.embedding_model,
         )
         input_hash = hashlib.sha256(

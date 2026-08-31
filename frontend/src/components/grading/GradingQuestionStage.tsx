@@ -4,8 +4,6 @@ import {
   BookOpenCheck,
   GraduationCap,
   LoaderCircle,
-  RefreshCw,
-  ShieldCheck,
   TriangleAlert,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -13,51 +11,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   GradeResult,
   PaperAssessment,
-  PaperJobQuestion,
   PaperJobResult,
   RubricSet,
 } from "../../types";
-import { Confidence, ErrorBanner } from "../Feedback";
-import { Markdown, QuestionMarkdown } from "../Markdown";
-import { AnswerArtifactFlow } from "../AnswerArtifactFlow";
+import { ErrorBanner } from "../Feedback";
+import {
+  GradingReportWorkspace,
+  GradingSubmission,
+} from "./GradingReportWorkspace";
 
-function GradingSubmission({
-  jobId,
-  subjectId,
-  question,
-}: {
-  jobId: string;
-  subjectId: string;
-  question: PaperJobQuestion;
-}) {
-  return (
-    <div className="grading-submission">
-      <details className="grading-submission-section">
-        <summary>原题</summary>
-        <div className="grading-submission-content grading-rich grading-question">
-          <QuestionMarkdown subjectId={subjectId}>{question.question_markdown}</QuestionMarkdown>
-        </div>
-      </details>
-      <details className="grading-submission-section">
-        <summary>已保存答案</summary>
-        <div className="grading-submission-content">
-          <AnswerArtifactFlow
-            answerMarkdown={question.answer_markdown}
-            diagrams={question.diagrams}
-            images={question.images}
-            jobId={jobId}
-            subjectId={subjectId}
-            renderMarkdown={(markdown, key) => (
-              <div className="grading-rich" key={key}>
-                <Markdown>{markdown}</Markdown>
-              </div>
-            )}
-          />
-        </div>
-      </details>
-    </div>
-  );
-}
 
 export function GradingQuestionStage({
   paper,
@@ -299,106 +261,18 @@ export function GradingQuestionStage({
               <h2 className="sr-only" id="grading-report-heading" ref={reportHeadingRef} tabIndex={-1}>
                 Q{selectedQuestion.number} 判分结果
               </h2>
-              
-              <div className="score-hero">
-                <div>
-                  <strong>{selectedResult.total_awarded}</strong>
-                  <span>/ {selectedResult.total_available}</span>
-                </div>
-                <p>{reviewStatusCopy.score}</p>
-              </div>
-              <GradingSubmission jobId={paper!.job_id} key={selectedQuestion.position} question={selectedQuestion} subjectId={subjectId} />
-              <div className="grading-assurance">
-                <span>模型置信度 <Confidence value={selectedResult.confidence} /></span>
-                <span>{selectedResult.rubric_awards.length} 个得分点判定</span>
-                <span>{selectedResult.symbolic_checks.length} 项独立检查</span>
-              </div>
-              {selectedResult.warnings.map((warning) => (
-                <p className="inline-warning" key={warning}>
-                  <TriangleAlert size={14} />
-                  {warning}
-                </p>
-              ))}
-              <div className="rubric-list grading-award-list">
-                {selectedResult.rubric_awards.map((item) => {
-                  const verdict = item.awarded <= 0
-                    ? "未得分"
-                    : item.awarded >= item.max_marks
-                      ? "已得分"
-                      : "部分得分";
-                  return (
-                    <article
-                      className={`grading-award ${item.awarded > 0 ? "awarded" : "missed"}`}
-                      key={item.criterion_id}
-                    >
-                      <header>
-                        <div>
-                          <span>{item.mark_type ?? item.criterion_id}</span>
-                          <strong>{verdict}</strong>
-                        </div>
-                        <b>{item.awarded}/{item.max_marks} 分</b>
-                      </header>
-                      <section className="grading-award-evidence">
-                        <span>学生证据</span>
-                        {item.student_evidence
-                          ? <blockquote><Markdown normalizeBareLatex>{item.student_evidence}</Markdown></blockquote>
-                          : <p>答案中未找到支持该得分点的直接证据。</p>}
-                      </section>
-                      <section className="grading-award-rationale">
-                        <span>判分理由</span>
-                        <div className="rubric-rich">
-                          <Markdown normalizeBareLatex>{item.rationale}</Markdown>
-                        </div>
-                      </section>
-                      {item.error_types.length > 0 && (
-                        <div className="error-tags">
-                          {item.error_types.map((type) => <span key={type}>{type}</span>)}
-                        </div>
-                      )}
-                      {item.improvement_suggestion && (
-                        <div className="improvement">
-                          <span>改进：</span>
-                          <Markdown>{item.improvement_suggestion}</Markdown>
-                        </div>
-                      )}
-                      <details className="grading-award-criterion">
-                        <summary>查看原始得分点</summary>
-                        <div className="rubric-rich rubric-description">
-                          <Markdown>{item.description}</Markdown>
-                        </div>
-                        <small>{item.criterion_id}</small>
-                      </details>
-                    </article>
-                  );
-                })}
-              </div>
-              {selectedResult.improvement_suggestions.length > 0 && (
-                <section className="improvement-summary">
-                  <h3>针对性改进建议</h3>
-                  {selectedResult.improvement_suggestions.map((item) => (
-                    <div className="rubric-rich" key={item}>
-                      <Markdown>{item}</Markdown>
-                    </div>
-                  ))}
-                </section>
-              )}
-              <div className="review-required">
-                <ShieldCheck size={18} />
-                {reviewStatusCopy.banner}
-              </div>
-              <button
-                aria-busy={regenerating || undefined}
-                aria-live="polite"
-                className="secondary"
-                disabled={busy !== null}
-                onClick={() => void assessQuestion(selectedQuestion.position)}
-                type="button"
-              >
-                {regenerating
-                  ? <LoaderCircle className="spin" size={15} />
-                  : <RefreshCw size={15} />}
-                {regenerating ? "正在重新判分…" : "重新判分"}
-              </button>
+              <GradingReportWorkspace
+                busy={busy !== null}
+                jobId={paper!.job_id}
+                key={selectedQuestion.position}
+                onRegenerate={() => void assessQuestion(selectedQuestion.position)}
+                question={selectedQuestion}
+                regenerating={regenerating}
+                result={selectedResult}
+                reviewBanner={reviewStatusCopy.banner}
+                scoreStatus={reviewStatusCopy.score}
+                subjectId={subjectId}
+              />
             </>
           )}
         </article>

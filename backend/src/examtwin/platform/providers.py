@@ -9,16 +9,19 @@ from typing import Any
 import httpx
 from llama_index.core.schema import NodeWithScore, QueryBundle
 from llama_index.embeddings.openai import OpenAIEmbedding
-from llama_index.llms.openai_like import OpenAILike
 
 from examtwin.platform.config import Settings
+from examtwin.platform.litellm_provider import LiteLLMChatModel
 
 logger = logging.getLogger(__name__)
 
 
-def _is_siliconflow_parameter_error(error: Exception) -> bool:
+def _is_retryable_embedding_parameter_error(error: Exception) -> bool:
     detail = str(error).lower()
-    return "20015" in detail or "parameter is invalid" in detail
+    # SiliconFlow has intermittently returned its provider code 20015 for an
+    # otherwise valid batch. Do not broaden this to arbitrary HTTP 400/model
+    # errors: those are deterministic and must fail after one request.
+    return "20015" in detail and "parameter" in detail and "invalid" in detail
 
 
 def _embedding_batch_with_fallback(
@@ -28,14 +31,14 @@ def _embedding_batch_with_fallback(
     max_attempts: int = 3,
     pause: Callable[[float], None] = time.sleep,
 ) -> list[list[float]]:
-    """Retry SiliconFlow's transient 20015 and isolate a truly invalid input."""
+    """Retry a compatible provider's transient parameter rejection and isolate bad input."""
 
     last_error: Exception | None = None
     for attempt in range(1, max(1, max_attempts) + 1):
         try:
             return fetch(texts)
         except Exception as error:
-            if not _is_siliconflow_parameter_error(error):
+            if not _is_retryable_embedding_parameter_error(error):
                 raise
             last_error = error
             logger.warning(
@@ -70,8 +73,8 @@ def _embedding_batch_with_fallback(
     ) from last_error
 
 
-class ResilientOpenAIEmbedding(OpenAIEmbedding):
-    """OpenAI-compatible embedding adapter with bounded provider-400 recovery."""
+class ResilientEmbedding(OpenAIEmbedding):
+    """Embedding adapter with bounded provider-400 recovery."""
 
     def _get_text_embeddings(self, texts: list[str]) -> list[list[float]]:
         return _embedding_batch_with_fallback(super()._get_text_embeddings, texts)
@@ -83,35 +86,22 @@ def required_secret(value: Any) -> str:
     return value.get_secret_value()
 
 
-def build_llm(
+def build_chat_model(
     settings: Settings,
     *,
-    grading: bool = False,
     model: str | None = None,
     timeout: float = 120,
-    max_retries: int = 3,
+    max_retries: int = 1,
     reasoning_effort: str | None = None,
-    additional_kwargs: dict[str, Any] | None = None,
-) -> OpenAILike:
-    resolved_model = model or (settings.grading_model if grading else settings.llm_model)
-    resolved_kwargs = dict(additional_kwargs or {})
-    if resolved_model.startswith("gpt-5.6"):
-        resolved_kwargs.setdefault(
-            "reasoning_effort",
-            reasoning_effort
-            or (settings.grading_reasoning_effort if grading else settings.llm_reasoning_effort),
-        )
-    return OpenAILike(
-        model=resolved_model,
-        api_base=settings.llm_provider_base_url,
-        api_key=required_secret(settings.llm_provider_api_key),
-        context_window=131072,
-        is_chat_model=True,
-        is_function_calling_model=False,
-        temperature=1 if resolved_model.startswith("gpt-5.6") else (0.1 if grading else 0.2),
-        additional_kwargs=resolved_kwargs,
-        max_retries=max_retries,
+) -> LiteLLMChatModel:
+    return LiteLLMChatModel(
+        model=model or settings.llm_model,
+        provider=settings.litellm_provider,
+        api_base=settings.llm_base_url,
+        api_key=required_secret(settings.llm_api_key),
+        reasoning_effort=reasoning_effort or settings.llm_reasoning_effort,
         timeout=timeout,
+        max_retries=max_retries,
     )
 
 
@@ -119,24 +109,25 @@ def build_embedding(
     settings: Settings,
     *,
     timeout: float | None = None,
-    max_retries: int = 1,
+    max_retries: int = 0,
 ) -> OpenAIEmbedding:
-    return ResilientOpenAIEmbedding(
+    return ResilientEmbedding(
         model_name=settings.embedding_model,
-        api_base=settings.siliconflow_base_url,
-        api_key=required_secret(settings.siliconflow_api_key),
-        embed_batch_size=16,
+        api_base=settings.retrieval_base_url,
+        api_key=required_secret(settings.retrieval_api_key),
+        embed_batch_size=settings.embedding_batch_size,
         timeout=timeout if timeout is not None else settings.embedding_timeout,
         max_retries=max_retries,
     )
 
 
-class SiliconFlowReranker:
+class IndexResultsReranker:
     def __init__(self, settings: Settings, *, timeout: float | None = None):
-        self.url = f"{settings.siliconflow_base_url.rstrip('/')}/rerank"
-        self.api_key = required_secret(settings.siliconflow_api_key)
+        self.url = f"{settings.retrieval_base_url.rstrip('/')}{settings.rerank_path}"
+        self.api_key = required_secret(settings.retrieval_api_key)
         self.model = settings.rerank_model
         self.timeout = timeout if timeout is not None else settings.rerank_timeout
+        self.document_max_chars = settings.rerank_document_max_chars
 
     def rerank(
         self,
@@ -149,7 +140,9 @@ class SiliconFlowReranker:
             return []
         query_text = query.query_str if isinstance(query, QueryBundle) else query
         documents = [
-            str(node.node.metadata.get("retrieval_text") or node.node.get_content())[:20_000]
+            str(node.node.metadata.get("retrieval_text") or node.node.get_content())[
+                : self.document_max_chars
+            ]
             for node in nodes
         ]
         response = httpx.post(

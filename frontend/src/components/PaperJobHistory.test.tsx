@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
 import { render as testingLibraryRender, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import { deletePaperJobs, listPaperJobs, replacePaperJob } from "../lib/api";
@@ -12,35 +12,75 @@ function render(ui: ReactElement) {
   return testingLibraryRender(ui, { wrapper: DesignSystemProvider });
 }
 
+async function selectFilterOption(
+  user: UserEvent,
+  label: string,
+  option: string,
+) {
+  await user.click(screen.getByRole("combobox", { name: label }));
+  await user.click(await screen.findByText(option, { selector: ".ant-select-item-option-content" }));
+}
+
+async function selectRecordAction(
+  user: UserEvent,
+  recordName: string,
+  action: string,
+) {
+  await user.click(await screen.findByRole(
+    "button",
+    { name: `更多作答记录操作：${recordName}` },
+  ));
+  await user.click(await screen.findByRole("menuitem", { name: action }));
+}
+
 vi.mock("../lib/api", () => ({
   deletePaperJobs: vi.fn(),
   listPaperJobs: vi.fn(),
   replacePaperJob: vi.fn(),
 }));
 
-const subject = {
+const subject: SubjectPack = {
   id: "oxfordaqa-mathematics-9660",
+  version: "1",
+  digest: "test",
   subject_code: "9660",
   title: "Mathematics",
   board_name: "OxfordAQA",
+  icon: "calculator",
+  color: "#2F6FED",
+  capability_profile_id: "oxfordaqa-mathematics-9660",
+  generic_qa_enabled: true,
+  answering_enabled: true,
+  answering_disabled_reason: null,
+  source_booklet_required: false,
+  active_graph_version_id: null,
+  knowledge_bases: [],
   units: [
-    { code: "P1", title: "Pure Mathematics 1" },
-    { code: "M1", title: "Mechanics 1" },
+    { code: "P1", title: "Pure Mathematics 1", strand: "Pure" },
+    { code: "M1", title: "Mechanics 1", strand: "Mechanics" },
   ],
-} as SubjectPack;
-const economics = {
+};
+const economics: SubjectPack = {
   ...subject,
   id: "oxfordaqa-economics-9640",
   subject_code: "9640",
   title: "Economics",
   units: [],
-} as SubjectPack;
+};
 
 const history: PaperJobList = {
   items: [
     {
       job_id: "job-1",
       filename: "QP-2026-P1.pdf",
+      display_name: null,
+      answer_mode: "generated",
+      pair_key: null,
+      paper_unit_id: null,
+      question_paper_document_id: null,
+      source_booklet_document_id: null,
+      source_booklet_checksum: null,
+      source_booklet_filename: null,
       unit_code: "P1",
       status: "completed",
       stage: "completed",
@@ -94,29 +134,25 @@ describe("PaperJobHistory", () => {
     );
 
     expect(await screen.findByText("QP-2026-P1.pdf")).toBeInTheDocument();
+    const standaloneShell = screen.getByRole("heading", { name: "全部作答记录" }).closest("article");
+    expect(standaloneShell).toHaveClass("panel", "paper-history");
+    expect(standaloneShell).not.toHaveClass("paper-history-embedded");
+    expect(screen.getByRole("button", { name: "刷新试卷作答记录" })).toBeInTheDocument();
     expect(screen.getByText("处理完成", { selector: ".paper-history-status" }))
       .toBeInTheDocument();
     expect(screen.getByText("13/13 题已处理")).toBeInTheDocument();
-    await user.selectOptions(
-      screen.getByRole("combobox", { name: "按科目筛选" }),
-      economics.id,
+    await selectFilterOption(
+      user,
+      "按科目筛选",
+      `${economics.title} · ${economics.subject_code}`,
     );
     await waitFor(() => expect(onSubjectChange).toHaveBeenCalledWith(economics.id));
 
-
     await user.type(screen.getByRole("searchbox", { name: "按名称或文件名筛选" }), "2026");
-    await user.selectOptions(
-      screen.getByRole("combobox", { name: "按状态筛选" }),
-      "completed",
-    );
-    await user.selectOptions(
-      screen.getByRole("combobox", { name: "按来源筛选" }),
-      "uploaded",
-    );
-    await user.selectOptions(
-      screen.getByRole("combobox", { name: "按单元筛选" }),
-      "P1",
-    );
+    await selectFilterOption(user, "按状态筛选", "处理完成");
+    await selectFilterOption(user, "按来源筛选", "外部答卷");
+    await selectFilterOption(user, "按单元筛选", "P1");
+    await selectFilterOption(user, "按时间筛选", "最近 30 天");
 
     await waitFor(() => {
       expect(listMock).toHaveBeenLastCalledWith(
@@ -125,6 +161,7 @@ describe("PaperJobHistory", () => {
           status: "completed",
           answerMode: "uploaded",
           unitCode: "P1",
+          createdAfter: expect.any(String),
           query: "2026",
           limit: 10,
           offset: 0,
@@ -147,7 +184,7 @@ describe("PaperJobHistory", () => {
       );
     });
     await user.click(screen.getByRole("button", { name: "查看" }));
-    expect(onOpen).toHaveBeenCalledWith("job-1", undefined);
+    expect(onOpen).toHaveBeenCalledWith("job-1", null);
   });
 
   test("requires dialog confirmation before deleting a terminal record", async () => {
@@ -164,7 +201,7 @@ describe("PaperJobHistory", () => {
     );
 
     await screen.findByText("QP-2026-P1.pdf");
-    await user.click(screen.getByRole("button", { name: "删除记录 QP-2026-P1.pdf" }));
+    await selectRecordAction(user, "QP-2026-P1.pdf", "删除记录");
     expect(screen.getByRole("alertdialog", { name: "确认删除作答记录" })).toBeInTheDocument();
     expect(screen.getByText(/将永久删除“QP-2026-P1\.pdf”的作答结果、关联评分、复核记录和作答文件/)).toBeInTheDocument();
     expect(deleteMock).not.toHaveBeenCalled();
@@ -199,10 +236,7 @@ describe("PaperJobHistory", () => {
       />,
     );
 
-    await user.click(await screen.findByRole(
-      "button",
-      { name: "删除记录 stuck-paper.pdf" },
-    ));
+    await selectRecordAction(user, "stuck-paper.pdf", "取消并删除任务");
     expect(screen.getByRole("alertdialog", { name: "确认删除作答记录" })).toBeInTheDocument();
     expect(screen.getByText(/将永久删除“stuck-paper\.pdf”的作答结果、关联评分、复核记录和作答文件/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "删除作答记录" }));
@@ -224,8 +258,14 @@ describe("PaperJobHistory", () => {
           filename: "QP-2026-P2.pdf",
           unit_code: "P2",
         },
+        {
+          ...history.items[0],
+          job_id: "job-replaced",
+          filename: "QP-2026-replaced.pdf",
+          replaced_by_job_id: "job-2",
+        },
       ],
-      total: 2,
+      total: 3,
     });
     deleteMock.mockResolvedValue({ deleted_count: 2 });
     render(
@@ -239,9 +279,20 @@ describe("PaperJobHistory", () => {
     );
 
     await screen.findByText("QP-2026-P2.pdf");
-    await user.click(screen.getByRole("checkbox", { name: "全选当前页可删除记录" }));
-    expect(screen.getByRole("checkbox", { name: "选择记录 QP-2026-P1.pdf" })).toBeChecked();
-    expect(screen.getByRole("checkbox", { name: "选择记录 QP-2026-P2.pdf" })).toBeChecked();
+    await user.click(screen.getByRole("button", { name: "进入批量选择" }));
+    const masterCheckbox = screen.getByRole("checkbox", { name: "全选当前页可删除记录" });
+    const firstCheckbox = screen.getByRole("checkbox", { name: "选择记录 QP-2026-P1.pdf" });
+    const secondCheckbox = screen.getByRole("checkbox", { name: "选择记录 QP-2026-P2.pdf" });
+    const disabledCheckbox = screen.getByRole("checkbox", { name: "选择记录 QP-2026-replaced.pdf" });
+    expect(disabledCheckbox).toBeDisabled();
+
+    await user.click(firstCheckbox);
+    expect(masterCheckbox).toBePartiallyChecked();
+    await user.click(masterCheckbox);
+    expect(masterCheckbox).toBeChecked();
+    expect(firstCheckbox).toBeChecked();
+    expect(secondCheckbox).toBeChecked();
+    expect(disabledCheckbox).not.toBeChecked();
     expect(screen.getByText("已选择 2 条")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "批量删除" }));
@@ -277,9 +328,9 @@ describe("PaperJobHistory", () => {
 
     expect(await screen.findByText("旧版未验证结果 · 不应作为可信答案"))
       .toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "修复并重跑" }));
+    await selectRecordAction(user, "QP-2026-P1.pdf", "修复并重跑");
     await waitFor(() => expect(replaceMock).toHaveBeenCalledWith(subject.id, "job-1"));
-    expect(onOpen).toHaveBeenCalledWith("replacement-job", undefined);
+    expect(onOpen).toHaveBeenCalledWith("replacement-job", null);
   });
 
   test("groups AI and uploaded answers under one paper with source labels", async () => {
@@ -309,8 +360,14 @@ describe("PaperJobHistory", () => {
       />,
     );
 
-    expect(await screen.findByText("AI 作答")).toBeInTheDocument();
+    const generatedMode = await screen.findByText("AI 作答", { selector: ".paper-history-mode" });
+    expect(generatedMode).toBeInTheDocument();
     expect(screen.getByText("外部答卷", { selector: ".paper-history-mode" })).toBeInTheDocument();
+    const embeddedShell = generatedMode.closest("article");
+    expect(embeddedShell).toHaveClass("paper-history", "paper-history-embedded");
+    expect(embeddedShell).not.toHaveClass("panel");
+    expect(screen.queryByRole("heading", { name: "全部作答记录" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "刷新试卷作答记录" })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "按来源筛选" })).toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: "按科目筛选" })).not.toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: "按单元筛选" })).not.toBeInTheDocument();
@@ -336,8 +393,8 @@ describe("PaperJobHistory", () => {
       />,
     );
 
-    await user.click(await screen.findByRole("button", { name: "评分" }));
-    expect(onGrade).toHaveBeenCalledWith("job-1", undefined);
+    await selectRecordAction(user, "QP-2026-P1.pdf", "评分");
+    expect(onGrade).toHaveBeenCalledWith("job-1", null);
   });
 
   test("changes page size and loads the next page with the matching offset", async () => {

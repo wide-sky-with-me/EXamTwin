@@ -4,7 +4,6 @@ import json
 import re
 import threading
 import time
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -271,8 +270,16 @@ def test_split_batches_are_concurrent_and_resume_from_digest_checkpoints(
     guard = threading.Lock()
 
     class FakeLLM:
-        def complete(self, prompt: str) -> SimpleNamespace:
+        def complete(
+            self,
+            messages: Any,
+            response_model: type[Any],
+            *,
+            timeout: float,
+        ) -> Any:
             nonlocal active, calls, failed_once, max_active
+            assert timeout > 0
+            prompt = messages[0].content
             with guard:
                 active += 1
                 calls += 1
@@ -283,40 +290,36 @@ def test_split_batches_are_concurrent_and_resume_from_digest_checkpoints(
                     failed_once = True
                     raise TimeoutError("one split batch timed out")
                 numbers = sorted(set(re.findall(r"(?m)^(\d+) Find the value", prompt)))
-                return SimpleNamespace(
-                    text=json.dumps(
-                        {
-                            "questions": [
-                                {
-                                    "number": number,
-                                    "question_markdown": (
-                                        f"{number} Find the value of x. [2 marks]"
-                                    ),
-                                    "source_pages": [int(number)],
-                                    "requires_visual_context": False,
-                                    "total_marks": 2,
-                                    "answer_requirements": [
-                                        {
-                                            "label": "whole",
-                                            "marks": 2,
-                                            "answer_kind": "numeric",
-                                            "units": [],
-                                            "required_tool": None,
-                                        }
-                                    ],
-                                    "knowledge_codes": [],
-                                }
-                                for number in numbers
-                            ]
-                        }
-                    )
+                return response_model.model_validate(
+                    {
+                        "questions": [
+                            {
+                                "number": number,
+                                "question_markdown": (f"{number} Find the value of x. [2 marks]"),
+                                "source_pages": [int(number)],
+                                "requires_visual_context": False,
+                                "total_marks": 2,
+                                "answer_requirements": [
+                                    {
+                                        "label": "whole",
+                                        "marks": 2,
+                                        "answer_kind": "numeric",
+                                        "units": [],
+                                        "required_tool": None,
+                                    }
+                                ],
+                                "knowledge_codes": [],
+                            }
+                            for number in numbers
+                        ]
+                    }
                 )
             finally:
                 with guard:
                     active -= 1
 
     monkeypatch.setattr(
-        "examtwin.assessment.paper_answering.build_llm",
+        "examtwin.assessment.paper_answering._build_question_split_model",
         lambda *_args, **_kwargs: FakeLLM(),
     )
     checkpoints: dict[tuple[int, str], list[dict[str, Any]]] = {}
@@ -370,39 +373,45 @@ def test_split_batch_retries_malformed_json_before_failing_the_paper(
     calls = 0
 
     class FakeLLM:
-        def complete(self, prompt: str) -> SimpleNamespace:
+        def complete(
+            self,
+            messages: Any,
+            response_model: type[Any],
+            *,
+            timeout: float,
+        ) -> Any:
             nonlocal calls
+            assert timeout > 0
+            prompt = messages[0].content
             calls += 1
             if calls == 1:
-                return SimpleNamespace(text='{"questions" [{"number": "1"}]}')
+                raise ValueError("malformed structured response")
             assert "previous response was not valid JSON" in prompt
-            return SimpleNamespace(
-                text=json.dumps(
-                    {
-                        "questions": [
-                            {
-                                "number": "1",
-                                "question_markdown": "1 Find x. [2 marks]",
-                                "source_pages": [1],
-                                "requires_visual_context": False,
-                                "total_marks": 2,
-                                "answer_requirements": [
-                                    {
-                                        "label": "whole",
-                                        "marks": 2,
-                                        "answer_kind": "numeric",
-                                        "units": [],
-                                        "required_tool": None,
-                                    }
-                                ],
-                            }
-                        ]
-                    }
-                )
+            return response_model.model_validate(
+                {
+                    "questions": [
+                        {
+                            "number": "1",
+                            "question_markdown": "1 Find x. [2 marks]",
+                            "source_pages": [1],
+                            "requires_visual_context": False,
+                            "total_marks": 2,
+                            "answer_requirements": [
+                                {
+                                    "label": "whole",
+                                    "marks": 2,
+                                    "answer_kind": "numeric",
+                                    "units": [],
+                                    "required_tool": None,
+                                }
+                            ],
+                        }
+                    ]
+                }
             )
 
     monkeypatch.setattr(
-        "examtwin.assessment.paper_answering.build_llm",
+        "examtwin.assessment.paper_answering._build_question_split_model",
         lambda *_args, **_kwargs: FakeLLM(),
     )
     settings = Settings(paper_split_max_attempts=2)
@@ -1398,7 +1407,15 @@ def test_checkpointed_split_keeps_recovery_from_overwriting_primary(
     source_roles: list[str] = []
 
     class FakeLLM:
-        def complete(self, prompt: str) -> SimpleNamespace:
+        def complete(
+            self,
+            messages: Any,
+            response_model: type[Any],
+            *,
+            timeout: float,
+        ) -> Any:
+            assert timeout > 0
+            prompt = messages[0].content
             recovery_batch = "RECOVERY text-layer appendix" in prompt
             source_roles.append("recovery" if recovery_batch else "primary")
             question_markdown = (
@@ -1409,34 +1426,32 @@ def test_checkpointed_split_keeps_recovery_from_overwriting_primary(
                 "function $F(x)=x^2$ for $0\\le x\\le1$.\n\n"
                 "(a) Find $F(1)$. [2 marks]"
             )
-            return SimpleNamespace(
-                text=json.dumps(
-                    {
-                        "questions": [
-                            {
-                                "number": "8",
-                                "question_markdown": question_markdown,
-                                "source_pages": [16],
-                                "requires_visual_context": False,
-                                "total_marks": 2,
-                                "answer_requirements": [
-                                    {
-                                        "label": "(a)",
-                                        "marks": 2,
-                                        "answer_kind": "numeric",
-                                        "accuracy": None,
-                                        "units": [],
-                                        "required_tool": None,
-                                    }
-                                ],
-                            }
-                        ]
-                    }
-                )
+            return response_model.model_validate(
+                {
+                    "questions": [
+                        {
+                            "number": "8",
+                            "question_markdown": question_markdown,
+                            "source_pages": [16],
+                            "requires_visual_context": False,
+                            "total_marks": 2,
+                            "answer_requirements": [
+                                {
+                                    "label": "(a)",
+                                    "marks": 2,
+                                    "answer_kind": "numeric",
+                                    "accuracy": None,
+                                    "units": [],
+                                    "required_tool": None,
+                                }
+                            ],
+                        }
+                    ]
+                }
             )
 
     monkeypatch.setattr(
-        "examtwin.assessment.paper_answering.build_llm",
+        "examtwin.assessment.paper_answering._build_question_split_model",
         lambda *_args, **_kwargs: FakeLLM(),
     )
     settings = Settings(paper_split_max_chars=20_000)

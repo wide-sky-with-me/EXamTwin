@@ -11,6 +11,21 @@ from sqlalchemy.engine import make_url
 
 # Unit tests must never inherit local provider credentials or optional capabilities.
 Settings.model_config["env_file"] = None
+for name, value in {
+    "LITELLM_PROVIDER": "openai",
+    "LLM_BASE_URL": "https://models.invalid/v1",
+    "LLM_MODEL": "test-main-model",
+    "KNOWLEDGE_DIFFICULTY_MODEL": "test-difficulty-model",
+    "KNOWLEDGE_GRAPH_MODEL": "test-graph-model",
+    "GRADING_MODEL": "test-grading-model",
+    "PAPER_SPLIT_MODEL": "test-split-model",
+    "PAPER_VISION_MODEL": "test-vision-model",
+    "IMAGE_GENERATION_MODEL": "test-image-model",
+    "RETRIEVAL_BASE_URL": "https://retrieval.invalid/v1",
+    "EMBEDDING_MODEL": "test-embedding-model",
+    "RERANK_MODEL": "test-rerank-model",
+}.items():
+    os.environ.setdefault(name, value)
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -54,7 +69,12 @@ def pytest_unconfigure(config: pytest.Config) -> None:
 
 
 @pytest.fixture(autouse=True)
-def clear_settings_cache() -> None:
+def clear_settings_cache(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Tests opt into one explicit bootstrap context; production must configure its own.
+    monkeypatch.setenv("SUBJECT_PACK", "oxfordaqa-mathematics-9660")
+    monkeypatch.setenv("QDRANT_COLLECTION", "examtwin_9660")
+    monkeypatch.setenv("QDRANT_COLLECTION_ALIAS", "examtwin_9660_live")
+    monkeypatch.setenv("CORPUS_ROOT", "data/牛津AQA/数学")
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()

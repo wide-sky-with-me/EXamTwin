@@ -19,6 +19,11 @@ from pydantic import (
 )
 
 from examtwin.platform.agent_runtime.model import HarnessMessage
+from examtwin.platform.litellm_provider import (
+    completion_options,
+    configure_litellm,
+    provider_model_name,
+)
 from examtwin.platform.model_json import (
     repair_markdown_latex,
     validate_structured_response,
@@ -222,13 +227,31 @@ def validate_citation_contract(
         raise ValueError("Final answer did not cite its retrieved evidence")
 
 
+def finalize_payload(
+    payload: AgentFinalPayload,
+    *,
+    required_subpart_labels: Sequence[str] = (),
+    allowed_citation_ids: Sequence[str] | None = None,
+) -> AgentFinalPayload:
+    """Materialize and validate the public answer at the workflow boundary."""
+
+    materialized = materialize_final_answer(
+        payload,
+        required_subpart_labels=required_subpart_labels,
+    )
+    validate_citation_contract(
+        materialized,
+        allowed_citation_ids=allowed_citation_ids,
+    )
+    return materialized
+
+
 class FinalAnswerProvider(Protocol):
     async def finalize(
         self,
         messages: Sequence[HarnessMessage],
         *,
         draft: str | None = None,
-        allowed_citation_ids: Sequence[str] | None = None,
         required_subpart_labels: Sequence[str] = (),
         timeout: float | None = None,
     ) -> AgentFinalPayload: ...
@@ -249,7 +272,7 @@ def _message_dict(message: HarnessMessage) -> dict[str, str]:
 
 
 class LiteLLMFinalAnswerProvider:
-    """Generate one provider-constrained public answer and validate it again locally."""
+    """Generate and parse one provider-constrained public answer candidate."""
 
     def __init__(
         self,
@@ -257,7 +280,9 @@ class LiteLLMFinalAnswerProvider:
         api_base: str,
         api_key: str,
         *,
+        provider: str,
         timeout: float = 60,
+        draft_max_chars: int,
         max_retries: int = 0,
         reasoning_effort: str | None = None,
         circuit_failure_threshold: int = 2,
@@ -271,6 +296,8 @@ class LiteLLMFinalAnswerProvider:
             raise ValueError("Structured finalizer API key is required")
         if timeout <= 0:
             raise ValueError("Structured finalizer timeout must be positive")
+        if draft_max_chars <= 0:
+            raise ValueError("Structured finalizer draft limit must be positive")
         if max_retries < 0:
             raise ValueError("Structured finalizer max_retries cannot be negative")
         if reasoning_effort not in {None, "none", "low", "medium", "high", "xhigh", "max"}:
@@ -280,10 +307,12 @@ class LiteLLMFinalAnswerProvider:
         if circuit_cooldown_seconds <= 0:
             raise ValueError("Structured finalizer circuit cooldown must be positive")
 
-        self.model = model if model.startswith("openai/") else f"openai/{model}"
-        self.api_base = api_base
+        self.model = provider_model_name(model, provider)
+        self.provider = provider
+        self.api_base = api_base.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
+        self.draft_max_chars = draft_max_chars
         self.max_retries = max_retries
         self.reasoning_effort = reasoning_effort
         self.circuit_failure_threshold = circuit_failure_threshold
@@ -298,7 +327,6 @@ class LiteLLMFinalAnswerProvider:
         *,
         draft: str | None = None,
         required_subpart_labels: Sequence[str] = (),
-        allowed_citation_ids: Sequence[str] | None = None,
         timeout: float | None = None,
     ) -> AgentFinalPayload:
         if timeout is not None and timeout <= 0:
@@ -317,7 +345,7 @@ class LiteLLMFinalAnswerProvider:
         if draft and draft.strip():
             request_messages.extend(
                 (
-                    {"role": "assistant", "content": draft[-24_000:]},
+                    {"role": "assistant", "content": draft[-self.draft_max_chars :]},
                     {"role": "user", "content": _DRAFT_INSTRUCTION},
                 )
             )
@@ -334,29 +362,22 @@ class LiteLLMFinalAnswerProvider:
 
         try:
             async with asyncio.timeout(effective_timeout):
+                configure_litellm()
                 request_options: dict[str, Any] = {
-                    "model": self.model,
-                    "api_base": self.api_base,
-                    "api_key": self.api_key,
+                    **completion_options(
+                        model=self.model,
+                        provider=self.provider,
+                        api_base=self.api_base,
+                        api_key=self.api_key,
+                        reasoning_effort=self.reasoning_effort,
+                        timeout=effective_timeout,
+                        max_retries=self.max_retries,
+                    ),
                     "messages": request_messages,
                     "response_format": AgentFinalPayload,
-                    "timeout": effective_timeout,
-                    "max_retries": self.max_retries,
                 }
-                if self.reasoning_effort is not None:
-                    request_options["reasoning_effort"] = self.reasoning_effort
-                if not self.model.removeprefix("openai/").startswith("gpt-5.6"):
-                    request_options["temperature"] = 0.1
                 response = await acompletion(**request_options)
                 payload = self._validated_payload(response)
-                materialized = materialize_final_answer(
-                    payload,
-                    required_subpart_labels=required_subpart_labels,
-                )
-                validate_citation_contract(
-                    materialized,
-                    allowed_citation_ids=allowed_citation_ids,
-                )
         except Exception:
             self._record_failure()
             raise

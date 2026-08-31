@@ -12,6 +12,14 @@ function job(overrides: Partial<PaperJobResult>): PaperJobResult {
   return {
     job_id: "job-1",
     filename: "paper.pdf",
+    display_name: null,
+    answer_mode: "generated",
+    pair_key: null,
+    paper_unit_id: null,
+    question_paper_document_id: null,
+    source_booklet_document_id: null,
+    source_booklet_checksum: null,
+    source_booklet_filename: null,
     subject_pack_id: "oxfordaqa-mathematics-9660",
     subject_code: "9660",
     unit_code: "P2",
@@ -110,7 +118,7 @@ describe("paper job presentation", () => {
       answer_requirements: [{
         label: "graph",
         marks: null,
-        answer_kind: "math_plot",
+        answer_kind: "diagram",
         accuracy: null,
         units: [],
         required_tool: "math_plot",

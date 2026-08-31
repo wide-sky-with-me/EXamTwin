@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 
 from examtwin.app.api.corpus import router as corpus_router
+from examtwin.app.api.difficulty_evidence import router as difficulty_evidence_router
 from examtwin.app.api.grading import router as grading_router
 from examtwin.app.api.graphs import router as graphs_router
 from examtwin.app.api.knowledge import router as knowledge_router
@@ -16,6 +17,7 @@ for capability_router in (
     system_router,
     workspaces_router,
     corpus_router,
+    difficulty_evidence_router,
     graphs_router,
     knowledge_router,
     paper_units_router,

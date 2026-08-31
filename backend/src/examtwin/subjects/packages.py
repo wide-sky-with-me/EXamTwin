@@ -9,18 +9,20 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from examtwin.contracts.common import (
+    DEFAULT_SUBJECT_COLOR,
+    DEFAULT_SUBJECT_ICON,
+    SUBJECT_COLOR_PATTERN,
+    SUBJECT_ICONS,
+)
 from examtwin.subjects.contracts import (
-    DEFAULT_CURRICULUM_NORMALIZER,
-    CurriculumTextNormalizer,
     SubjectPack,
     SubjectSkill,
     UnitRule,
 )
-from examtwin.subjects.mathematics_9660 import Mathematics9660TextNormalizer
-from examtwin.subjects.oxfordaqa import OXFORDAQA
-from examtwin.subjects.visual_policy import VISUAL_TOOL_POLICIES
+from examtwin.subjects.providers import DEFAULT_SUBJECT_PROVIDERS, SubjectProviderRegistry
 
 DEFAULT_SUBJECT_PACKS_ROOT = Path(__file__).resolve().parents[4] / "subject-packs"
 MAX_SKILL_CHARS = 32_000
@@ -98,11 +100,27 @@ class SubjectPackageManifest(BaseModel):
     id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]*$")
     subject_code: str = Field(min_length=1)
     title: str = Field(min_length=1)
+    icon: str = DEFAULT_SUBJECT_ICON
+    color: str = DEFAULT_SUBJECT_COLOR
     board_id: str = Field(min_length=1)
     specification_ref: str = Field(min_length=1)
     runtime: RuntimeManifest
     curriculum: CurriculumManifest
     answering: AnsweringManifest
+
+    @field_validator("icon")
+    @classmethod
+    def validate_icon(cls, value: str) -> str:
+        if value not in SUBJECT_ICONS:
+            raise ValueError(f"unsupported subject icon: {value}")
+        return value
+
+    @field_validator("color")
+    @classmethod
+    def validate_color(cls, value: str) -> str:
+        if not SUBJECT_COLOR_PATTERN.fullmatch(value):
+            raise ValueError("subject color must be a six-digit hex color")
+        return value.upper()
 
 
 @dataclass(frozen=True)
@@ -113,6 +131,8 @@ class SubjectPackage:
     digest: str
     skill_digest: str | None
     source_dir: Path
+    icon: str
+    color: str
 
     @property
     def answering_enabled(self) -> bool:
@@ -136,7 +156,11 @@ class SubjectPackageRegistry:
         self._packages = MappingProxyType(dict(packages))
 
     @classmethod
-    def from_directory(cls, root: Path) -> SubjectPackageRegistry:
+    def from_directory(
+        cls,
+        root: Path,
+        providers: SubjectProviderRegistry = DEFAULT_SUBJECT_PROVIDERS,
+    ) -> SubjectPackageRegistry:
         resolved_root = root.resolve(strict=True)
         packages: dict[str, SubjectPackage] = {}
         subject_codes: dict[str, str] = {}
@@ -144,7 +168,7 @@ class SubjectPackageRegistry:
         if not manifest_paths:
             raise ValueError(f"No subject package manifests found under {resolved_root}")
         for manifest_path in manifest_paths:
-            package = _load_package(resolved_root, manifest_path)
+            package = _load_package(resolved_root, manifest_path, providers)
             package_id = package.pack.id
             if package_id in packages:
                 raise ValueError(f"Duplicate subject package id: {package_id}")
@@ -194,7 +218,11 @@ def _safe_file(package_dir: Path, relative_name: str) -> Path:
     return candidate
 
 
-def _load_package(root: Path, manifest_path: Path) -> SubjectPackage:
+def _load_package(
+    root: Path,
+    manifest_path: Path,
+    providers: SubjectProviderRegistry,
+) -> SubjectPackage:
     resolved_manifest = manifest_path.resolve(strict=True)
     if not resolved_manifest.is_relative_to(root):
         raise ValueError(f"Subject package manifest escapes root: {manifest_path}")
@@ -204,20 +232,8 @@ def _load_package(root: Path, manifest_path: Path) -> SubjectPackage:
         raise ValueError(
             f"Subject package directory {package_dir.name!r} does not match id {manifest.id!r}"
         )
-    try:
-        board = {"oxfordaqa": OXFORDAQA}[manifest.board_id]
-    except KeyError as error:
-        raise ValueError(f"Unknown board policy: {manifest.board_id}") from error
-    normalizers: dict[str, CurriculumTextNormalizer] = {
-        DEFAULT_CURRICULUM_NORMALIZER.key: DEFAULT_CURRICULUM_NORMALIZER,
-        "mathematics-9660-v1": Mathematics9660TextNormalizer(),
-    }
-    try:
-        normalizer = normalizers[manifest.curriculum.normalizer_key]
-    except KeyError as error:
-        raise ValueError(
-            f"Unknown curriculum normalizer: {manifest.curriculum.normalizer_key}"
-        ) from error
+    board = providers.require_board(manifest.board_id)
+    normalizer = providers.require_curriculum_normalizer(manifest.curriculum.normalizer_key)
 
     curriculum = manifest.curriculum
     unit_codes = {rule.code for rule in curriculum.unit_rules}
@@ -277,14 +293,11 @@ def _load_package(root: Path, manifest_path: Path) -> SubjectPackage:
                 f"Subject package {manifest.id} SKILL.md exceeds {MAX_SKILL_CHARS} characters"
             )
         skill_digest = hashlib.sha256(skill_text.encode()).hexdigest()
-        visual_selector = None
-        if answering.visual_policy is not None:
-            try:
-                visual_selector = VISUAL_TOOL_POLICIES[answering.visual_policy]
-            except KeyError as error:
-                raise ValueError(
-                    f"Unknown answering visual policy: {answering.visual_policy}"
-                ) from error
+        visual_policy = (
+            None
+            if answering.visual_policy is None
+            else providers.require_answer_visual_policy(answering.visual_policy)
+        )
         skill = SubjectSkill(
             name=manifest.id,
             subject_codes=(manifest.subject_code,),
@@ -292,13 +305,20 @@ def _load_package(root: Path, manifest_path: Path) -> SubjectPackage:
             tool_names=answering.tool_names,
             required_tool_names=answering.required_tool_names,
             mandatory_tool_names=answering.mandatory_tool_names,
-            visual_tool_selector=visual_selector,
+            visual_tool_selector=(
+                None if visual_policy is None else visual_policy.required_tool_selector
+            ),
+            source_plot_overlay_selector=(
+                None if visual_policy is None else visual_policy.source_plot_overlay_selector
+            ),
             version=manifest.version,
             digest=skill_digest,
         )
 
+    # Presentation metadata does not alter answering, retrieval, or curriculum behavior.
+    # Keep it out of the execution digest so a color/icon edit cannot invalidate old runs.
     canonical_manifest = json.dumps(
-        manifest.model_dump(mode="json"),
+        manifest.model_dump(mode="json", exclude={"icon", "color"}),
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
@@ -313,6 +333,8 @@ def _load_package(root: Path, manifest_path: Path) -> SubjectPackage:
         digest=digest,
         skill_digest=skill_digest,
         source_dir=package_dir,
+        icon=manifest.icon,
+        color=manifest.color,
     )
 
 

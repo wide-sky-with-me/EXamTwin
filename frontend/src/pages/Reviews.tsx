@@ -18,7 +18,7 @@ import {
   Tag,
   Typography,
 } from "antd";
-import { CheckCircle2, Eye, LoaderCircle, PencilLine, ShieldAlert } from "lucide-react";
+import { CheckCircle2, Eye, FileText, LoaderCircle, PencilLine, ShieldAlert } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { ErrorBanner } from "../components/Feedback";
@@ -28,7 +28,7 @@ import { reviewAssessment } from "../lib/api";
 import type { ReviewItem } from "../types";
 
 const REVIEWER_STORAGE_KEY = "examtwin.reviewerName";
-const { Paragraph, Text, Title } = Typography;
+const { Text, Title } = Typography;
 
 type PendingReview = {
   decision: "confirm" | "override";
@@ -37,10 +37,192 @@ type PendingReview = {
   reviewer: string;
 };
 
+type PendingReviewGroup = {
+  key: string;
+  kind: "paper" | "standalone";
+  label: string;
+  paperFilename: string | null;
+  paperJobId: string | null;
+  items: ReviewItem[];
+};
+
+const REVIEW_COLLATOR = new Intl.Collator("zh-CN", {
+  numeric: true,
+  sensitivity: "base",
+});
+
+function reviewItemLabel(item: ReviewItem): string {
+  if (item.question_ref?.trim()) return item.question_ref.trim();
+  if (item.question_position !== null) return `Q${item.question_position + 1}`;
+  return item.id.slice(0, 8);
+}
+
+function compareReviewItems(left: ReviewItem, right: ReviewItem): number {
+  const leftPosition = left.question_position ?? Number.MAX_SAFE_INTEGER;
+  const rightPosition = right.question_position ?? Number.MAX_SAFE_INTEGER;
+  if (leftPosition !== rightPosition) return leftPosition - rightPosition;
+  const question = REVIEW_COLLATOR.compare(reviewItemLabel(left), reviewItemLabel(right));
+  if (question !== 0) return question;
+  const created = REVIEW_COLLATOR.compare(left.created_at, right.created_at);
+  return created !== 0 ? created : REVIEW_COLLATOR.compare(left.id, right.id);
+}
+
+function groupPendingReviews(items: ReviewItem[]): PendingReviewGroup[] {
+  const linked = new Map<string, ReviewItem[]>();
+  const standalone: ReviewItem[] = [];
+
+  for (const item of items) {
+    if (!item.paper_job_id) {
+      standalone.push(item);
+      continue;
+    }
+    const groupItems = linked.get(item.paper_job_id);
+    if (groupItems) groupItems.push(item);
+    else linked.set(item.paper_job_id, [item]);
+  }
+
+  const paperGroups = [...linked.entries()]
+    .sort(([leftId], [rightId]) => REVIEW_COLLATOR.compare(leftId, rightId))
+    .map<PendingReviewGroup>(([paperJobId, groupItems]) => {
+      const orderedItems = [...groupItems].sort(compareReviewItems);
+      const displayName = groupItems
+        .map((item) => item.paper_display_name?.trim())
+        .filter((value): value is string => Boolean(value))
+        .sort(REVIEW_COLLATOR.compare)[0] ?? null;
+      const filename = groupItems
+        .map((item) => item.paper_filename?.trim())
+        .filter((value): value is string => Boolean(value))
+        .sort(REVIEW_COLLATOR.compare)[0] ?? null;
+      return {
+        key: `paper:${paperJobId}`,
+        kind: "paper",
+        label: displayName || filename || "未命名试卷",
+        paperFilename: filename,
+        paperJobId,
+        items: orderedItems,
+      };
+    });
+
+  const standaloneGroups = [...standalone]
+    .sort(compareReviewItems)
+    .map<PendingReviewGroup>((item) => ({
+      key: `legacy:${item.id}`,
+      kind: "standalone",
+      label: `独立评估 · ${reviewItemLabel(item)}`,
+      paperFilename: null,
+      paperJobId: null,
+      items: [item],
+    }));
+
+  return [...paperGroups, ...standaloneGroups];
+}
+
 function confidenceTone(confidence: number): "success" | "normal" | "exception" {
   if (confidence >= 0.8) return "success";
   if (confidence >= 0.55) return "normal";
   return "exception";
+}
+
+function ReviewQueueItem({
+  busy,
+  item,
+  overrideValue,
+  onOverrideValueChange,
+  onRequestReview,
+  onSelectEvidence,
+}: {
+  busy: boolean;
+  item: ReviewItem;
+  overrideValue: string | undefined;
+  onOverrideValueChange: (value: string) => void;
+  onRequestReview: (decision: "confirm" | "override") => void;
+  onSelectEvidence: () => void;
+}) {
+  const label = reviewItemLabel(item);
+
+  return (
+    <article className="review-queue-item">
+      <header className="review-queue-item-header">
+        <Flex align="center" gap="small" wrap>
+          <Text code>{label}</Text>
+          <Tag>{item.subject_code}</Tag>
+          <Tag color={item.answer_mode === "uploaded"
+            ? "cyan"
+            : item.answer_mode === "generated"
+              ? "blue"
+              : undefined}
+          >
+            {item.answer_mode === "uploaded"
+              ? "外部答卷"
+              : item.answer_mode === "generated"
+                ? "AI 作答"
+                : "来源未记录"}
+          </Tag>
+          {item.question_position !== null && (
+            <Text type="secondary">题位 {item.question_position + 1}</Text>
+          )}
+        </Flex>
+        <Text type="secondary">
+          {new Date(item.created_at).toLocaleString("zh-CN")}
+        </Text>
+      </header>
+
+      <div className="review-queue-item-metrics">
+        <Statistic
+          suffix={` / ${item.total_available}`}
+          title="模型建议"
+          value={item.total_awarded}
+        />
+        <div className="review-confidence">
+          <Text type="secondary">置信度</Text>
+          <Progress
+            percent={Math.round(item.confidence * 100)}
+            size="small"
+            status={confidenceTone(item.confidence)}
+          />
+        </div>
+        <Statistic title="评分原子" value={item.result.rubric_awards.length} />
+      </div>
+
+      <footer className="review-queue-item-actions">
+        <Form.Item className="review-score-field" label="最终得分">
+          <InputNumber
+            aria-label={`${label} 最终得分`}
+            max={item.total_available}
+            min={0}
+            onChange={(value) => onOverrideValueChange(value == null ? "" : String(value))}
+            placeholder={String(item.total_awarded)}
+            step={0.5}
+            value={overrideValue === "" || overrideValue === undefined
+              ? null
+              : Number(overrideValue)}
+          />
+        </Form.Item>
+        <div className="review-queue-actions">
+          <Button icon={<Eye size={16} />} onClick={onSelectEvidence} type="link">
+            查看证据
+          </Button>
+          <Button
+            disabled={busy}
+            icon={busy
+              ? <LoaderCircle className="spin" size={16} />
+              : <CheckCircle2 size={16} />}
+            onClick={() => onRequestReview("confirm")}
+            type="link"
+          >
+            确认评分
+          </Button>
+          <Button
+            danger
+            icon={<PencilLine size={16} />}
+            onClick={() => onRequestReview("override")}
+          >
+            改分并确认
+          </Button>
+        </div>
+      </footer>
+    </article>
+  );
 }
 
 function EvidenceDrawer({ item, onClose }: { item: ReviewItem | null; onClose: () => void }) {
@@ -48,14 +230,15 @@ function EvidenceDrawer({ item, onClose }: { item: ReviewItem | null; onClose: (
   return (
     <Drawer
       destroyOnHidden
+      rootClassName="review-evidence-drawer"
       size="large"
       onClose={onClose}
       open={item !== null}
-      title={item ? `${item.question_ref ?? item.id.slice(0, 8)} · 评分证据` : "评分证据"}
+      title={item ? `${reviewItemLabel(item)} · 评分证据` : "评分证据"}
     >
       {item && result && (
-        <Space orientation="vertical" size="large" style={{ width: "100%" }}>
-          <Row gutter={12}>
+        <Space className="review-evidence-content" orientation="vertical" size="large">
+          <Row className="review-evidence-stats" gutter={12}>
             <Col span={8}><Statistic suffix={` / ${item.total_available}`} title="模型建议分" value={item.total_awarded} /></Col>
             <Col span={8}><Statistic suffix="%" title="置信度" value={Math.round(item.confidence * 100)} /></Col>
             <Col span={8}><Statistic title="评分原子" value={result.rubric_awards.length} /></Col>
@@ -158,6 +341,7 @@ export function Reviews({ items, refresh }: { items: ReviewItem[]; refresh: () =
   const { notify } = useToast();
 
   const subjectCount = useMemo(() => new Set(items.map((item) => item.subject_id)).size, [items]);
+  const reviewGroups = useMemo(() => groupPendingReviews(items), [items]);
 
   function requestReview(item: ReviewItem, decision: "confirm" | "override") {
     const reviewerName = reviewer.trim();
@@ -209,19 +393,25 @@ export function Reviews({ items, refresh }: { items: ReviewItem[]; refresh: () =
   }
 
   return (
-    <Space orientation="vertical" size="large" style={{ width: "100%" }}>
-      <Flex align="flex-end" justify="space-between" wrap gap="middle">
-        <div>
-          <Title level={1} style={{ marginBottom: 4 }}>复核工作台</Title>
-          <Paragraph type="secondary" style={{ margin: 0 }}>先核对评分原子、符号校验和引用证据，再确认或改分。</Paragraph>
-        </div>
-        {items.length > 0 && <Tag color="warning" icon={<ShieldAlert size={14} />}>{items.length} 项待处理 · {subjectCount} 个科目</Tag>}
+    <Space className="reviews-page" orientation="vertical" size="large">
+      <Flex align="flex-end" className="reviews-page-heading" justify="space-between" wrap gap="middle">
+        <Title level={1}>复核</Title>
+        {items.length > 0 && (
+          <Tag color="warning" icon={<ShieldAlert size={14} />}>
+            {items.length} 项待处理 · {subjectCount} 个科目
+          </Tag>
+        )}
       </Flex>
 
       {items.length > 0 && (
-        <Card size="small">
+        <Card className="reviewer-card" size="small">
           <Form layout="vertical">
-            <Form.Item extra="复核人会写入审计记录；确认沿用建议分，改分需要填写最终分数。" label="复核人" required style={{ marginBottom: 0 }}>
+            <Form.Item
+              className="reviewer-field"
+              extra="复核人会写入审计记录；确认沿用建议分，改分需要填写最终分数。"
+              label="复核人"
+              required
+            >
               <Input
                 aria-label="复核人"
                 onChange={(event) => {
@@ -241,44 +431,79 @@ export function Reviews({ items, refresh }: { items: ReviewItem[]; refresh: () =
       <ErrorBanner message={error} />
 
       {items.length === 0 ? (
-        <Card><Empty description="当前没有待复核评分" image={<CheckCircle2 color="#237a5b" size={48} />} /></Card>
+        <Card className="reviews-empty">
+          <Empty
+            description="当前没有待复核评分"
+            image={<CheckCircle2 className="reviews-empty-icon" size={48} />}
+          />
+        </Card>
       ) : (
-        <Row gutter={[16, 16]}>
-          {items.map((item) => (
-            <Col key={item.id} lg={12} xs={24}>
-              <Card
-                actions={[
-                  <Button icon={<Eye size={16} />} key="evidence" onClick={() => setSelectedItem(item)} type="link">查看证据</Button>,
-                  <Button disabled={busy === item.id} icon={busy === item.id ? <LoaderCircle className="spin" size={16} /> : <CheckCircle2 size={16} />} key="confirm" onClick={() => requestReview(item, "confirm")} type="link">确认评分</Button>,
-                ]}
-                title={<Space><Text code>{item.question_ref ?? item.id.slice(0, 8)}</Text><Tag>{item.subject_code}</Tag></Space>}
+        <div className="review-paper-groups">
+          {reviewGroups.map((group, groupIndex) => {
+            const pendingCount = group.items.length;
+            const headingId = `review-group-${groupIndex}`;
+
+            return (
+              <section
+                aria-labelledby={headingId}
+                className={`review-paper-group ${group.kind}`}
+                key={group.key}
               >
-                <Row align="middle" gutter={20}>
-                  <Col span={7}><Statistic suffix={`/${item.total_available}`} title="模型建议" value={item.total_awarded} /></Col>
-                  <Col span={9}>
-                    <Text type="secondary">置信度</Text>
-                    <Progress percent={Math.round(item.confidence * 100)} size="small" status={confidenceTone(item.confidence)} />
-                  </Col>
-                  <Col span={8}><Statistic title="评分原子" value={item.result.rubric_awards.length} /></Col>
-                </Row>
-                <Flex align="flex-end" gap="small" justify="space-between" style={{ marginTop: 20 }} wrap>
-                  <Form.Item label="最终得分" style={{ margin: 0 }}>
-                    <InputNumber
-                      aria-label={`${item.question_ref ?? item.id} 最终得分`}
-                      max={item.total_available}
-                      min={0}
-                      onChange={(value) => setOverrideMarks((current) => ({ ...current, [item.id]: value == null ? "" : String(value) }))}
-                      placeholder={String(item.total_awarded)}
-                      step={0.5}
-                      value={overrideMarks[item.id] === "" || overrideMarks[item.id] === undefined ? null : Number(overrideMarks[item.id])}
+                <header className="review-paper-group-header">
+                  <div className="review-paper-identity">
+                    <span aria-hidden="true"><FileText size={20} /></span>
+                    <div>
+                      <Text type="secondary">
+                        {group.kind === "paper" ? "关联试卷" : "独立复核项"}
+                      </Text>
+                      <Title id={headingId} level={2}>{group.label}</Title>
+                      {group.kind === "paper" ? (
+                        <Flex align="center" gap="small" wrap>
+                          {group.paperFilename && group.paperFilename !== group.label && (
+                            <Text type="secondary">{group.paperFilename}</Text>
+                          )}
+                          <Text code title={group.paperJobId ?? undefined}>
+                            {group.paperJobId?.slice(0, 8)}
+                          </Text>
+                        </Flex>
+                      ) : (
+                        <Text type="secondary">未关联试卷 · 旧版或独立评估</Text>
+                      )}
+                    </div>
+                  </div>
+                  <div
+                    aria-label={`本组待复核队列：${pendingCount} 项`}
+                    className="review-paper-progress"
+                  >
+                    <Flex align="center" justify="space-between">
+                      <Text strong>待复核队列</Text>
+                      <Tag color="warning">{pendingCount} 项待复核</Tag>
+                    </Flex>
+                    <Text type="secondary">
+                      已按题位顺序排列 · 提交后自动移出队列
+                    </Text>
+                  </div>
+                </header>
+
+                <div className="review-paper-items">
+                  {group.items.map((item) => (
+                    <ReviewQueueItem
+                      busy={busy === item.id}
+                      item={item}
+                      key={item.id}
+                      onOverrideValueChange={(value) => {
+                        setOverrideMarks((current) => ({ ...current, [item.id]: value }));
+                      }}
+                      onRequestReview={(decision) => requestReview(item, decision)}
+                      onSelectEvidence={() => setSelectedItem(item)}
+                      overrideValue={overrideMarks[item.id]}
                     />
-                  </Form.Item>
-                  <Button danger icon={<PencilLine size={16} />} onClick={() => requestReview(item, "override")}>改分并确认</Button>
-                </Flex>
-              </Card>
-            </Col>
-          ))}
-        </Row>
+                  ))}
+                </div>
+              </section>
+            );
+          })}
+        </div>
       )}
 
       <EvidenceDrawer item={selectedItem} onClose={() => setSelectedItem(null)} />
@@ -288,7 +513,7 @@ export function Reviews({ items, refresh }: { items: ReviewItem[]; refresh: () =
         danger={pendingReview?.decision === "override"}
         description={pendingReview
           ? pendingReview.decision === "override"
-            ? `将 Q${pendingReview.item.question_ref?.replace(/^Q/i, "") ?? pendingReview.item.id.slice(0, 8)} 改为 ${pendingReview.overrideMark}/${pendingReview.item.total_available}，并写入最终评分。此操作不能在当前界面撤销。`
+            ? `将 ${reviewItemLabel(pendingReview.item)} 改为 ${pendingReview.overrideMark}/${pendingReview.item.total_available}，并写入最终评分。此操作不能在当前界面撤销。`
             : `将沿用建议分 ${pendingReview.item.total_awarded}/${pendingReview.item.total_available}，并写入最终评分。此操作不能在当前界面撤销。`
           : ""}
         onConfirm={submitReview}

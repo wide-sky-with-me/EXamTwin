@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 from examtwin.assessment.assessment_repository import AssessmentRepository
+from examtwin.assessment.difficulty_evidence import DifficultyEvidenceService
+from examtwin.assessment.difficulty_evidence_repository import (
+    DifficultyEvidenceRepository,
+)
 from examtwin.assessment.grading import GradingService
 from examtwin.assessment.paper_answering import PaperAnswerService
 from examtwin.assessment.paper_job_repository import PaperJobRepository
@@ -30,6 +34,7 @@ from examtwin.platform.config import Settings
 from examtwin.platform.database.session import create_session_factory
 from examtwin.platform.object_catalog_repository import ObjectCatalogRepository
 from examtwin.platform.storage import ManagedObjectStore, build_storage_backend
+from examtwin.platform.structured_model import LiteLLMStructuredModel
 from examtwin.subjects.dashboard_repository import DashboardRepository
 from examtwin.subjects.public import SubjectContext, subject_context
 from examtwin.subjects.workspace_repository import WorkspaceRepository
@@ -59,6 +64,27 @@ def dashboard_repository(settings: Settings) -> DashboardRepository:
 
 def difficulty_repository(settings: Settings) -> DifficultyRepository:
     return DifficultyRepository(create_session_factory(settings.database_url))
+
+
+def build_difficulty_evidence_service(settings: Settings) -> DifficultyEvidenceService:
+    api_key = settings.llm_api_key
+    model = (
+        LiteLLMStructuredModel(
+            model=settings.paper_split_model,
+            provider=settings.litellm_provider,
+            api_base=settings.llm_base_url,
+            api_key=api_key.get_secret_value(),
+            reasoning_effort=settings.paper_split_reasoning_effort,
+        )
+        if api_key is not None
+        else None
+    )
+    return DifficultyEvidenceService(
+        DifficultyEvidenceRepository(create_session_factory(settings.database_url)),
+        model=model,
+        model_name=settings.paper_split_model,
+        timeout=settings.paper_split_timeout,
+    )
 
 
 def knowledge_repository(settings: Settings) -> KnowledgeRepository:

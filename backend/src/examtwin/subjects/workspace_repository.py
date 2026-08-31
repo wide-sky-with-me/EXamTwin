@@ -10,6 +10,12 @@ from sqlalchemy import case, delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, sessionmaker
 
+from examtwin.contracts.common import (
+    DEFAULT_SUBJECT_COLOR,
+    DEFAULT_SUBJECT_ICON,
+    SUBJECT_COLOR_PATTERN,
+    SUBJECT_ICONS,
+)
 from examtwin.platform.database.models import (
     AssessmentModel,
     AssessmentRunModel,
@@ -35,27 +41,6 @@ from examtwin.subjects.document_assignment import KNOWLEDGE_SOURCE_TYPES
 SUBJECT_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{1,62}$")
 SUBJECT_CODE_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{1,31}$")
 SUBJECT_DELETION_TERMINAL_JOB_STATUSES = ("completed", "partial_failed", "failed")
-SUBJECT_COLOR_PATTERN = re.compile(r"^#[0-9A-Fa-f]{6}$")
-SUBJECT_ICONS = frozenset(
-    {
-        "book-open",
-        "calculator",
-        "chart-no-axes-combined",
-        "flask-conical",
-        "languages",
-        "landmark",
-        "atom",
-        "graduation-cap",
-    }
-)
-SUBJECT_PRESENTATION_DEFAULTS = {
-    "9640": ("chart-no-axes-combined", "#0F766E"),
-    "9660": ("calculator", "#2563EB"),
-}
-
-
-def _subject_presentation(subject_code: str) -> tuple[str, str]:
-    return SUBJECT_PRESENTATION_DEFAULTS.get(subject_code, ("book-open", "#2F6FED"))
 
 
 def _slug(value: str) -> str:
@@ -96,15 +81,14 @@ class WorkspaceRepository:
         with self.sessions.begin() as session:
             for package in packages:
                 subject_id = package.pack.id
-                icon, color = _subject_presentation(package.pack.subject_code)
                 values = {
                     "id": subject_id,
                     "subject_code": package.pack.subject_code,
                     "title": package.pack.title,
                     "board_name": package.pack.board.name,
                     "language": "en",
-                    "icon": icon,
-                    "color": color,
+                    "icon": getattr(package, "icon", DEFAULT_SUBJECT_ICON),
+                    "color": getattr(package, "color", DEFAULT_SUBJECT_COLOR),
                     "capability_profile_id": subject_id,
                     "status": "active",
                     "created_at": now,
@@ -201,8 +185,8 @@ class WorkspaceRepository:
         board_name: str,
         language: str = "en",
         capability_profile_id: str | None = None,
-        icon: str = "book-open",
-        color: str = "#2F6FED",
+        icon: str = DEFAULT_SUBJECT_ICON,
+        color: str = DEFAULT_SUBJECT_COLOR,
     ) -> dict[str, Any]:
         subject_id = subject_id.strip().lower()
         subject_code = subject_code.strip()

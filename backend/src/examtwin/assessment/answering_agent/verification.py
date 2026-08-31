@@ -7,7 +7,6 @@ from examtwin.assessment.answering_agent.contracts import (
     required_answer_artifacts_are_present,
 )
 from examtwin.contracts.evidence import AnswerDiagram, AnswerImage
-from examtwin.subjects.public import mathematics_source_plot_overlay_mode
 
 
 def _label_is_present(answer: str, label: str) -> bool:
@@ -33,6 +32,8 @@ def verify_answer_contract(
     answer_markdown: str,
     diagrams: tuple[AnswerDiagram, ...] | list[AnswerDiagram],
     images: tuple[AnswerImage, ...] | list[AnswerImage],
+    *,
+    source_plot_overlay_mode: str | None = None,
 ) -> None:
     required_tools = task.question_spec.required_tool_names
     if not required_answer_artifacts_are_present(diagrams, images, required_tools):
@@ -85,9 +86,7 @@ def verify_answer_contract(
                 "answer is missing anchored visual artifacts: " + ", ".join(missing_placements)
             )
 
-    overlay_mode = (
-        mathematics_source_plot_overlay_mode(task.question) if task.subject_code == "9660" else None
-    )
+    overlay_mode = source_plot_overlay_mode
     if overlay_mode == "existing_curve_grid" and not any(
         diagram.tool_name == "math_plot" and diagram.source is not None for diagram in diagrams
     ):

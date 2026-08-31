@@ -6,6 +6,7 @@ from pathlib import Path
 
 from sqlalchemy.exc import SQLAlchemyError
 
+from examtwin.contracts.common import DEFAULT_SUBJECT_COLOR, DEFAULT_SUBJECT_ICON
 from examtwin.platform.config import Settings
 from examtwin.platform.database.session import create_session_factory
 from examtwin.subjects import BoardPack, SubjectPack, UnitRule, get_subject_pack
@@ -227,6 +228,8 @@ def _generic_package(settings: Settings, workspace: dict) -> SubjectPackage:
         digest=digest,
         skill_digest=digest,
         source_dir=corpus_dir,
+        icon=str(workspace.get("icon") or DEFAULT_SUBJECT_ICON),
+        color=str(workspace.get("color") or DEFAULT_SUBJECT_COLOR),
     )
 
 

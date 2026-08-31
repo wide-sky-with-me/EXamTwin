@@ -875,6 +875,75 @@ export interface paths {
         patch: operations["update_subject_workspace_api_v1_subject_workspaces__workspace_id__patch"];
         trace?: never;
     };
+    "/api/v1/subject-workspaces/{workspace_id}/difficulty-evidence/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Difficulty Runs */
+        get: operations["list_difficulty_runs_api_v1_subject_workspaces__workspace_id__difficulty_evidence_runs_get"];
+        put?: never;
+        /** Create Difficulty Run */
+        post: operations["create_difficulty_run_api_v1_subject_workspaces__workspace_id__difficulty_evidence_runs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/subject-workspaces/{workspace_id}/difficulty-evidence/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Difficulty Run */
+        get: operations["get_difficulty_run_api_v1_subject_workspaces__workspace_id__difficulty_evidence_runs__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/subject-workspaces/{workspace_id}/difficulty-evidence/runs/{run_id}/candidates/{candidate_id}/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Review Difficulty Candidate */
+        post: operations["review_difficulty_candidate_api_v1_subject_workspaces__workspace_id__difficulty_evidence_runs__run_id__candidates__candidate_id__reviews_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/subject-workspaces/{workspace_id}/difficulty-evidence/runs/{run_id}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publish Difficulty Run */
+        post: operations["publish_difficulty_run_api_v1_subject_workspaces__workspace_id__difficulty_evidence_runs__run_id__publish_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/subject-workspaces/{workspace_id}/documents": {
         parameters: {
             query?: never;
@@ -1173,9 +1242,8 @@ export interface components {
             /**
              * Tool Name
              * @default math_diagram
-             * @enum {string}
              */
-            tool_name: "math_plot" | "math_diagram" | "economics_diagram";
+            tool_name: string;
             /**
              * View Box
              * @default [
@@ -1241,9 +1309,8 @@ export interface components {
             /**
              * Tool Name
              * @default image_generate
-             * @constant
              */
-            tool_name: "image_generate";
+            tool_name: string;
             /**
              * Width
              * @default 1024
@@ -1581,6 +1648,213 @@ export interface components {
              * @enum {string}
              */
             tone: "default" | "primary" | "secondary" | "tertiary" | "muted";
+        };
+        /** DifficultyCandidatePatch */
+        DifficultyCandidatePatch: {
+            /** Evidence Level */
+            evidence_level: ("A" | "B") | null;
+            /** Metric Comparator */
+            metric_comparator: ("eq" | "approx" | "gt" | "gte" | "lt" | "lte") | null;
+            /** Metric Direction */
+            metric_direction: ("success" | "difficulty") | null;
+            /** Metric Name */
+            metric_name: string | null;
+            /** Metric Scale */
+            metric_scale: ("proportion" | "percent") | null;
+            /** Metric Text */
+            metric_text: string | null;
+            /** Metric Value */
+            metric_value: number | null;
+            /** Page Number */
+            page_number: number | null;
+            /** Question Number */
+            question_number: string | null;
+            /** Quote */
+            quote: string | null;
+        };
+        /** DifficultyCandidateView */
+        DifficultyCandidateView: {
+            /** Block Hash */
+            block_hash: string;
+            /** Candidate Fingerprint */
+            candidate_fingerprint: string;
+            /** Difficulty Score */
+            difficulty_score: number | null;
+            /**
+             * Evidence Level
+             * @enum {string}
+             */
+            evidence_level: "A" | "B";
+            /**
+             * Evidence Type
+             * @enum {string}
+             */
+            evidence_type: "quantitative" | "qualitative";
+            /** Id */
+            id: string;
+            /** Metric Comparator */
+            metric_comparator: ("eq" | "approx" | "gt" | "gte" | "lt" | "lte") | null;
+            /** Metric Direction */
+            metric_direction: ("success" | "difficulty") | null;
+            /** Metric Name */
+            metric_name: string | null;
+            /** Metric Scale */
+            metric_scale: ("proportion" | "percent") | null;
+            /** Metric Text */
+            metric_text: string | null;
+            /** Metric Value */
+            metric_value: number | null;
+            /** Page Number */
+            page_number: number;
+            /** Question Number */
+            question_number: string;
+            /** Quote */
+            quote: string;
+            /** Quote Hash */
+            quote_hash: string;
+            /** Review Decision */
+            review_decision: ("accepted" | "rejected") | null;
+            /** Review Replacement */
+            review_replacement: {
+                [key: string]: unknown;
+            };
+            /** Run Id */
+            run_id: string;
+            /** Source Ref */
+            source_ref: string;
+            /** Validation Errors */
+            validation_errors: string[];
+            /** Validation Status */
+            validation_status: string;
+        };
+        /** DifficultyPublishRequest */
+        DifficultyPublishRequest: {
+            /** Expected Run Fingerprint */
+            expected_run_fingerprint: string;
+        };
+        /** DifficultyReviewRequest */
+        DifficultyReviewRequest: {
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "accepted" | "rejected";
+            /** Expected Candidate Fingerprint */
+            expected_candidate_fingerprint: string;
+            /** Notes */
+            notes?: string | null;
+            replacement?: components["schemas"]["DifficultyCandidatePatch"] | null;
+        };
+        /** DifficultyRunCreateRequest */
+        DifficultyRunCreateRequest: {
+            /** Source Document Id */
+            source_document_id: string;
+        };
+        /** DifficultyRunDetail */
+        DifficultyRunDetail: {
+            /** Candidate Count */
+            candidate_count: number;
+            /** Candidates */
+            candidates: components["schemas"]["DifficultyCandidateView"][];
+            /** Completed At */
+            completed_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Error */
+            error: string | null;
+            /** Extractor Version */
+            extractor_version: string;
+            /** Id */
+            id: string;
+            /** Input Hash */
+            input_hash: string;
+            /** Model Name */
+            model_name: string;
+            /** Package Digest */
+            package_digest: string;
+            /** Pair Key */
+            pair_key: string;
+            /** Prompt Digest */
+            prompt_digest: string;
+            /** Published At */
+            published_at: string | null;
+            /** Question Catalog Hash */
+            question_catalog_hash: string;
+            /** Question Paper Checksum */
+            question_paper_checksum: string;
+            /** Question Paper Document Id */
+            question_paper_document_id: string;
+            /** Run Fingerprint */
+            run_fingerprint: string;
+            /** Source Checksum */
+            source_checksum: string;
+            /** Source Document Id */
+            source_document_id: string;
+            /** Status */
+            status: string;
+            /** Subject Code */
+            subject_code: string;
+            /** Subject Id */
+            subject_id: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** DifficultyRunSummary */
+        DifficultyRunSummary: {
+            /** Candidate Count */
+            candidate_count: number;
+            /** Completed At */
+            completed_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Error */
+            error: string | null;
+            /** Extractor Version */
+            extractor_version: string;
+            /** Id */
+            id: string;
+            /** Input Hash */
+            input_hash: string;
+            /** Model Name */
+            model_name: string;
+            /** Package Digest */
+            package_digest: string;
+            /** Pair Key */
+            pair_key: string;
+            /** Prompt Digest */
+            prompt_digest: string;
+            /** Published At */
+            published_at: string | null;
+            /** Question Catalog Hash */
+            question_catalog_hash: string;
+            /** Question Paper Checksum */
+            question_paper_checksum: string;
+            /** Question Paper Document Id */
+            question_paper_document_id: string;
+            /** Source Checksum */
+            source_checksum: string;
+            /** Source Document Id */
+            source_document_id: string;
+            /** Status */
+            status: string;
+            /** Subject Code */
+            subject_code: string;
+            /** Subject Id */
+            subject_id: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
         };
         /** GenerateRubricRequest */
         GenerateRubricRequest: {
@@ -2586,6 +2860,8 @@ export interface components {
         };
         /** ReviewQueueItem */
         ReviewQueueItem: {
+            /** Answer Mode */
+            answer_mode: ("generated" | "uploaded") | null;
             /** Confidence */
             confidence: number;
             /**
@@ -2595,6 +2871,14 @@ export interface components {
             created_at: string;
             /** Id */
             id: string;
+            /** Paper Display Name */
+            paper_display_name: string | null;
+            /** Paper Filename */
+            paper_filename: string | null;
+            /** Paper Job Id */
+            paper_job_id: string | null;
+            /** Question Position */
+            question_position: number | null;
             /** Question Ref */
             question_ref: string | null;
             result: components["schemas"]["GradeResponse"];
@@ -3062,7 +3346,7 @@ export interface components {
              * @default text
              * @enum {string}
              */
-            answer_kind: "text" | "numeric" | "expression" | "proof" | "table" | "math_plot" | "math_diagram" | "economics_diagram" | "image";
+            answer_kind: "text" | "numeric" | "expression" | "proof" | "table" | "diagram" | "image";
             /**
              * Label
              * @default whole
@@ -3071,7 +3355,7 @@ export interface components {
             /** Marks */
             marks: number | null;
             /** Required Tool */
-            required_tool: ("math_plot" | "math_diagram" | "economics_diagram" | "image_generate") | null;
+            required_tool: string | null;
             /**
              * Units
              * @default []
@@ -5061,6 +5345,198 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SubjectPackResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_difficulty_runs_api_v1_subject_workspaces__workspace_id__difficulty_evidence_runs_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DifficultyRunSummary"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_difficulty_run_api_v1_subject_workspaces__workspace_id__difficulty_evidence_runs_post: {
+        parameters: {
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DifficultyRunCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DifficultyRunDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_difficulty_run_api_v1_subject_workspaces__workspace_id__difficulty_evidence_runs__run_id__get: {
+        parameters: {
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path: {
+                workspace_id: string;
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DifficultyRunDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    review_difficulty_candidate_api_v1_subject_workspaces__workspace_id__difficulty_evidence_runs__run_id__candidates__candidate_id__reviews_post: {
+        parameters: {
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path: {
+                workspace_id: string;
+                run_id: string;
+                candidate_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DifficultyReviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DifficultyRunDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    publish_difficulty_run_api_v1_subject_workspaces__workspace_id__difficulty_evidence_runs__run_id__publish_post: {
+        parameters: {
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path: {
+                workspace_id: string;
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DifficultyPublishRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DifficultyRunDetail"];
                 };
             };
             /** @description Validation Error */

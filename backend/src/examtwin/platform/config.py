@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlparse
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
@@ -25,48 +25,69 @@ class Settings(BaseSettings):
     app_env: str = "development"
     local_access_only: bool = True
     api_bind_host: str = Field(default="127.0.0.1", min_length=1)
-    api_prefix: str = "/api/v1"
-    subject_pack: str = "oxfordaqa-mathematics-9660"
+    api_port: int = Field(default=8000, ge=1, le=65_535)
+    subject_pack: str
     subject_packages_root: Path = Path("subject-packs")
 
     mineru_token: SecretStr | None = None
     mineru_mode: str = "precision"
     mineru_language: str = "en"
 
-    openai_compat_base_url: str = "https://api.openai.com/v1"
-    openai_compat_api_key: SecretStr | None = None
-    llm_model: str = "gpt-5.6-sol"
+    litellm_provider: str = Field(min_length=1)
+    llm_base_url: str = Field(min_length=1)
+    llm_api_key: SecretStr | None = None
+    llm_model: str
     llm_reasoning_effort: ReasoningEffort = "medium"
-    knowledge_difficulty_model: str = "gpt-5.6-luna"
+    knowledge_difficulty_model: str
     knowledge_difficulty_reasoning_effort: ReasoningEffort = "low"
     knowledge_difficulty_timeout: int = Field(default=120, ge=30, le=300)
     knowledge_difficulty_batch_size: int = Field(default=20, ge=1, le=50)
-    knowledge_graph_model: str = "gpt-5.6-luna"
+    knowledge_graph_model: str
     knowledge_graph_reasoning_effort: ReasoningEffort = "low"
     knowledge_graph_timeout: int = Field(default=120, ge=30, le=300)
     knowledge_graph_batch_chars: int = Field(default=24_000, ge=4_000, le=60_000)
+    knowledge_graph_block_max_chars: int = Field(default=12_000, ge=1_000, le=60_000)
     knowledge_graph_max_blocks: int = Field(default=400, ge=1, le=2_000)
-    grading_model: str = "gpt-5.6-sol"
+    grading_model: str
     grading_reasoning_effort: ReasoningEffort = "medium"
     grading_timeout: int = Field(default=120, ge=30, le=300)
-    paper_split_model: str = "gpt-5.6-luna"
+    grading_question_max_chars: int = Field(default=16_000, ge=1_000, le=100_000)
+    grading_mark_scheme_max_chars: int = Field(default=28_000, ge=1_000, le=200_000)
+    grading_answer_max_chars: int = Field(default=16_000, ge=1_000, le=100_000)
+    rubric_course_context_max_chars: int = Field(default=12_000, ge=1_000, le=100_000)
+    rubric_question_max_chars: int = Field(default=10_000, ge=1_000, le=100_000)
+    rubric_target_question_max_chars: int = Field(default=3_000, ge=500, le=100_000)
+    rubric_requirements_max_chars: int = Field(default=8_000, ge=500, le=100_000)
+    rubric_mark_scheme_max_chars: int = Field(default=60_000, ge=1_000, le=300_000)
+    rubric_preamble_max_chars: int = Field(default=12_000, ge=1_000, le=100_000)
+    rubric_following_context_max_chars: int = Field(default=30_000, ge=1_000, le=200_000)
+    paper_split_model: str
     paper_split_reasoning_effort: ReasoningEffort = "none"
     paper_split_timeout: int = Field(default=90, ge=30, le=300)
     paper_split_max_attempts: int = Field(default=2, ge=1, le=5)
     paper_split_max_chars: int = Field(default=4_000, ge=2_500, le=60_000)
+    paper_split_overlap_max_chars: int = Field(default=4_000, ge=0, le=20_000)
     paper_split_concurrency: int = Field(default=2, ge=1, le=4)
+    paper_classification_max_chars: int = Field(default=24_000, ge=4_000, le=100_000)
+    paper_repair_candidate_budget_chars: int = Field(default=80_000, ge=8_000, le=300_000)
+    paper_repair_candidate_max_chars: int = Field(default=3_000, ge=800, le=20_000)
+    paper_repair_source_max_chars: int = Field(default=60_000, ge=4_000, le=300_000)
     paper_vision_enabled: bool = True
-    paper_vision_model: str = "gpt-5.6-terra"
+    paper_vision_model: str
     paper_vision_reasoning_effort: ReasoningEffort = "low"
     paper_vision_timeout: int = Field(default=120, ge=30, le=300)
     paper_vision_max_attempts: int = Field(default=3, ge=1, le=5)
     paper_vision_retry_delay_seconds: float = Field(default=2, ge=0, le=60)
     paper_vision_min_confidence: float = Field(default=0.7, ge=0, le=1)
     paper_vision_concurrency: int = Field(default=2, ge=1, le=4)
+    paper_vision_markdown_max_chars: int = Field(default=30_000, ge=1_000, le=200_000)
+    paper_vision_max_output_tokens: int = Field(default=12_000, ge=1_000, le=64_000)
+    question_vision_question_max_chars: int = Field(default=20_000, ge=1_000, le=100_000)
+    question_vision_max_output_tokens: int = Field(default=4_000, ge=512, le=32_000)
     image_generation_enabled: bool = False
     image_generation_base_url: str | None = None
     image_generation_api_key: SecretStr | None = None
-    image_generation_model: str = "gpt-image-2"
+    image_generation_model: str
     image_generation_timeout: int = Field(default=120, ge=30, le=300)
     image_generation_max_attempts: int = Field(default=2, ge=1, le=3)
     image_generation_max_output_bytes: int = Field(
@@ -75,19 +96,22 @@ class Settings(BaseSettings):
         le=32 * 1024 * 1024,
     )
 
-    siliconflow_base_url: str = "https://api.siliconflow.cn/v1"
-    siliconflow_api_key: SecretStr | None = None
-    embedding_model: str = "Qwen/Qwen3-Embedding-8B"
-    rerank_model: str = "Qwen/Qwen3-Reranker-8B"
+    retrieval_base_url: str = Field(min_length=1)
+    retrieval_api_key: SecretStr | None = None
+    embedding_model: str
+    embedding_batch_size: int = Field(default=16, ge=1, le=128)
+    rerank_model: str
+    rerank_path: str = Field(default="/rerank", pattern=r"^/[A-Za-z0-9._~!$&'()*+,;=:@%/-]+$")
+    rerank_document_max_chars: int = Field(default=20_000, ge=1_000, le=200_000)
     embedding_timeout: int = Field(default=25, ge=5, le=120)
     rerank_timeout: int = Field(default=30, ge=5, le=120)
     retrieval_provider_timeout: int = Field(default=15, ge=5, le=60)
 
     database_url: str = "postgresql://examtwin:examtwin_dev@localhost:55432/examtwin"
     qdrant_url: str = "http://localhost:6333"
-    qdrant_collection: str = "examtwin_9660"
-    qdrant_collection_alias: str = "examtwin_9660_live"
-    corpus_root: Path = Path("data/牛津AQA/数学")
+    qdrant_collection: str
+    qdrant_collection_alias: str
+    corpus_root: Path
     object_store_backend: Literal["local", "s3"] = "local"
     object_store_local_root: Path = Path("var")
     object_store_cache_dir: Path = Path("var/object-cache")
@@ -111,6 +135,10 @@ class Settings(BaseSettings):
     paper_mineru_timeout: int = Field(default=600, ge=60, le=1800)
     paper_mineru_max_attempts: int = Field(default=3, ge=1, le=5)
     paper_mineru_retry_delay_seconds: float = Field(default=2, ge=0, le=60)
+    knowledge_mineru_timeout: int = Field(default=1200, ge=60, le=3600)
+    knowledge_mineru_max_attempts: int = Field(default=3, ge=1, le=5)
+    knowledge_mineru_retry_delay_seconds: float = Field(default=2, ge=0, le=60)
+    knowledge_mineru_retry_max_seconds: float = Field(default=30, ge=0, le=300)
     paper_question_max_attempts: int = Field(default=3, ge=1, le=5)
     paper_question_retry_delay_seconds: float = Field(default=2, ge=0, le=60)
     paper_question_concurrency: int = Field(default=4, ge=1, le=8)
@@ -121,6 +149,13 @@ class Settings(BaseSettings):
         le=64 * 1024 * 1024,
     )
     answer_agent_timeout: int = Field(default=300, ge=30, le=600)
+    answer_agent_finalization_timeout: int = Field(default=45, ge=5, le=180)
+    answer_agent_finalization_draft_max_chars: int = Field(
+        default=24_000,
+        ge=1_000,
+        le=100_000,
+    )
+    answer_agent_tool_timeout: int = Field(default=45, ge=5, le=180)
     answer_agent_max_iterations: int = Field(default=16, ge=2, le=24)
     answer_agent_max_tool_calls: int = Field(default=12, ge=1, le=20)
     answer_agent_mcp_servers_json: str = "[]"
@@ -132,6 +167,23 @@ class Settings(BaseSettings):
     retrieval_raw_fallback_count: int = Field(default=2, ge=0, le=5)
     retrieval_trace_enabled: bool = True
     retrieval_trace_max_rows_per_subject: int = Field(default=2_000, ge=100, le=100_000)
+
+    @field_validator("llm_base_url", "retrieval_base_url")
+    @classmethod
+    def normalize_required_provider_base_url(cls, value: str) -> str:
+        normalized = value.rstrip("/")
+        if not normalized:
+            raise ValueError("provider base URL must not be empty")
+        return normalized
+
+    @field_validator("image_generation_base_url", mode="before")
+    @classmethod
+    def normalize_optional_provider_base_url(cls, value: object) -> object:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return None
+        if isinstance(value, str):
+            return value.rstrip("/")
+        return value
 
     @model_validator(mode="after")
     def validate_object_store_credentials(self) -> Settings:
@@ -178,16 +230,8 @@ class Settings(BaseSettings):
         return self.resolved(self.object_store_cache_dir)
 
     @property
-    def llm_provider_base_url(self) -> str:
-        return self.openai_compat_base_url.rstrip("/")
-
-    @property
-    def llm_provider_api_key(self) -> SecretStr | None:
-        return self.openai_compat_api_key
-
-    @property
     def image_provider_base_url(self) -> str:
-        return (self.image_generation_base_url or self.llm_provider_base_url).rstrip("/")
+        return self.image_generation_base_url or self.llm_base_url
 
     @property
     def image_provider_api_key(self) -> SecretStr | None:
@@ -196,7 +240,7 @@ class Settings(BaseSettings):
             and self.image_generation_api_key.get_secret_value()
         ):
             return self.image_generation_api_key
-        return self.llm_provider_api_key
+        return self.llm_api_key
 
     @property
     def cors_origin_list(self) -> list[str]:
@@ -215,4 +259,5 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    # Required deployment values are populated by BaseSettings from the environment.
+    return Settings()  # pyright: ignore[reportCallIssue]

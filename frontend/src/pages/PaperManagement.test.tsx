@@ -4,8 +4,15 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { DesignSystemProvider } from "../components/ui/DesignSystemProvider";
-import type { PaperUnitSummary, SourceDocument, SubjectStatus } from "../types";
+import { subscribeTaskSnapshots } from "../lib/task-events";
+import type { PaperJobResult, PaperJobSummary, PaperUnitSummary, SourceDocument, SubjectStatus } from "../types";
 import { PaperManagement } from "./PaperManagement";
+
+vi.mock("../lib/task-events", () => ({
+  subscribeTaskSnapshots: vi.fn(() => () => undefined),
+}));
+
+const subscribeMock = vi.mocked(subscribeTaskSnapshots);
 
 const subject: SubjectStatus = {
   id: "oxfordaqa-mathematics-9660",
@@ -73,8 +80,8 @@ async function visibleModal(title: string) {
   let modal: HTMLElement | undefined;
   await waitFor(() => {
     modal = screen.queryAllByText(title, { exact: true })
-      .map((element) => element.closest<HTMLElement>("[role='dialog']") ?? element.closest<HTMLElement>(".ant-modal") ?? element.parentElement)
-      .find((candidate): candidate is HTMLElement => Boolean(candidate));
+      .map((element) => element.closest<HTMLElement>("[role='dialog'], .ant-modal"))
+      .find((candidate): candidate is HTMLElement => candidate !== null);
     expect(modal).toBeInTheDocument();
   });
   return modal!;
@@ -88,6 +95,8 @@ function installServer(
   initialRows: PaperUnitSummary[] = [paper()],
   initialDocuments: SourceDocument[] = [source(), source({ id: "ms-1", filename: "MS-202406-P1.pdf", display_name: null, source_type: "mark_scheme", checksum: "ms" }), source({ id: "insert-1", filename: "Insert-202406-P1.pdf", display_name: null, source_type: "insert", checksum: "insert" })],
   conversionDelay = 80,
+  paperJobs: PaperJobSummary[] = [],
+  paperDetail: PaperUnitSummary | null = paper(),
 ) {
   let rows = [...initialRows];
   let trashedRows: PaperUnitSummary[] = [];
@@ -98,10 +107,14 @@ function installServer(
     requests.push(request.clone());
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname.endsWith("/documents")) return json(documents);
-    if (request.method === "GET" && url.pathname.endsWith("/papers/jobs")) return json({ items: [], total: 0, limit: 10, offset: 0 });
+    if (request.method === "GET" && url.pathname.endsWith("/papers/jobs")) {
+      return json({ items: paperJobs, total: paperJobs.length, limit: 10, offset: 0 });
+    }
     if (request.method === "GET" && url.pathname.endsWith("/paper-units/trash")) return json({ items: trashedRows, total: trashedRows.length, limit: 100, offset: 0, available_units: [], available_years: [], available_sessions: [] });
     if (request.method === "GET" && url.pathname.endsWith("/paper-units")) return json({ items: rows, total: rows.length, limit: 12, offset: 0, available_units: ["P1"], available_years: [2024], available_sessions: ["JUN"] });
-    if (request.method === "GET" && url.pathname.includes("/paper-units/")) return json(paper());
+    if (request.method === "GET" && url.pathname.includes("/paper-units/")) {
+      return paperDetail ? json(paperDetail) : json({ detail: "Paper unit not found" }, 404);
+    }
     if (request.method === "POST" && url.pathname.endsWith("/corpus/convert")) {
       const body = await request.json() as { document_ids: string[] };
       documents = documents.map((item) => body.document_ids.includes(item.id) ? { ...item, status: "converting" } : item);
@@ -191,6 +204,38 @@ describe("PaperManagement", () => {
     expect(requestedSubjects).toEqual([subject.id, economicsSubject.id, subject.id]);
   });
 
+  test("shows material parse states and queues all pending bindings from the card", async () => {
+    const pendingDocuments = [
+      source({ status: "discovered" }),
+      source({ id: "ms-1", filename: "MS-202406-P1.pdf", display_name: null, source_type: "mark_scheme", checksum: "ms", status: "discovered" }),
+      source({ id: "insert-1", filename: "Insert-202406-P1.pdf", display_name: null, source_type: "insert", checksum: "insert", status: "discovered" }),
+    ];
+    const pendingPaper = paper({
+      documents: paper().documents.map((document) => ({ ...document, status: "discovered" })),
+    });
+    const { requests } = installServer([pendingPaper], pendingDocuments);
+    const onOpenPaper = vi.fn();
+    const user = userEvent.setup();
+    render(<PaperManagement onOpenPaper={onOpenPaper} subjectId={subject.id} subjects={[subject]} />);
+
+    const title = await screen.findByText("June paper");
+    const card = title.closest<HTMLElement>(".paper-unit-card");
+    expect(card).toBeInTheDocument();
+    expect(within(card!).getAllByText("待解析")).toHaveLength(3);
+    const quickParse = within(card!).getByRole("button", { name: "一键解析 June paper" });
+    await waitFor(() => expect(quickParse).toBeEnabled());
+    await user.click(quickParse);
+    expect(onOpenPaper).not.toHaveBeenCalled();
+    expect(within(card!).getByText("解析中")).toBeInTheDocument();
+    expect(within(card!).getAllByText("排队中")).toHaveLength(2);
+
+    await waitFor(() => {
+      const conversionRequests = requests.filter((request) => request.method === "POST" && request.url.endsWith("/corpus/convert"));
+      expect(conversionRequests).toHaveLength(3);
+    }, { timeout: 4000 });
+    await waitFor(() => expect(within(card!).getAllByText("已解析")).toHaveLength(3), { timeout: 4000 });
+  });
+
   test("shows canonical bindings, filters, and opens the URL-owned detail", async () => {
     installServer();
     const onOpenPaper = vi.fn();
@@ -202,18 +247,25 @@ describe("PaperManagement", () => {
     const card = title.closest<HTMLElement>(".ant-card");
     expect(within(card!).getByText("使用中")).toBeVisible();
     expect(within(card!).getByText("Mark Scheme")).toBeVisible();
-    expect(within(card!).getByText("含支撑材料")).toBeVisible();
+    expect(within(card!).getByText("Source Booklet")).toBeVisible();
     expect(screen.getByLabelText("试卷分页")).toHaveTextContent("1–1/ 1 份");
     await user.click(title.closest("button")!);
     expect(onOpenPaper).toHaveBeenCalledWith(subject.id, "unit-1");
     rerender(<DesignSystemProvider><PaperManagement detail={{ kind: "paper", id: "unit-1" }} subjectId={subject.id} subjects={[subject]} /></DesignSystemProvider>);
     const detailDialog = await visibleModal("试卷详情");
     expect(within(detailDialog).getByRole("heading", { name: "June paper", level: 2 })).toBeInTheDocument();
+    const bindingList = detailDialog.querySelector<HTMLElement>(".paper-binding-list");
+    expect(bindingList).toBeInTheDocument();
+    const bindingRows = within(bindingList!).getAllByRole("button");
+    expect(bindingRows).toHaveLength(3);
+    expect(bindingRows.every((row) => row.querySelector(".paper-binding-icon svg"))).toBe(true);
+    expect(bindingRows.every((row) => row.querySelector(".paper-binding-copy"))).toBe(true);
+    expect(bindingRows.every((row) => row.querySelector(".paper-binding-meta"))).toBe(true);
     expect(within(detailDialog).getByRole("button", { name: /Mark Scheme/ })).toBeInTheDocument();
     const summary = detailDialog.querySelector<HTMLElement>(".paper-detail-summary");
     expect(summary).toBeInTheDocument();
     expect(within(summary!).getByText("作答记录")).toBeInTheDocument();
-    expect(within(summary!).getByText("试卷状态")).toBeInTheDocument();
+    expect(within(summary!).getByText("资料")).toBeInTheDocument();
     expect(within(summary!).getByText("最近更新")).toBeInTheDocument();
   });
 
@@ -230,8 +282,136 @@ describe("PaperManagement", () => {
     render(<PaperManagement detail={{ kind: "answers", paperId: "unit-1" }} subjectId={subject.id} subjects={[subject]} />);
 
     const answersDialog = await visibleModal("作答记录 · June paper");
-    expect(within(answersDialog).getByRole("heading", { name: "作答记录" })).toBeInTheDocument();
-    expect(await within(answersDialog).findByText("没有符合当前条件的作答记录。")).toBeInTheDocument();
+    const embeddedHistory = answersDialog.querySelector(".paper-history-embedded");
+    expect(embeddedHistory).toBeInTheDocument();
+    expect(embeddedHistory).not.toHaveClass("panel");
+    expect(await within(answersDialog).findByText("还没有作答记录")).toBeInTheDocument();
+  });
+
+  test("does not rewrite an unbound history job onto the current paper route", async () => {
+    const unboundJob: PaperJobSummary = {
+      job_id: "unbound-job",
+      filename: "legacy-unbound.pdf",
+      display_name: null,
+      answer_mode: "generated",
+      pair_key: null,
+      paper_unit_id: null,
+      question_paper_document_id: null,
+      source_booklet_document_id: null,
+      source_booklet_checksum: null,
+      source_booklet_filename: null,
+      unit_code: "P1",
+      status: "completed",
+      stage: "completed",
+      total_questions: 1,
+      completed_questions: 1,
+      failed_questions: 0,
+      source_integrity_status: "verified",
+      split_contract_version: "paper-question-split-v6",
+      replacement_for_job_id: null,
+      replaced_by_job_id: null,
+      created_at: "2026-08-05T08:00:00+00:00",
+      updated_at: "2026-08-05T08:30:00+00:00",
+    };
+    installServer(undefined, undefined, undefined, [unboundJob]);
+    const onOpenJob = vi.fn();
+    render(
+      <PaperManagement
+        detail={{ kind: "job", id: "route-job", paperId: "unit-1" }}
+        onOpenJob={onOpenJob}
+        subjectId={subject.id}
+        subjects={[subject]}
+      />,
+    );
+
+    const resultDialog = await visibleModal("作答详情 · June paper");
+    expect(await within(resultDialog).findByText("正在加载作答详情")).toBeInTheDocument();
+    expect(onOpenJob).not.toHaveBeenCalled();
+    expect(resultDialog).toBeInTheDocument();
+  });
+
+  test("keeps a routed job reachable after its paper is archived", async () => {
+    const archivedJob: PaperJobResult = {
+      job_id: "archived-job",
+      filename: "archived-answer.pdf",
+      display_name: "Archived answer record",
+      answer_mode: "generated",
+      pair_key: "9660:2024:JUN:P1",
+      paper_unit_id: "archived-unit",
+      question_paper_document_id: "qp-archived",
+      source_booklet_document_id: null,
+      source_booklet_checksum: null,
+      source_booklet_filename: null,
+      subject_pack_id: subject.id,
+      subject_code: subject.subject_code,
+      knowledge_base_version_ids: [],
+      graph_version_id: null,
+      replaced_by_job_id: null,
+      replacement_for_job_id: null,
+      source_integrity_status: "verified",
+      split_contract_version: "paper-question-split-v6",
+      split_source_digest: "archived-source",
+      unit_code: "P1",
+      status: "completed",
+      stage: "completed",
+      total_pages: 1,
+      parsed_pages: 1,
+      total_questions: 1,
+      completed_questions: 1,
+      failed_questions: 0,
+      created_at: "2026-08-05T00:00:00Z",
+      updated_at: "2026-08-05T00:01:00Z",
+      chunks: [],
+      questions: [{
+        position: 1,
+        number: "1",
+        question_markdown: "Archived question",
+        answer_markdown: "Archived answer",
+        diagrams: [],
+        images: [],
+        citations: [],
+        knowledge_points: [],
+        confidence: 1,
+        grounded: true,
+        warnings: [],
+        attempts: 1,
+        requires_visual_context: false,
+        source_pages: [1],
+        source_warnings: [],
+        answer_requirements: [],
+        agent_steps: [],
+        source_digest: "archived-question",
+        source_kind: "primary",
+        status: "completed",
+        total_marks: 1,
+        error: null,
+      }],
+      error: null,
+    };
+    subscribeMock.mockImplementationOnce((options) => {
+      expect(options.path).toBe("/papers/jobs/archived-job/events");
+      options.onSnapshot(archivedJob);
+      options.onState("idle");
+      return () => undefined;
+    });
+    const { requests } = installServer([], undefined, undefined, [], null);
+    render(
+      <PaperManagement
+        detail={{ kind: "job", id: "archived-job", paperId: "archived-unit" }}
+        subjectId={subject.id}
+        subjects={[subject]}
+      />,
+    );
+
+    const resultDialog = await visibleModal("作答详情");
+    expect(await within(resultDialog).findByText("Archived answer record")).toBeInTheDocument();
+    expect(within(resultDialog).getByText("Archived question")).toBeInTheDocument();
+    expect(within(resultDialog).getByText("Archived answer")).toBeInTheDocument();
+    expect(within(resultDialog).queryByText("正在加载作答详情")).not.toBeInTheDocument();
+    expect(within(resultDialog).queryByText(/无法打开作答详情/)).not.toBeInTheDocument();
+    expect(requests.some((request) =>
+      request.method === "GET" && request.url.endsWith("/paper-units/archived-unit")
+    )).toBe(true);
   });
 
   test("shows a styled document detail with original preview and download actions", async () => {
@@ -256,7 +436,7 @@ describe("PaperManagement", () => {
 
   test("returns to the parent paper and refreshes conversion state while parsing", async () => {
     const pendingScheme = source({ id: "ms-1", filename: "MS-202406-P1.pdf", display_name: null, source_type: "mark_scheme", checksum: "ms", status: "discovered" });
-    const { requests } = installServer([paper()], [source(), pendingScheme]);
+    const { requests } = installServer([paper()], [source(), pendingScheme], 300);
     const onBackDocument = vi.fn();
     const user = userEvent.setup();
     render(<PaperManagement
@@ -282,8 +462,9 @@ describe("PaperManagement", () => {
     await screen.findByText("June paper");
     await user.click(screen.getByRole("button", { name: "编辑 June paper" }));
     expect(screen.queryByRole("combobox", { name: "Question Paper" })).not.toBeInTheDocument();
-    expect(document.querySelectorAll(".paper-editor-current-file")).toHaveLength(3);
-    expect(screen.getAllByText("已解析")).toHaveLength(3);
+    const editorFiles = document.querySelectorAll<HTMLElement>(".paper-editor-current-file");
+    expect(editorFiles).toHaveLength(3);
+    expect(Array.from(editorFiles).every((file) => within(file).getByText("已解析"))).toBe(true);
     expect(screen.getAllByRole("button", { name: "更新文件" })).toHaveLength(3);
     await user.click(screen.getByRole("button", { name: "修改试卷名称" }));
     const name = screen.getByLabelText("试卷名称");
@@ -453,7 +634,8 @@ describe("PaperManagement", () => {
       subjectId={subject.id}
       subjects={[subject]}
     />);
-    await user.click(await screen.findByRole("button", { name: "导入外部答卷" }));
+    await user.click(await screen.findByRole("button", { name: "更多试卷操作" }));
+    await user.click(await screen.findByRole("menuitem", { name: "导入外部答卷" }));
     const dialog = screen.getAllByRole("dialog").find((candidate) =>
       within(candidate).queryByRole("button", { name: "导入并解析" }),
     );

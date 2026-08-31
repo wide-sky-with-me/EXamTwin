@@ -49,19 +49,20 @@ class PaperDocumentClassification(BaseModel):
 
 
 def _classification_model(settings: Settings) -> StructuredModelPort:
-    credential = settings.llm_provider_api_key
+    credential = settings.llm_api_key
     if credential is None or not credential.get_secret_value():
         raise RuntimeError("LLM credential is required for paper content classification")
     return LiteLLMStructuredModel(
         model=settings.paper_split_model,
-        api_base=settings.llm_provider_base_url,
+        provider=settings.litellm_provider,
+        api_base=settings.llm_base_url,
         api_key=credential.get_secret_value(),
         reasoning_effort=settings.paper_split_reasoning_effort,
         max_retries=1,
     )
 
 
-def _sample_document(markdown: str, *, max_chars: int = 24_000) -> str:
+def _sample_document(markdown: str, *, max_chars: int) -> str:
     content = markdown.strip()
     if len(content) <= max_chars:
         return content
@@ -118,10 +119,14 @@ Choose exactly one dominant document purpose:
 Base the decision on document purpose and structure across the supplied beginning, middle and end.
 Quote up to five short exact excerpts as evidence. Confidence must reflect ambiguity.
 """.strip()
+        sampled_document = _sample_document(
+            markdown,
+            max_chars=self.settings.paper_classification_max_chars,
+        )
         return self.runner.run(
             StructuredTask(
                 system_prompt=system_prompt,
-                user_content=f"DOCUMENT CONTENT:\n{_sample_document(markdown)}",
+                user_content=f"DOCUMENT CONTENT:\n{sampled_document}",
             ),
             PaperDocumentClassification,
             timeout=self.settings.paper_split_timeout,

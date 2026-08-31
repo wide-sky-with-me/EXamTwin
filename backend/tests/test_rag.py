@@ -315,7 +315,7 @@ def test_public_retrieve_keeps_cards_and_raw_fallbacks_inside_scope(monkeypatch)
         lambda *_args, **_kwargs: FakeIndex(),
     )
     monkeypatch.setattr(
-        "examtwin.assessment.rag.SiliconFlowReranker",
+        "examtwin.assessment.rag.IndexResultsReranker",
         CapturingReranker,
     )
     monkeypatch.setattr(
@@ -444,7 +444,7 @@ def test_query_provider_timeout_is_bounded_independently_from_index_timeout(
             captured.update(kwargs)
 
     monkeypatch.setattr(
-        "examtwin.platform.providers.ResilientOpenAIEmbedding",
+        "examtwin.platform.providers.ResilientEmbedding",
         FakeEmbedding,
     )
 

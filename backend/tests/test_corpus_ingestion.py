@@ -3,6 +3,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
 from examtwin.knowledge.corpus_ingestion import CorpusIngestor
 from examtwin.knowledge.corpus_repository import CorpusRepository
 from examtwin.knowledge.source_preprocessing import prepare_for_mineru, restore_source_pages
@@ -248,12 +249,30 @@ class DiscoverySession:
         return None
 
 
+def test_source_discovery_requires_explicit_subject_metadata() -> None:
+    repository = CorpusRepository(DiscoverySession())  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="explicit subject_code"):
+        repository.register_discovery(
+            {
+                "path": "/corpus/source.pdf",
+                "filename": "source.pdf",
+                "source_type": "other",
+                "checksum": "checksum",
+            },
+            relative_path="source.pdf",
+            size_bytes=1,
+            current_paths={"/corpus/source.pdf"},
+        )
+
+
 def test_same_path_source_replacement_preserves_id_and_invalidates_conversion() -> None:
     sessions = DiscoverySession()
     repository = CorpusRepository(sessions)  # type: ignore[arg-type]
 
     document_id = repository.register_discovery(
         {
+            "subject_code": "9999",
             "path": "/corpus/mark-scheme.pdf",
             "filename": "mark-scheme.pdf",
             "source_type": "mark_scheme",
@@ -280,6 +299,7 @@ def test_rediscovered_archived_source_becomes_active_without_losing_conversion_p
 
     document_id = repository.register_discovery(
         {
+            "subject_code": "9999",
             "path": "/corpus/mark-scheme.pdf",
             "filename": "mark-scheme.pdf",
             "source_type": "mark_scheme",

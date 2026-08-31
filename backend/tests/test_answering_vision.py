@@ -111,12 +111,13 @@ def test_factory_uses_paper_vision_model_without_changing_main_model(
     calls: list[dict[str, Any]] = []
     vision_settings: list[Settings] = []
     vision_provider = object()
+    chat_model = object()
 
-    def fake_build_llm(_settings: Settings, **kwargs: Any) -> MockLLM:
+    def fake_build_chat_model(_settings: Settings, **kwargs: Any) -> object:
         calls.append(kwargs)
-        return MockLLM()
+        return chat_model
 
-    monkeypatch.setattr(factory, "build_llm", fake_build_llm)
+    monkeypatch.setattr(factory, "build_chat_model", fake_build_chat_model)
     monkeypatch.setattr(
         factory,
         "build_question_vision_provider",
@@ -141,7 +142,8 @@ def test_factory_uses_paper_vision_model_without_changing_main_model(
             "max_retries": 1,
         }
     ]
-    assert runtime.llm is not None
+    assert runtime.llm is None
+    assert runtime.model is chat_model
     resolved = asyncio.run(
         runtime.registry.resolve(
             MATHEMATICS_9660,
@@ -197,7 +199,10 @@ def test_litellm_question_vision_uses_images_and_strict_schema(
         "vision-model",
         "https://models.invalid/v1",
         "test-key",
+        provider="openai",
         timeout=30,
+        question_max_chars=12,
+        max_output_tokens=1234,
     )
 
     payload = provider.inspect(
@@ -208,8 +213,12 @@ def test_litellm_question_vision_uses_images_and_strict_schema(
     assert payload.observation.startswith("The page shows a graph")
     assert captured["model"] == "openai/vision-model"
     assert captured["response_format"].__name__ == "QuestionVisionPayload"
-    assert captured["extra_body"] == {"enable_thinking": False}
+    assert captured["max_tokens"] == 1234
+    assert "extra_body" not in captured
+    assert "temperature" not in captured
     parts = captured["messages"][0]["content"]
+    assert "Read the gra" in parts[0]["text"]
+    assert "Read the graph." not in parts[0]["text"]
     assert any(
         part["type"] == "image_url"
         and part["image_url"]["url"].startswith("data:image/jpeg;base64,/9j/")
@@ -263,7 +272,10 @@ def test_gpt56_question_vision_uses_reasoning_without_qwen_parameters(
         "gpt-5.6-terra",
         "https://models.invalid/v1",
         "test-key",
+        provider="openai",
         timeout=30,
+        question_max_chars=20_000,
+        max_output_tokens=4_000,
         reasoning_effort="low",
     )
 
@@ -292,6 +304,7 @@ async def test_question_vision_converts_trusted_jpeg_to_image_block_and_image_ur
         await QuestionVisionTool(  # type: ignore[arg-type]
             vision_llm,
             timeout_seconds=2,
+            question_max_chars=20_000,
         )
         .bind(context)
         .acall()
@@ -331,6 +344,7 @@ async def test_question_vision_rejects_a_generic_placeholder() -> None:
             QuestionVisionTool(  # type: ignore[arg-type]
                 vision_llm,
                 timeout_seconds=2,
+                question_max_chars=20_000,
             )
             .bind(context)
             .acall()
@@ -345,7 +359,11 @@ def test_runtime_forces_question_vision_and_injects_observation_into_main_llm() 
         skills=(MATHEMATICS_9660,),
         registry=CapabilityRegistry(
             tools=(
-                QuestionVisionTool(vision_llm, timeout_seconds=2),  # type: ignore[arg-type]
+                QuestionVisionTool(  # type: ignore[arg-type]
+                    vision_llm,
+                    timeout_seconds=2,
+                    question_max_chars=20_000,
+                ),
                 KnowledgeSearchTool(_nodes, _citation),
             )
         ),
@@ -399,7 +417,11 @@ def test_runtime_reuses_persisted_question_vision_for_identical_pages() -> None:
         skills=(MATHEMATICS_9660,),
         registry=CapabilityRegistry(
             tools=(
-                QuestionVisionTool(vision_llm, timeout_seconds=2),  # type: ignore[arg-type]
+                QuestionVisionTool(  # type: ignore[arg-type]
+                    vision_llm,
+                    timeout_seconds=2,
+                    question_max_chars=20_000,
+                ),
                 KnowledgeSearchTool(_nodes, _citation),
             )
         ),
@@ -428,7 +450,11 @@ def test_runtime_does_not_call_question_vision_without_images() -> None:
         skills=(MATHEMATICS_9660,),
         registry=CapabilityRegistry(
             tools=(
-                QuestionVisionTool(vision_llm, timeout_seconds=2),  # type: ignore[arg-type]
+                QuestionVisionTool(  # type: ignore[arg-type]
+                    vision_llm,
+                    timeout_seconds=2,
+                    question_max_chars=20_000,
+                ),
                 KnowledgeSearchTool(_nodes, _citation),
             )
         ),
@@ -448,7 +474,11 @@ def test_question_vision_failure_propagates_before_main_reasoning() -> None:
         skills=(MATHEMATICS_9660,),
         registry=CapabilityRegistry(
             tools=(
-                QuestionVisionTool(vision_llm, timeout_seconds=2),  # type: ignore[arg-type]
+                QuestionVisionTool(  # type: ignore[arg-type]
+                    vision_llm,
+                    timeout_seconds=2,
+                    question_max_chars=20_000,
+                ),
                 KnowledgeSearchTool(_nodes, _citation),
             )
         ),
@@ -487,7 +517,11 @@ def test_runtime_uses_one_total_budget_across_vision_and_reasoning() -> None:
         skills=(MATHEMATICS_9660,),
         registry=CapabilityRegistry(
             tools=(
-                QuestionVisionTool(vision_llm, timeout_seconds=1),  # type: ignore[arg-type]
+                QuestionVisionTool(  # type: ignore[arg-type]
+                    vision_llm,
+                    timeout_seconds=1,
+                    question_max_chars=20_000,
+                ),
                 KnowledgeSearchTool(_nodes, _citation),
             )
         ),

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import ast
+import json
 from collections.abc import Sequence
 from pathlib import Path
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "backend" / "src" / "examtwin"
+SUBJECT_PACKS_ROOT = Path(__file__).resolve().parents[1] / "subject-packs"
 FEATURES = frozenset({"subjects", "knowledge", "assessment"})
 FEATURE_DEPENDENCIES = {
     "subjects": frozenset(),
@@ -12,6 +14,19 @@ FEATURE_DEPENDENCIES = {
     "assessment": frozenset({"subjects", "knowledge"}),
 }
 ALLOWED_TOP_LEVEL = frozenset({*FEATURES, "app", "platform", "contracts"})
+
+
+def installed_subject_code_literals() -> frozenset[str]:
+    codes: set[str] = set()
+    for manifest_path in SUBJECT_PACKS_ROOT.glob("*/manifest.json"):
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        subject_code = payload.get("subject_code")
+        if isinstance(subject_code, str) and subject_code:
+            codes.add(subject_code)
+    return frozenset(codes)
+
+
+KNOWN_SUBJECT_CODE_LITERALS = installed_subject_code_literals()
 LEGACY_TOP_LEVEL = frozenset(
     {
         "agent_harness",
@@ -710,11 +725,23 @@ def module_parts(path: Path) -> tuple[str, ...]:
     return path.relative_to(PACKAGE_ROOT).with_suffix("").parts
 
 
+def known_subject_literal_violations(path: Path) -> list[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    return [
+        (
+            f"known subject code literal {node.value!r} is forbidden "
+            f"in shared code at line {node.lineno}"
+        )
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant) and node.value in KNOWN_SUBJECT_CODE_LITERALS
+    ]
+
+
 def check_file(path: Path) -> list[str]:
     parts = module_parts(path)
     top_level = parts[0]
     imports, import_errors = imported_modules(path)
-    errors: list[str] = list(import_errors)
+    errors: list[str] = [*import_errors, *known_subject_literal_violations(path)]
 
     if top_level != "__init__" and top_level not in ALLOWED_TOP_LEVEL:
         errors.append(f"module must live in an explicit architecture boundary: {top_level}")

@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from examtwin.assessment.assessment_repository import AssessmentRepository
 from examtwin.assessment.grading import GradingService
 from examtwin.assessment.paper_job_repository import PaperJobRepository
+from examtwin.assessment.policies import FOUNDATION_SCORE_PERCENTAGE, STABLE_SCORE_PERCENTAGE
 from examtwin.assessment.rubric_repository import RubricConflictError, RubricRepository
 from examtwin.contracts.grading import GradeRequest, GradeResponse
 from examtwin.contracts.papers import PaperQuestionAnswer
@@ -180,9 +181,10 @@ def _review_question_criteria(
     ]
     user_content = (
         f"TARGET QUESTION: {number}\n\n"
-        f"QUESTION {number}:\n{str(question['question_markdown'])[:10000]}\n\n"
+        f"QUESTION {number}:\n"
+        f"{str(question['question_markdown'])[: settings.rubric_question_max_chars]}\n\n"
         "OFFICIAL MARK SCHEME EXCERPT:\n"
-        f"{_mark_scheme_context(mark_scheme, number)[:60000]}\n\n"
+        f"{_mark_scheme_context(mark_scheme, number, settings=settings)}\n\n"
         "CURRENT RUBRIC CRITERIA:\n"
         f"{json.dumps(prompt_criteria, ensure_ascii=False, indent=2, default=str)}"
     )
@@ -332,9 +334,9 @@ def _overall_suggestion(
         lead = f"当前已完成 {completed_questions}/{total_questions} 题评分，请先完成未评分题目。"
     elif percentage is None:
         lead = "当前评分规则没有可汇总的分值。"
-    elif percentage >= 80:
+    elif percentage >= STABLE_SCORE_PERCENTAGE:
         lead = "整体得分较稳定，请继续巩固作答的完整性与准确性。"
-    elif percentage >= 60:
+    elif percentage >= FOUNDATION_SCORE_PERCENTAGE:
         lead = "整体基础已建立，仍需针对失分环节逐项改进。"
     else:
         lead = "当前得分显示关键知识与解题步骤仍需系统巩固。"
@@ -594,6 +596,7 @@ def _collapse_holistic_best_fit_criteria(
     mark_scheme: str,
     *,
     question: Mapping[str, object],
+    settings: Settings,
 ) -> RubricExtractionDraft:
     """Represent each official best-fit level grid as one non-additive criterion.
 
@@ -606,7 +609,7 @@ def _collapse_holistic_best_fit_criteria(
     """
 
     question_number = str(question["number"])
-    context = _mark_scheme_context(mark_scheme, question_number)
+    context = _mark_scheme_context(mark_scheme, question_number, settings=settings)
     normalized_context = _normalized_criterion_text(context)
     if not (
         "interdependent" in normalized_context
@@ -720,10 +723,12 @@ def _generate_question_rubric(
     number = str(question["number"])
     requirements = str(question.get("requirements_json") or "{}")
     user_content = (
-        f"COURSE CONTEXT:\n{course_context[:12000]}\n\n"
+        f"COURSE CONTEXT:\n{course_context[: settings.rubric_course_context_max_chars]}\n\n"
         f"TARGET QUESTION: {number}\n\n"
-        f"QUESTION {number}:\n{str(question['question_markdown'])[:10000]}\n\n"
-        f"MARK AND ANSWER REQUIREMENTS:\n{requirements[:8000]}"
+        f"QUESTION {number}:\n"
+        f"{str(question['question_markdown'])[: settings.rubric_question_max_chars]}\n\n"
+        "MARK AND ANSWER REQUIREMENTS:\n"
+        f"{requirements[: settings.rubric_requirements_max_chars]}"
     )
     return StructuredTaskRunner(model).run(
         StructuredTask(
@@ -766,17 +771,25 @@ def _table_question_stems(table: str) -> set[str]:
     return stems
 
 
-def _mark_scheme_context(mark_scheme: str, question_number: str) -> str:
+def _mark_scheme_context(
+    mark_scheme: str,
+    question_number: str,
+    *,
+    settings: Settings,
+) -> str:
+    max_chars = settings.rubric_mark_scheme_max_chars
+    preamble_max_chars = settings.rubric_preamble_max_chars
+    following_max_chars = settings.rubric_following_context_max_chars
     tables = list(_MARK_SCHEME_TABLE.finditer(mark_scheme))
     label = _question_label(question_number)
     if not tables or label is None:
-        return mark_scheme[:60000]
+        return mark_scheme[:max_chars]
     selected = [
         match.group(0) for match in tables if label[0] in _table_question_stems(match.group(0))
     ]
     if not selected:
-        return mark_scheme[:60000]
-    preamble = mark_scheme[: tables[0].start()][-12000:]
+        return mark_scheme[:max_chars]
+    preamble = mark_scheme[: tables[0].start()][-preamble_max_chars:]
     expanded: list[str] = []
     for selected_table in selected:
         start = mark_scheme.find(selected_table)
@@ -792,10 +805,10 @@ def _mark_scheme_context(mark_scheme: str, question_number: str) -> str:
                 and _table_question_stems(table.group(0))
                 and label[0] not in _table_question_stems(table.group(0))
             ),
-            min(len(mark_scheme), end + 30000),
+            min(len(mark_scheme), end + following_max_chars),
         )
         expanded.append(mark_scheme[start:next_question])
-    return f"{preamble}\n\n" + "\n\n".join(expanded)
+    return (f"{preamble}\n\n" + "\n\n".join(expanded))[:max_chars]
 
 
 def _extract_question_rubric(
@@ -810,11 +823,12 @@ def _extract_question_rubric(
     mark_budget = _question_mark_budget(question)
     user_content = (
         f"TARGET QUESTION: {number}\n\n"
-        f"QUESTION {number}:\n{str(question['question_markdown'])[:3000]}\n\n"
+        f"QUESTION {number}:\n"
+        f"{str(question['question_markdown'])[: settings.rubric_target_question_max_chars]}\n\n"
         "MARK BUDGET FOR TARGET QUESTION:\n"
         f"{mark_budget if mark_budget is not None else 'Not explicitly available.'}\n\n"
         "OFFICIAL MARK SCHEME EXCERPT:\n"
-        f"{_mark_scheme_context(mark_scheme, number)[:60000]}"
+        f"{_mark_scheme_context(mark_scheme, number, settings=settings)}"
     )
     if correction:
         user_content += f"\n\nCORRECTION REQUIRED:\n{correction}"
@@ -910,6 +924,7 @@ def _extract_validated_question_rubric(
             payload,
             mark_scheme,
             question=question,
+            settings=settings,
         )
         mapped = _map_criteria_to_questions(payload, {number})
         violations: list[str] = []
@@ -951,12 +966,13 @@ def _extract_validated_question_rubric(
 
 
 def _structured_model(settings: Settings) -> StructuredModelPort:
-    credential = settings.llm_provider_api_key
+    credential = settings.llm_api_key
     if credential is None or not credential.get_secret_value():
         raise RuntimeError("LLM credential is required for mark-scheme parsing")
     return LiteLLMStructuredModel(
         model=settings.grading_model,
-        api_base=settings.llm_provider_base_url,
+        provider=settings.litellm_provider,
+        api_base=settings.llm_base_url,
         api_key=credential.get_secret_value(),
         reasoning_effort=settings.grading_reasoning_effort,
         max_retries=1,

@@ -68,7 +68,7 @@ describe("SubjectManagement", () => {
       expect(screen.queryByText("Subject 3")).not.toBeInTheDocument();
     });
 
-    await user.click(screen.getByRole("button", { name: "重置" }));
+    await user.click(screen.getByRole("button", { name: "重置筛选" }));
     expect(screen.getByLabelText("搜索科目")).toHaveValue("");
     expect(screen.getByLabelText("科目分页")).toHaveTextContent("1–10/ 12 个");
   }, 10_000);
@@ -78,7 +78,7 @@ describe("SubjectManagement", () => {
     const subject = subjectFixture(1);
     render(<SubjectManagement loading={false} refresh={vi.fn()} subjects={[subject]} />);
 
-    expect(screen.queryByRole("heading", { name: "科目" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "科目" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: `设置 ${subject.title}` })).toBeVisible();
     await user.hover(screen.getByText(subject.title));
     expect(await screen.findByRole("tooltip")).toHaveTextContent(subject.title);

@@ -21,7 +21,7 @@ from examtwin.app.composition import (
     vector_index_repository,
 )
 from examtwin.assessment.providers import run_provider_smoke
-from examtwin.contracts.system import API_CAPABILITIES, API_CONTRACT_VERSION
+from examtwin.contracts.system import API_CAPABILITIES, API_CONTRACT_VERSION, API_PREFIX
 from examtwin.knowledge.ingestion import build_vector_index
 from examtwin.knowledge.inventory import corpus_stats, scan_corpus
 from examtwin.knowledge.retrieval_evaluation import (
@@ -76,12 +76,14 @@ def db_upgrade(revision: str = typer.Option("head")) -> None:
 
 @app.command("healthcheck")
 def healthcheck(
-    url: str = typer.Option("http://127.0.0.1:8000/api/v1/health"),
+    url: str | None = typer.Option(None),
 ) -> None:
     """Fail unless the live API and this image expose the same healthy contract."""
 
+    settings = get_settings()
+    resolved_url = url or f"http://127.0.0.1:{settings.api_port}{API_PREFIX}/health"
     try:
-        with urlopen(url, timeout=3) as response:  # noqa: S310 - fixed local default
+        with urlopen(resolved_url, timeout=3) as response:  # noqa: S310 - fixed local default
             payload = json.load(response)
         capabilities = set(payload.get("capabilities", []))
         valid = (

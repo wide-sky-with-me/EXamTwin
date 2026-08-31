@@ -8,10 +8,12 @@ import type {
   GradeResult,
   BatchReviewRubricCriteriaRequest,
   GradingOverviewResponse,
+  GradingPaper,
   PaperAssessment,
   RubricSet,
   SubjectPack,
   PaperJobResult,
+  SourceDocument,
 } from "../types";
 import { GradingOverview } from "../components/grading/GradingOverview";
 import { GradingQuestionStage } from "../components/grading/GradingQuestionStage";
@@ -38,10 +40,13 @@ const subject: SubjectPack = {
   board_name: "OxfordAQA",
   version: "1",
   digest: "test",
+  icon: "calculator",
+  color: "#2F6FED",
   capability_profile_id: "oxfordaqa-mathematics-9660",
   generic_qa_enabled: true,
   answering_enabled: true,
   answering_disabled_reason: null,
+  source_booklet_required: false,
   active_graph_version_id: null,
   knowledge_bases: [],
   units: [],
@@ -133,6 +138,14 @@ function paperFixture(
   return {
     job_id: jobId,
     filename: `${jobId}.pdf`,
+    display_name: null,
+    answer_mode: "generated",
+    pair_key: null,
+    paper_unit_id: null,
+    question_paper_document_id: null,
+    source_booklet_document_id: null,
+    source_booklet_checksum: null,
+    source_booklet_filename: null,
     subject_pack_id: subject.id,
     subject_code: subject.subject_code,
     knowledge_base_version_ids: [],
@@ -193,10 +206,11 @@ function rubricFixture({
   };
 }
 
-function sourceFixture(id: string, filename = `${id}.pdf`) {
+function sourceFixture(id: string, filename = `${id}.pdf`): SourceDocument {
   return {
     id,
     filename,
+    display_name: null,
     source_type: "mark_scheme",
     source_role: "assessment_only",
     authority_tier: "official",
@@ -206,14 +220,23 @@ function sourceFixture(id: string, filename = `${id}.pdf`) {
     knowledge_base_id: null,
     license_confirmed: false,
     page_count: 1,
+    pair_key: null,
+    unit_code: null,
+    exam_year: null,
+    exam_session: null,
+    identity_status: "not_applicable",
+    identity_error: null,
     error: null,
   };
 }
 
-function paperSummaryFixture(jobId: string, questionCount = 1) {
+function paperSummaryFixture(jobId: string, questionCount = 1): GradingPaper {
   return {
     job_id: jobId,
     filename: `${jobId}.pdf`,
+    display_name: null,
+    paper_unit_id: null,
+    question_paper_document_id: null,
     unit_code: "P2",
     status: "completed",
     total_questions: questionCount,
@@ -289,7 +312,7 @@ function installReviewScenario(criteria: RubricSet["criteria"]) {
     criteria,
   };
   const numbers = Array.from(new Set(criteria.map((item) => item.question_number)));
-  const questions = numbers.map((number, index) => ({
+  const questions: PaperJobResult["questions"] = numbers.map((number, index) => ({
     position: index + 1,
     number,
     question_markdown: `Question ${number}`,
@@ -305,6 +328,9 @@ function installReviewScenario(criteria: RubricSet["criteria"]) {
     source_pages: [1],
     source_warnings: [],
     answer_requirements: [],
+    source_kind: null,
+    source_digest: null,
+    requires_visual_context: null,
     agent_steps: [],
     status: "completed",
     total_marks: 1,
@@ -316,55 +342,13 @@ function installReviewScenario(criteria: RubricSet["criteria"]) {
     const request = input instanceof Request ? input : new Request(String(input));
     const url = new URL(request.url);
     if (url.pathname === "/api/v1/grading/papers") {
-      return response([{
-        job_id: "job-batch",
-        filename: "batch-paper.pdf",
-        unit_code: "P2",
-        status: "completed",
-        total_questions: questions.length,
-        completed_questions: questions.length,
-        failed_questions: 0,
-        updated_at: "2026-08-05T00:00:00Z",
-      }]);
+      return response([paperSummaryFixture("job-batch", questions.length)]);
     }
     if (url.pathname === "/api/v1/corpus/documents") {
-      return response([{
-        id: "ms-batch",
-        filename: "batch-mark-scheme.pdf",
-        source_type: "mark_scheme",
-        source_role: "assessment_only",
-        authority_tier: "official",
-        status: "converted",
-        checksum: "batch",
-        object_key: "corpus-sources/batch.pdf",
-        knowledge_base_id: null,
-        license_confirmed: false,
-        page_count: 1,
-        error: null,
-      }]);
+      return response([sourceFixture("ms-batch", "batch-mark-scheme.pdf")]);
     }
     if (url.pathname === "/api/v1/papers/jobs/job-batch") {
-      return response({
-        job_id: "job-batch",
-        filename: "batch-paper.pdf",
-        subject_pack_id: subject.id,
-        subject_code: subject.subject_code,
-        knowledge_base_version_ids: [],
-        graph_version_id: null,
-        unit_code: "P2",
-        status: "completed",
-        stage: "completed",
-        total_pages: 1,
-        parsed_pages: 1,
-        total_questions: questions.length,
-        completed_questions: questions.length,
-        failed_questions: 0,
-        created_at: "2026-08-05T00:00:00Z",
-        updated_at: "2026-08-05T00:00:00Z",
-        chunks: [],
-        questions,
-        error: null,
-      });
+      return response(paperFixture("job-batch", questions));
     }
     if (url.pathname === "/api/v1/grading/rubrics" && request.method === "GET") {
       return response([rubric]);
@@ -835,62 +819,29 @@ describe("Grading", () => {
       const url = String(input instanceof Request ? input.url : input);
       if (url.includes("/grading/papers") && !url.includes("assessments")) {
         return response([{
-          job_id: "job-1",
+          ...paperSummaryFixture("job-1"),
           filename: "paper.pdf",
-          unit_code: "P2",
-          status: "completed",
-          total_questions: 1,
-          completed_questions: 1,
-          failed_questions: 0,
-          updated_at: "2026-08-05T00:00:00Z",
         }]);
       }
       if (url.includes("/corpus/documents")) {
         if (url.includes("status=converted")) return response([]);
         return response([{
-          id: "ms-1",
-          filename: "mark-scheme.pdf",
-          source_type: "mark_scheme",
+          ...sourceFixture("ms-1", "mark-scheme.pdf"),
           source_role: "assessment_context",
-          authority_tier: "official",
           status: "indexed",
           checksum: "abc",
-          knowledge_base_id: null,
-          license_confirmed: false,
           page_count: 4,
-          error: null,
         }]);
       }
       if (url.includes("/papers/jobs/job-1")) {
         return response({
-          job_id: "job-1",
-          filename: "paper.pdf",
-          subject_pack_id: subject.id,
-          subject_code: subject.subject_code,
-          knowledge_base_version_ids: [],
-          graph_version_id: null,
-          unit_code: "P2",
-          status: "completed",
-          stage: "completed",
-          total_pages: 1,
-          parsed_pages: 1,
-          total_questions: 1,
-          completed_questions: 1,
-          failed_questions: 0,
-          created_at: "2026-08-05T00:00:00Z",
-          updated_at: "2026-08-05T00:00:00Z",
-          chunks: [],
-          questions: [{
-            position: 1,
-            number: "1",
+          ...paperFixture("job-1", [{
+            ...questionFixture(1),
             question_markdown: "Solve x + 1 = 2.",
             answer_markdown: "x = 1",
-            diagrams: [], images: [], citations: [], knowledge_points: [],
-            confidence: 0.9, grounded: true, warnings: [], attempts: 1,
-            source_pages: [1], source_warnings: [], answer_requirements: [],
-            agent_steps: [], status: "completed", total_marks: 1, error: null,
-          }],
-          error: null,
+            confidence: 0.9,
+          }]),
+          filename: "paper.pdf",
         });
       }
       return response([]);
@@ -951,47 +902,7 @@ describe("Grading", () => {
   });
 
   test("ignores a slower response from the previously selected paper", async () => {
-    const detailA = {
-      job_id: "job-a",
-      filename: "a.pdf",
-      subject_pack_id: subject.id,
-      subject_code: subject.subject_code,
-      knowledge_base_version_ids: [],
-      graph_version_id: null,
-      unit_code: "P2",
-      status: "completed",
-      stage: "completed",
-      total_pages: 1,
-      parsed_pages: 1,
-      total_questions: 1,
-      completed_questions: 1,
-      failed_questions: 0,
-      created_at: "2026-08-05T00:00:00Z",
-      updated_at: "2026-08-05T00:00:00Z",
-      chunks: [],
-      questions: [{
-        position: 1,
-        number: "A",
-        question_markdown: "Question A",
-        answer_markdown: "Answer A",
-        diagrams: [],
-        images: [],
-        citations: [],
-        knowledge_points: [],
-        confidence: 0.9,
-        grounded: true,
-        warnings: [],
-        attempts: 1,
-        source_pages: [1],
-        source_warnings: [],
-        answer_requirements: [],
-        agent_steps: [],
-        status: "completed",
-        total_marks: 1,
-        error: null,
-      }],
-      error: null,
-    };
+    const detailA = paperFixture("job-a", [questionFixture(1, "A")]);
     const detailB = {
       ...detailA,
       job_id: "job-b",
@@ -1012,26 +923,8 @@ describe("Grading", () => {
       const url = new URL(String(input instanceof Request ? input.url : input));
       if (url.pathname === "/api/v1/grading/papers") {
         return response([
-          {
-            job_id: "job-a",
-            filename: "a.pdf",
-            unit_code: "P2",
-            status: "completed",
-            total_questions: 1,
-            completed_questions: 1,
-            failed_questions: 0,
-            updated_at: "2026-08-05T00:00:00Z",
-          },
-          {
-            job_id: "job-b",
-            filename: "b.pdf",
-            unit_code: "P2",
-            status: "completed",
-            total_questions: 1,
-            completed_questions: 1,
-            failed_questions: 0,
-            updated_at: "2026-08-05T00:00:00Z",
-          },
+          { ...paperSummaryFixture("job-a"), filename: "a.pdf" },
+          { ...paperSummaryFixture("job-b"), filename: "b.pdf" },
         ]);
       }
       if (url.pathname === "/api/v1/papers/jobs/job-a") {
@@ -1887,7 +1780,7 @@ describe("Grading", () => {
     ).toHaveFocus());
   });
 
-  test("renders inline question images, bare LaTeX, and collapsible materials", async () => {
+  test("keeps the saved answer dominant while the source question remains collapsible", async () => {
     const paper = paperFixture("job-loose-latex");
     const imageUrl = (
       `/api/v1/papers/jobs/${paper.job_id}/question-images/`
@@ -1931,13 +1824,13 @@ describe("Grading", () => {
     const question = screen.getByText("原题").closest("details");
     const answer = screen.getByText("已保存答案").closest("details");
     expect(question).not.toHaveAttribute("open");
-    expect(answer).not.toHaveAttribute("open");
+    expect(answer).toHaveAttribute("open");
     await user.click(screen.getByText("原题"));
     expect(screen.getByRole("img", { name: "Question diagram" })).toHaveAttribute(
       "src",
       `${imageUrl}?subject=test-subject`,
     );
-    expect(answer).not.toHaveAttribute("open");
+    expect(answer).toHaveAttribute("open");
   });
 
   test("announces every identical regeneration completion with a fresh live-region entry", async () => {
@@ -2147,7 +2040,7 @@ describe("Grading", () => {
         { ...criterion, id: "criterion-2", question_number: "2", criterion_id: "M2" },
       ],
     };
-    const question = {
+    const question: PaperJobResult["questions"][number] = {
       position: 1,
       number: "1",
       question_markdown: String.raw`Solve \(x + 1 = 2\).`,
@@ -2175,6 +2068,9 @@ describe("Grading", () => {
       source_pages: [1],
       source_warnings: [],
       answer_requirements: [],
+      source_kind: null,
+      source_digest: null,
+      requires_visual_context: null,
       agent_steps: [],
       status: "completed",
       total_marks: 1,
@@ -2226,55 +2122,19 @@ describe("Grading", () => {
     const fetch = vi.fn((input: RequestInfo | URL) => {
       const url = new URL(String(input instanceof Request ? input.url : input));
       if (url.pathname === "/api/v1/grading/papers") {
-        return response([{
-          job_id: "job-1",
-          filename: "paper.pdf",
-          unit_code: "P2",
-          status: "completed",
-          total_questions: 3,
-          completed_questions: 3,
-          failed_questions: 0,
-          updated_at: "2026-08-05T00:00:00Z",
-        }]);
+        return response([paperSummaryFixture("job-1", 3)]);
       }
       if (url.pathname === "/api/v1/corpus/documents") {
         expect(url.searchParams.get("status")).toBeNull();
         return response([{
-          id: "ms-1",
-          filename: "mark-scheme.pdf",
-          source_type: "mark_scheme",
+          ...sourceFixture("ms-1", "mark-scheme.pdf"),
           source_role: "assessment_context",
-          authority_tier: "official",
-          status: "converted",
           checksum: "abc",
-          knowledge_base_id: null,
-          license_confirmed: false,
           page_count: 4,
-          error: null,
         }]);
       }
       if (url.pathname === "/api/v1/papers/jobs/job-1") {
-        return response({
-          job_id: "job-1",
-          filename: "paper.pdf",
-          subject_pack_id: subject.id,
-          subject_code: subject.subject_code,
-          knowledge_base_version_ids: [],
-          graph_version_id: null,
-          unit_code: "P2",
-          status: "completed",
-          stage: "completed",
-          total_pages: 1,
-          parsed_pages: 1,
-          total_questions: 3,
-          completed_questions: 3,
-          failed_questions: 0,
-          created_at: "2026-08-05T00:00:00Z",
-          updated_at: "2026-08-05T00:00:00Z",
-          chunks: [],
-          questions: [question, questionTwo, questionThree],
-          error: null,
-        });
+        return response(paperFixture("job-1", [question, questionTwo, questionThree]));
       }
       if (url.pathname === "/api/v1/grading/rubrics") return response([rubric]);
       if (url.pathname === "/api/v1/grading/rubrics/rubric-1") return response(rubric);
@@ -2391,47 +2251,11 @@ describe("Grading", () => {
       confirmed_by: null,
       criteria: [criterion],
     };
-    const paper = {
-      job_id: "job-1",
-      filename: "paper.pdf",
-      subject_pack_id: subject.id,
-      subject_code: subject.subject_code,
-      knowledge_base_version_ids: [],
-      graph_version_id: null,
-      unit_code: "P2",
-      status: "completed",
-      stage: "completed",
-      total_pages: 1,
-      parsed_pages: 1,
-      total_questions: 1,
-      completed_questions: 1,
-      failed_questions: 0,
-      created_at: "2026-08-05T00:00:00Z",
-      updated_at: "2026-08-05T00:00:00Z",
-      chunks: [],
-      questions: [{
-        position: 1,
-        number: "1",
-        question_markdown: "Question",
-        answer_markdown: "Answer",
-        diagrams: [],
-        images: [],
-        citations: [],
-        knowledge_points: [],
-        confidence: 1,
-        grounded: true,
-        warnings: [],
-        attempts: 1,
-        source_pages: [1],
-        source_warnings: [],
-        answer_requirements: [],
-        agent_steps: [],
-        status: "completed",
-        total_marks: 1,
-        error: null,
-      }],
-      error: null,
-    };
+    const paper = paperFixture("job-1", [{
+      ...questionFixture(1),
+      question_markdown: "Question",
+      answer_markdown: "Answer",
+    }]);
     const reviewBodies: unknown[] = [];
     const confirmBodies: unknown[] = [];
     const paths: string[] = [];
@@ -2444,31 +2268,13 @@ describe("Grading", () => {
       const url = new URL(request.url);
       paths.push(url.pathname);
       if (url.pathname === "/api/v1/grading/papers") {
-        return response([{
-          job_id: "job-1",
-          filename: "paper.pdf",
-          unit_code: "P2",
-          status: "completed",
-          total_questions: 1,
-          completed_questions: 1,
-          failed_questions: 0,
-          updated_at: "2026-08-05T00:00:00Z",
-        }]);
+        return response([paperSummaryFixture("job-1")]);
       }
       if (url.pathname === "/api/v1/corpus/documents") {
         return response([{
-          id: "ms-1",
-          filename: "mark-scheme.pdf",
-          source_type: "mark_scheme",
-          source_role: "assessment_only",
-          authority_tier: "official",
-          status: "converted",
+          ...sourceFixture("ms-1", "mark-scheme.pdf"),
           checksum: "abc",
           object_key: "corpus-sources/ms.pdf",
-          knowledge_base_id: null,
-          license_confirmed: false,
-          page_count: 1,
-          error: null,
         }]);
       }
       if (url.pathname === "/api/v1/papers/jobs/job-1") return response(paper);

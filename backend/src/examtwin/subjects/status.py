@@ -4,6 +4,7 @@ import logging
 
 from qdrant_client import QdrantClient
 
+from examtwin.contracts.common import DEFAULT_SUBJECT_COLOR, DEFAULT_SUBJECT_ICON
 from examtwin.platform.config import Settings
 from examtwin.platform.database.session import create_session_factory
 from examtwin.subjects.dashboard_repository import DashboardRepository
@@ -65,8 +66,8 @@ def subject_statuses(
                 "subject_code": context.subject_code,
                 "title": str(workspace.get("title") or context.pack.title),
                 "board_name": str(workspace.get("board_name") or context.board_name),
-                "icon": str(workspace.get("icon") or "book-open"),
-                "color": str(workspace.get("color") or "#2F6FED"),
+                "icon": str(workspace.get("icon") or DEFAULT_SUBJECT_ICON),
+                "color": str(workspace.get("color") or DEFAULT_SUBJECT_COLOR),
                 "capability_profile_id": context.capability_profile_id,
                 "generic_qa_enabled": True,
                 "answering_enabled": context.paper_answering_enabled,

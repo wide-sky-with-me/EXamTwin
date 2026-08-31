@@ -1,29 +1,24 @@
 from __future__ import annotations
 
 import re
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, StringConstraints, field_validator, model_validator
 
 from examtwin.contracts.base import SerializedResponse
+from examtwin.contracts.system import API_PREFIX
 
-AnswerKind = Literal[
-    "text",
-    "numeric",
-    "expression",
-    "proof",
-    "table",
-    "math_plot",
-    "math_diagram",
-    "economics_diagram",
-    "image",
+AnswerKind = Literal["text", "numeric", "expression", "proof", "table", "diagram", "image"]
+AnswerCapabilityId = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True,
+        min_length=1,
+        max_length=64,
+        pattern=r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$",
+    ),
 ]
-AnswerArtifactTool = Literal[
-    "math_plot",
-    "math_diagram",
-    "economics_diagram",
-    "image_generate",
-]
+_LEGACY_DIAGRAM_ANSWER_KINDS = frozenset({"math_plot", "math_diagram", "economics_diagram"})
 
 
 class SubpartRequirement(SerializedResponse):
@@ -34,7 +29,14 @@ class SubpartRequirement(SerializedResponse):
     answer_kind: AnswerKind = "text"
     accuracy: str | None = Field(default=None, max_length=160)
     units: tuple[str, ...] = Field(default=(), max_length=8)
-    required_tool: AnswerArtifactTool | None = None
+    required_tool: AnswerCapabilityId | None = None
+
+    @field_validator("answer_kind", mode="before")
+    @classmethod
+    def normalize_legacy_answer_kind(cls, value: object) -> object:
+        if isinstance(value, str) and value in _LEGACY_DIAGRAM_ANSWER_KINDS:
+            return "diagram"
+        return value
 
     @field_validator("label")
     @classmethod
@@ -153,7 +155,7 @@ class AnswerDiagram(SerializedResponse):
     )
     title: str = Field(min_length=1, max_length=160)
     caption: str = Field(default="", max_length=500)
-    tool_name: Literal["math_plot", "math_diagram", "economics_diagram"] = "math_diagram"
+    tool_name: AnswerCapabilityId = "math_diagram"
     view_box: tuple[float, float, float, float] = (0, 0, 600, 360)
     elements: list[DiagramElement] = Field(default_factory=list, min_length=1, max_length=160)
     legend: list[DiagramLegendItem] = Field(default_factory=list, max_length=12)
@@ -203,9 +205,9 @@ class AnswerImage(SerializedResponse):
     )
     title: str = Field(min_length=1, max_length=160)
     caption: str = Field(default="", max_length=500)
-    tool_name: Literal["image_generate"] = "image_generate"
+    tool_name: AnswerCapabilityId = "image_generate"
     content_url: str = Field(
-        pattern=r"^/api/v1/answer-assets/[0-9a-f]{32}\.png$",
+        pattern=rf"^{re.escape(API_PREFIX)}/answer-assets/[0-9a-f]{{32}}\.png$",
         max_length=96,
     )
     media_type: Literal["image/png"] = "image/png"

@@ -11,6 +11,10 @@ from typing import Any, Literal, Protocol
 from pydantic import BaseModel, ConfigDict, Field
 
 from examtwin.knowledge.curriculum import CurriculumCandidate
+from examtwin.knowledge.difficulty import (
+    EASY_DIFFICULTY_UPPER_BOUND,
+    MEDIUM_DIFFICULTY_UPPER_BOUND,
+)
 from examtwin.platform.agent_runtime import (
     StructuredModelPort,
     StructuredTask,
@@ -58,6 +62,14 @@ _STOP_WORDS = frozenset(
         "with",
     }
 )
+
+
+def difficulty_system_prompt() -> str:
+    return (
+        load_prompt_template(_PROMPT_PATH)
+        .replace("__EASY_UPPER_BOUND__", f"{EASY_DIFFICULTY_UPPER_BOUND:g}")
+        .replace("__MEDIUM_UPPER_BOUND__", f"{MEDIUM_DIFFICULTY_UPPER_BOUND:g}")
+    )
 
 
 class DifficultyCitation(BaseModel):
@@ -223,7 +235,7 @@ def difficulty_input_hash(
     knowledge_base_version_id: str,
     materials: Mapping[str, Mapping[str, Any]],
 ) -> str:
-    prompt_hash = hashlib.sha256(load_prompt_template(_PROMPT_PATH).encode("utf-8")).hexdigest()
+    prompt_hash = hashlib.sha256(difficulty_system_prompt().encode("utf-8")).hexdigest()
     payload = {
         "method": DIFFICULTY_METHOD,
         "matcher": EVIDENCE_MATCHER_VERSION,
@@ -289,13 +301,13 @@ class LiteLLMDifficultyAssessmentProvider:
         *,
         structured_model: StructuredModelPort | None = None,
     ) -> None:
-        credential = settings.llm_provider_api_key
+        credential = settings.llm_api_key
         if structured_model is None and (credential is None or not credential.get_secret_value()):
             raise RuntimeError(
                 "LLM credential is required for evidence-grounded difficulty ratings"
             )
         self.model = settings.knowledge_difficulty_model
-        self.api_base = settings.llm_provider_base_url
+        self.api_base = settings.llm_base_url
         self.api_key = "" if credential is None else credential.get_secret_value()
         self.reasoning_effort = settings.knowledge_difficulty_reasoning_effort
         self.timeout = settings.knowledge_difficulty_timeout
@@ -304,6 +316,7 @@ class LiteLLMDifficultyAssessmentProvider:
             structured_model
             or LiteLLMStructuredModel(
                 model=self.model,
+                provider=settings.litellm_provider,
                 api_base=self.api_base,
                 api_key=self.api_key,
                 reasoning_effort=self.reasoning_effort,
@@ -325,7 +338,7 @@ class LiteLLMDifficultyAssessmentProvider:
             raise ValueError("Difficulty targets from different units cannot share a batch")
         expected = {str(item["code"]) for item in targets}
         task = StructuredTask(
-            system_prompt=load_prompt_template(_PROMPT_PATH),
+            system_prompt=difficulty_system_prompt(),
             user_content=json.dumps(
                 {
                     "subject": subject_pack.title,

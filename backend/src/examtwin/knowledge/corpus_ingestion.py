@@ -7,7 +7,7 @@ from typing import Any
 
 from llama_index.core import Document
 from llama_index.readers.mineru import MinerUReader
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import Retrying, stop_after_attempt, wait_exponential
 
 from examtwin.contracts.common import JobResult
 from examtwin.knowledge.corpus_repository import CorpusRepository
@@ -79,14 +79,9 @@ class CorpusIngestor:
             ocr=True,
             formula=True,
             table=True,
-            timeout=1200,
+            timeout=self.settings.knowledge_mineru_timeout,
         )
 
-    @retry(
-        reraise=True,
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=2, min=2, max=30),
-    )
     def _load_mineru(
         self,
         source: Path,
@@ -94,7 +89,19 @@ class CorpusIngestor:
         *,
         pages: str | None = None,
     ) -> list[Document]:
-        return self._reader(pages=pages).load_data(source, extra_info=metadata)
+        attempts = Retrying(
+            reraise=True,
+            stop=stop_after_attempt(self.settings.knowledge_mineru_max_attempts),
+            wait=wait_exponential(
+                multiplier=self.settings.knowledge_mineru_retry_delay_seconds,
+                min=self.settings.knowledge_mineru_retry_delay_seconds,
+                max=self.settings.knowledge_mineru_retry_max_seconds,
+            ),
+        )
+        for attempt in attempts:
+            with attempt:
+                return self._reader(pages=pages).load_data(source, extra_info=metadata)
+        raise RuntimeError("MinerU retry policy completed without a result")
 
     def convert(self, row: dict[str, Any], *, force: bool = False) -> tuple[str, bool]:
         self.subject.require(str(row.get("subject_code") or ""))
