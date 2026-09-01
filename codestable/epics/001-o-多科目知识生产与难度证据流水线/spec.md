@@ -154,16 +154,25 @@ Objective 的相对位置和 `[0,1]` 难度分。固定代码只负责证据材�
   有界 trace；SubjectPack 自持黄金集和 Recall@K/MRR/空结果/范围越界门禁。新索引节点使用
   稳定内容指纹，仅在 embedding endpoint/model、schema 与内容全部一致时复用旧稠密
   向量；中断恢复按节点 ID 查缺，不再把 collection 点数当成写入顺序。
+- [已实现] P11 课程扩展边界：Subject Package 只声明受控能力和 provider ID，宿主 registry
+  拥有 Board、normalizer、visual policy、展示和答题能力实现；通用作答、资料、持久化与前端
+  不按 9660/9640 分派。合成 9999 科目证明已有通用能力可仅凭 Package 接入，缺少显式
+  SubjectContext 的领域写入立即失败。
+- [已实现] P12 Examiner Report 首批证据切片：新增版本化 run/candidate/追加式 review 和
+  `question_difficulty` 正式投影；结构化模型只提出候选，代码逐项验证 ER/QP 来源校验和、
+  pair key、规范题号、页码、逐字引用、指标方向/范围/限定词，人工审核后按 run 事务发布。
+  数学与经济均已发布真实切片，B 级和非精确 A 级不强制换算成伪精确难度。
 
 ### 剩余阻碍
 
-- 9660 与 9640 的资料已全部转换、索引并发布到各自 live alias；2026-08-05 清点后两科
-  `exam_identity_incomplete=0`。历史章节练习、样卷和显式属于其他资格代码的试卷不再污染
-  当前科目严格配对。仍有 9660 的 5 份和 9640 的 4 份 Question Paper 没有 Mark Scheme，
-  只能用于检索或作答，不能用于自动评分。
-- 两科 `question_difficulty_rows=0`。当前正式图谱仍是 P3 生成的 D 级课纲 AI 冷启动历史值；
-  P10 全量付费构建尚未执行，因此不会把 3 个冒烟样本伪装成已迁移数据。Examiner Report 的
-  A/B 级观测抽取、题号映射和聚合发布仍是本 Epic 未完成的核心能力。
+- 2026-09-01 状态总览报告 9660/9640 分别有 3/4 份资料考试身份不完整；仍有 9660 的 5 份和
+  9640 的 4 份 Question Paper 没有 Mark Scheme，只能用于检索或作答，不能用于自动评分。
+  这取代 2026-08-05 `exam_identity_incomplete=0` 的旧清点快照，后续必须按当前资料身份继续治理。
+- P10 的知识点 D 级全量付费构建尚未执行；正式知识图仍主要保留历史冷启动值，不会把 3 个
+  冒烟样本伪装成全量迁移。
+- Examiner Report 首批双科题目观测已经发布，当前 `question_difficulty_rows` 为数学 1、经济 2。
+  仍未完成题目观测到 `knowledge_codes` 的人工审核映射、知识点 A/B/C 聚合和全量报告覆盖；
+  扩大范围前仍需费用上限和样本质量门禁。
 
 ### 难度证据范围
 
@@ -172,7 +181,7 @@ Objective 的相对位置和 `[0,1]` 难度分。固定代码只负责证据材�
 - **题目难度**只表示可回到具体 Question Paper 题号的表现观测。只有官方 facility、
   mean mark、discrimination、明确的 Examiner Report 定性描述，或经人工确认的历史观测
   才能写入；不得从题面长度、LLM 主观判断或知识点冷启动分反推并冒充题目观测。
-- 第一批验收以 9660 和 9640 各一组可严格配对且带 Examiner Report 的真实样本为边界：
+- 第一批验收已以 9660 和 9640 各一组可严格配对且带 Examiner Report 的真实样本完成：
   观测能回到科目、考试配对键、题号、来源页和原文；重复运行幂等；无法确定题号时保留为
   待审核候选而不发布。全量付费抽取仍受费用上限和样本质量门禁约束。
 
@@ -185,6 +194,11 @@ Objective 的相对位置和 `[0,1]` 难度分。固定代码只负责证据材�
   事务和测试面，并逐步引入 Alembic 等版本化 schema migration。
 
 ## 执行记录
+
+- 2026-09-01：关闭 Issue 039/040。课程扩展主流程已收口为声明式 Package + 宿主受控
+  provider registry；Examiner Report 双科首批正式切片已发布。当前运行态确认数学/经济
+  `question_difficulty_rows=1/2`，两科 Core 索引就绪；知识点映射、A/B/C 聚合与全量覆盖继续
+  留在本 Epic，不把首批题目观测写成完整表现校准。
 
 - 2026-08-03：新增可移植 Markdown 缓存解析边界，宿主绝对路径在容器内按稳定 document ID
   映射到挂载缓存；`source_context`、知识构建、索引和 Examiner Report 读取统一复用。
