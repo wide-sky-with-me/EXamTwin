@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 
 from examtwin.assessment.answering_agent.contracts import (
@@ -9,7 +10,7 @@ from examtwin.assessment.answering_agent.contracts import (
 from examtwin.contracts.evidence import AnswerDiagram, AnswerImage
 
 
-def _label_is_present(answer: str, label: str) -> bool:
+def _label_is_present(answer: str, label: str, *, heading_only: bool = False) -> bool:
     normalized = label.strip()
     if not normalized:
         return True
@@ -19,9 +20,10 @@ def _label_is_present(answer: str, label: str) -> bool:
     # contract stores only ``.1`` / ``(a)``.  Accept that presentation alias while
     # still requiring a label boundary; never equate differently numbered parts.
     question_prefix = r"(?:q(?:uestion)?\s*)?\d+\s*" if normalized[0] in ".(" else ""
+    boundary = r"^[ \t]*(?:#{1,6}[ \t]*|[*_]{1,2})?" if heading_only else r"(?:^|\s|[*_#])"
     return bool(
         re.search(
-            rf"(?im)(?:^|\s|[*_#])(?:{question_prefix})?{escaped}(?=\s|[*_:.)]|$)",
+            rf"(?im){boundary}(?:{question_prefix})?{escaped}(?=\s|[*_:.)]|$)",
             answer,
         )
     )
@@ -35,6 +37,11 @@ def verify_answer_contract(
     *,
     source_plot_overlay_mode: str | None = None,
 ) -> None:
+    if task.strategy_instruction:
+        contract = json.loads(task.strategy_instruction)
+        forbidden = contract.get("skipped_subparts", [])
+        if any(_label_is_present(answer_markdown, label, heading_only=True) for label in forbidden):
+            raise RuntimeError("answer contains a subpart skipped by the frozen strategy")
     required_tools = task.question_spec.required_tool_names
     if not required_answer_artifacts_are_present(diagrams, images, required_tools):
         produced = {diagram.tool_name for diagram in diagrams} | {

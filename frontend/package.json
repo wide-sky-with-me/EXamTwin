@@ -18,10 +18,12 @@
   "dependencies": {
     "@tanstack/react-query": "5.90.3",
     "antd": "6.5.0",
+    "html-to-image": "1.11.13",
     "katex": "^0.16.47",
     "lucide-react": "^0.468.0",
     "motion": "^12.42.2",
     "openapi-fetch": "^0.17.0",
+    "pdf-lib": "1.17.1",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-markdown": "^10.1.0",

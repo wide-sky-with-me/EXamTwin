@@ -785,6 +785,34 @@ def test_structured_finalizer_timeout_preserves_time_for_compatible_fallback() -
     assert any("兼容恢复" in step.message for step in result.steps)
 
 
+def test_single_subpart_fallback_after_finalizer_timeout_has_exact_output_contract() -> None:
+    llm = ScriptedReActLLM(
+        responses=(
+            "Thought: Retrieve evidence.\nAction: knowledge_search\n"
+            'Action Input: {"query":"quadratic discriminant"}',
+            "Thought: Prepare the answer.\nAnswer: The discriminant is b²−4ac. [S1]",
+            'Answer: {"answer_markdown":"","subparts":[{"label":".1",'
+            '"answer_markdown":"The discriminant is b²−4ac. [S1]"}],'
+            '"citation_ids":["S1"],"confidence":0.8,"grounded":true,"warnings":[]}',
+        )
+    )
+    finalizer = CapturingFinalAnswerProvider(error=TimeoutError("provider timeout"))
+    result = _scripted_runtime(llm, final_answer_provider=finalizer, timeout=5).solve(
+        AnswerTask(
+            subject_code="9660",
+            question="State the discriminant.",
+            question_spec=QuestionSpec(subparts=(SubpartRequirement(label=".1"),)),
+        )
+    )
+    assert result.answer_markdown == "### .1\n\nThe discriminant is b²−4ac. [S1]"
+    assert result.grounded
+    assert finalizer.calls == 1
+    repair_prompt = llm.prompts[-1]
+    assert '"subparts": [{"label": ".1"' in repair_prompt
+    assert '"answer_markdown": ""' in repair_prompt
+    assert "target_score" not in repair_prompt
+
+
 @pytest.mark.asyncio
 async def test_diagram_tool_rejects_unsafe_path() -> None:
     context = AgentRunContext(task=AnswerTask(subject_code="9660", question="Draw it."))

@@ -36,7 +36,7 @@ _THINK_BLOCK = re.compile(r"<think\b[^>]*>.*?</think\s*>", re.IGNORECASE | re.DO
 
 def required_artifact_tools(skill: SubjectSkill, task: AnswerTask) -> tuple[str, ...]:
     structured = task.question_spec.required_tool_names
-    if structured:
+    if structured or task.strategy_instruction:
         return structured
     fallback = skill.required_visual_tool(task.visual_request_text or task.question)
     return () if fallback is None else (fallback,)

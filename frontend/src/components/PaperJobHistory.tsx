@@ -115,7 +115,9 @@ export function PaperJobHistory({
   paperUnitId?: string;
   embedded?: boolean;
 }) {
-  const [history, setHistory] = useState<PaperJobList | null>(null);
+  const [historySnapshot, setHistory] = useState<{
+    subjectId: string; paperUnitId?: string; data: PaperJobList;
+  } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [queryDraft, setQueryDraft] = useState("");
@@ -138,6 +140,8 @@ export function PaperJobHistory({
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const { notify } = useToast();
   const subjectId = subject?.id ?? null;
+  const history = historySnapshot?.subjectId === subjectId
+    && historySnapshot?.paperUnitId === paperUnitId ? historySnapshot?.data ?? null : null;
   const scopedToPaper = Boolean(paperUnitId);
 
   useEffect(() => {
@@ -159,7 +163,7 @@ export function PaperJobHistory({
       offset: page * pageSize,
     })
       .then((result) => {
-        if (active) setHistory(result);
+        if (active) setHistory({ subjectId, paperUnitId, data: result });
       })
       .catch((cause) => {
         if (active) {
@@ -179,7 +183,12 @@ export function PaperJobHistory({
     setBulkConfirming(false);
     setDeleteCandidate(null);
     setSelectionMode(false);
-  }, [answerMode, query, range, status, subjectId, unitCode]);
+  }, [answerMode, paperUnitId, query, range, status, subjectId, unitCode]);
+
+  useEffect(() => {
+    setPage(0);
+    setEditingId(null);
+  }, [subjectId, paperUnitId]);
 
   function applyQuery() {
     setPage(0);
@@ -658,6 +667,7 @@ export function PaperJobHistory({
       )}
 
       <AppConfirmDialog
+        key={`delete:${subjectId}:${paperUnitId}`}
         busy={deleting}
         confirmLabel="删除作答记录"
         danger
@@ -668,17 +678,18 @@ export function PaperJobHistory({
         onOpenChange={(open) => {
           if (!open) setDeleteCandidate(null);
         }}
-        open={deleteCandidate !== null}
+        open={deleteCandidate !== null && history !== null}
         title="确认删除作答记录"
       />
       <AppConfirmDialog
+        key={`bulk-delete:${subjectId}:${paperUnitId}`}
         busy={deleting}
         confirmLabel={`删除 ${selectedIds.size} 条记录`}
         danger
         description={`将永久删除选中的 ${selectedIds.size} 条作答记录，以及关联评分、复核记录和作答文件。此操作无法恢复。`}
         onConfirm={confirmBulkDelete}
         onOpenChange={setBulkConfirming}
-        open={bulkConfirming}
+        open={bulkConfirming && history !== null}
         title="确认批量删除"
       />
     </HistoryShell>

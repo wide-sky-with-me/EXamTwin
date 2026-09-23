@@ -453,6 +453,12 @@ test("keeps every paper-domain dialog reachable at desktop and mobile sizes", as
 
     const detailDialog = page.getByRole("dialog", { name: "试卷详情" });
     await expectViewportSafePaperModal(page, detailDialog, detailDialog.locator(".paper-detail-summary"));
+    await detailDialog.getByRole("checkbox", { name: "同时规划备考投入和考试时间" }).check();
+    await expect(detailDialog.getByRole("spinbutton", { name: "考试时长（分钟）" })).toHaveValue("105");
+    await expectViewportSafePaperModal(page, detailDialog, detailDialog.getByRole("button", { name: "AI 自动作答" }));
+    await detailDialog.getByRole("spinbutton", { name: "目标分数" }).scrollIntoViewIfNeeded();
+    expect(await detailDialog.locator(".target-strategy-fields").evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath(`paper-strategy-${viewport.width}.png`) });
 
     await detailDialog.getByRole("button", { name: "更多试卷操作" }).click();
     await page.getByRole("menuitem", { name: "导入外部答卷" }).click();
@@ -488,6 +494,10 @@ test("keeps every paper-domain dialog reachable at desktop and mobile sizes", as
     );
 
     await page.goto("/subjects/oxfordaqa-economics-9640/papers");
+    // Initial list loading is debounced: the toolbar can be briefly enabled
+    // before loading starts. Wait for real list content, not that transient state.
+    await expect(page.getByRole("button", { name: "查看试卷 Economics June U1" })).toBeVisible();
+    await expect(page.locator(".paper-management-results")).toHaveAttribute("aria-busy", "false");
     await page.getByRole("button", { name: "打开试卷回收站" }).click();
     const trashDialog = page.getByRole("dialog", { name: /试卷回收站/ });
     await expectViewportSafePaperModal(

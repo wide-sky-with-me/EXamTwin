@@ -23,11 +23,14 @@ import {
   useMemo,
   useRef,
   useState,
+  lazy,
+  Suspense,
 } from "react";
 import { createPortal } from "react-dom";
 
 import { AnswerArtifactFlow } from "../components/AnswerArtifactFlow";
 import { PaperJobHistory } from "../components/PaperJobHistory";
+import { TargetScoreFields, TargetScoreReport, type StrategyRequest } from "../components/TargetScoreStrategy";
 import { AppDialog } from "../components/ui/AppDialog";
 import {
   CitationMarkdown,
@@ -61,6 +64,7 @@ import {
 import type { PaperJobResult, SubjectPack } from "../types";
 
 const MAX_PAPER_BYTES = 25 * 1024 * 1024;
+const PaperAnswerPdf = lazy(() => import("../components/PaperAnswerPdf").then((module) => ({ default: module.PaperAnswerPdf })));
 
 function isSupportedPaper(file: File) {
   const name = file.name.toLowerCase();
@@ -227,6 +231,7 @@ export function PaperAnswering({
   const [questionExpanded, setQuestionExpanded] = useState(true);
   const [mobilePane, setMobilePane] = useState<"answer" | "evidence">("answer");
   const [uploading, setUploading] = useState(false);
+  const [strategy, setStrategy] = useState<StrategyRequest | null>(null);
   const [dragging, setDragging] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [replacing, setReplacing] = useState(false);
@@ -236,6 +241,7 @@ export function PaperAnswering({
   const [error, setError] = useState<string | null>(null);
   const [historyVersion, setHistoryVersion] = useState(0);
   const [sourcePreviewOpen, setSourcePreviewOpen] = useState(false);
+  const [pdfJobId, setPdfJobId] = useState<string | null>(null);
   const sourcePreviewButtonRef = useRef<HTMLButtonElement>(null);
   const sourcePreviewDialogRef = useRef<HTMLDivElement>(null);
   const terminalNoticeRef = useRef<string | null>(null);
@@ -377,7 +383,7 @@ export function PaperAnswering({
     setUploading(true);
     setError(null);
     try {
-      const created = await uploadPaper(subjectId, file, unit, sourceBooklet);
+      const created = await uploadPaper(subjectId, file, unit, sourceBooklet, strategy);
       setHistoryVersion((version) => version + 1);
       onOpenJob(created.job_id);
       notify("试卷已保存，后台开始解析与逐题作答。");
@@ -502,7 +508,8 @@ export function PaperAnswering({
     : [];
   const selectedSourcePages = selected?.source_pages ?? [];
   const overallProgress = job ? paperProgress(job) : 0;
-  const selectedCanRetry = selected ? terminal && canRetryQuestion(selected) : false;
+  const selectedCanRetry = selected ? terminal && canRetryQuestion(selected)
+    && !(job?.strategy_plan && selected.status === "completed") : false;
   const failedChunks = job?.chunks.filter((chunk) => chunk.status === "failed") ?? [];
   const failedBeforeQuestionDetection = Boolean(
     job?.status === "failed" && job.total_questions === 0,
@@ -656,6 +663,7 @@ export function PaperAnswering({
                       {subject?.units.map((item) => <option key={item.code} value={item.code}>{item.code} · {item.title}</option>)}
                     </select>
                   </label>
+                  <TargetScoreFields value={strategy} onChange={setStrategy} economics={subject?.subject_code === "9640"} />
                   <ErrorBanner message={canAnswer ? error : "该科目尚未配置可用的试卷作答能力。"} />
                   <footer className="modal-actions">
                     <button className="secondary" onClick={() => setCreateStep(1)} type="button">上一步</button>
@@ -758,6 +766,12 @@ export function PaperAnswering({
               {failedBeforeQuestionDetection ? "从失败步骤继续" : "仅重试失败步骤"}
             </button>
           )}
+          {terminal && job.filename.toLowerCase().endsWith(".pdf")
+            && job.source_integrity_status === "verified" && job.completed_questions > 0 && (
+              <button className="secondary" type="button" onClick={() => setPdfJobId(job.job_id)}>
+                <FileText size={15} />导出原卷作答 PDF
+              </button>
+            )}
           <ErrorBanner message={job.error ?? null} />
           {failedChunks.length > 0 && (
             <div className="paper-chunk-errors">
@@ -793,6 +807,8 @@ export function PaperAnswering({
           </button>
         </article>
       )}
+      {job?.strategy_plan && <TargetScoreReport plan={job.strategy_plan} />}
+      {job?.strategy_request && !job.strategy_plan && <p>目标 {job.strategy_request.target_score} 分：分题后将先规划学习投入和考试时间，再按策略作答。</p>}
       {job && !failedBeforeQuestionDetection && (
         <>
           {job.questions.length === 0 && (
@@ -930,6 +946,8 @@ export function PaperAnswering({
                     )}
                     {selected.status === "pending" || selected.status === "answering" ? (
                       <div className="answer-block pending-answer"><LoaderCircle className="spin" size={18} />{paperQuestionStatusLabel(selected)}</div>
+                    ) : selected.skipped_by_strategy ? (
+                      <div className="answer-block">本题按目标分数策略留空，未调用 AI 作答。可在策略报告中查看拿分路线。</div>
                     ) : selected.error ? (
                       <div className="paper-question-error">
                         <ErrorBanner message={selected.error} />
@@ -1036,6 +1054,9 @@ export function PaperAnswering({
           )}
         </>
       )}
+      {job && terminal && pdfJobId === job.job_id && <Suspense fallback={<span role="status">正在加载 PDF 导出…</span>}>
+        <PaperAnswerPdf key={`${subjectId}:${job.job_id}`} job={job} subjectId={subjectId} onClose={() => setPdfJobId(null)} />
+      </Suspense>}
     </section>
   );
 }

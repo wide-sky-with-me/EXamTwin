@@ -14,6 +14,7 @@ from examtwin.assessment.answering_agent.host_capabilities import build_host_ans
 from examtwin.assessment.answering_agent.mcp import MCPServerConfig, MCPToolProvider
 from examtwin.assessment.answering_agent.react_runner import ReActHarnessRunner, WorkflowRunner
 from examtwin.assessment.answering_agent.runtime import AnsweringAgentRuntime
+from examtwin.assessment.answering_agent.strategy_review import ModelStrategyScopeReviewer
 from examtwin.assessment.answering_agent.tools.question_vision import (
     QUESTION_VISION_CONTRACT_VERSION,
 )
@@ -26,6 +27,7 @@ from examtwin.contracts.evidence import Citation
 from examtwin.platform.config import Settings
 from examtwin.platform.providers import build_chat_model
 from examtwin.platform.storage import ManagedObjectStore
+from examtwin.platform.structured_model import LiteLLMStructuredModel
 from examtwin.subjects.public import SubjectPackage, get_subject_package
 
 
@@ -145,4 +147,18 @@ def build_answering_runtime(
         max_tool_calls=settings.answer_agent_max_tool_calls,
         timeout=settings.answer_agent_timeout,
         question_vision_replay_identity=question_vision_replay_identity,
+        strategy_reviewer=(
+            ModelStrategyScopeReviewer(
+                LiteLLMStructuredModel(
+                    model=settings.llm_model,
+                    provider=settings.litellm_provider,
+                    api_base=settings.llm_base_url,
+                    api_key=settings.llm_api_key.get_secret_value(),
+                    reasoning_effort=settings.llm_reasoning_effort,
+                    max_retries=0,
+                )
+            )
+            if settings.llm_api_key is not None
+            else None
+        ),
     )

@@ -45,6 +45,7 @@ import { type FormEvent, lazy, Suspense, useCallback, useEffect, useMemo, useRef
 
 import { ErrorBanner } from "../components/Feedback";
 import { PaperJobHistory } from "../components/PaperJobHistory";
+import { TargetScoreFields, type StrategyRequest } from "../components/TargetScoreStrategy";
 import { useToast } from "../components/toast-context";
 import { AppConfirmDialog } from "../components/ui/AppConfirmDialog";
 import { TaskWorkspaceDialog } from "../components/ui/AppDialog";
@@ -267,6 +268,7 @@ export function PaperManagement({
   const [trashBusyId, setTrashBusyId] = useState<string | null>(null);
   const [permanentDeleteCandidate, setPermanentDeleteCandidate] = useState<PaperUnitSummary | null>(null);
   const [starting, setStarting] = useState(false);
+  const [answerStrategy, setAnswerStrategy] = useState<StrategyRequest | null>(null);
   const [answerHistoryVersion, setAnswerHistoryVersion] = useState(0);
   const [externalImportOpen, setExternalImportOpen] = useState(false);
   const [externalAnswerFile, setExternalAnswerFile] = useState<File | null>(null);
@@ -452,6 +454,9 @@ export function PaperManagement({
     return () => { current = false; };
   }, [detail, papers.items, subjectId]);
   const selectedPaper = detailPaper;
+  useEffect(() => {
+    setAnswerStrategy(null);
+  }, [subjectId, selectedPaper?.id]);
   const selectedDocument = detail?.kind === "document"
     ? documents.find((item) => item.id === detail.id) ?? null
     : null;
@@ -659,10 +664,10 @@ export function PaperManagement({
   async function startAnswering(paper: PaperUnitSummary) {
     const questionPaper = paper.documents.find((item) => item.role === "question_paper");
     const sourceBooklet = paper.documents.find((item) => item.role === "source_booklet");
-    if (!questionPaper || !subjectId) return;
+    if (!questionPaper || !subjectId || starting) return;
     setStarting(true);
     try {
-      const created = await answerPaperUnit(subjectId, paper.id, questionPaper.id, sourceBooklet?.id);
+      const created = await answerPaperUnit(subjectId, paper.id, questionPaper.id, sourceBooklet?.id, answerStrategy);
       notify("已使用当前试卷及绑定资料创建作答任务。");
       onStartAnswering?.(subjectId, paper.id, created.job_id);
     } catch (cause) {
@@ -999,8 +1004,13 @@ export function PaperManagement({
               </div>
               <Tag color={selectedPaper.status === "active" ? "success" : "default"}>{selectedPaper.status === "active" ? "使用中" : "已删除"}</Tag>
             </div>
+            <form id="paper-answer-options" onSubmit={(event) => { event.preventDefault(); void startAnswering(selectedPaper); }}>
+              <fieldset disabled={starting} style={{ border: 0, margin: 0, padding: 0 }}>
+                <TargetScoreFields value={answerStrategy} onChange={setAnswerStrategy} economics={subject?.subject_code === "9640"} />
+              </fieldset>
+            </form>
             <Flex className="paper-detail-primary-actions" gap="small" wrap>
-              <Button icon={<Play size={16} />} loading={starting} onClick={() => void startAnswering(selectedPaper)} type="primary">AI 自动作答</Button>
+              <Button form="paper-answer-options" htmlType="submit" icon={<Play size={16} />} loading={starting} type="primary">AI 自动作答</Button>
               <Dropdown
                 menu={{
                   items: [

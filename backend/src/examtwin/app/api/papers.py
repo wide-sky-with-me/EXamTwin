@@ -39,6 +39,7 @@ from examtwin.app.composition import (
 from examtwin.assessment.answering_agent.tools.image_generate import AnswerImageStore
 from examtwin.assessment.paper_jobs import PaperJobService
 from examtwin.assessment.task_events import PostgresTaskEvents, TaskEvent
+from examtwin.contracts.paper_export import PaperExportLayout
 from examtwin.contracts.papers import (
     PaperAnswerMode,
     PaperJobBulkDeleteRequest,
@@ -49,6 +50,7 @@ from examtwin.contracts.papers import (
     PaperJobResponse,
     RenamePaperJobRequest,
 )
+from examtwin.contracts.strategy import StrategyRequest
 from examtwin.platform.config import Settings, get_settings
 from examtwin.platform.database.session import create_session_factory
 from examtwin.subjects.public import SubjectContext
@@ -114,11 +116,13 @@ async def answer_paper(
     unit_code: str | None = Form(default=None),
     knowledge_base_version_ids: str | None = Form(default=None),
     include_supplementary: bool = Form(default=False),
+    strategy: Annotated[str | None, Form()] = None,
     settings: Settings = Depends(get_settings),
     subject: SubjectContext = Depends(get_subject_context),
 ) -> PaperJobCreated:
     try:
         subject.require_paper_capability()
+        strategy_request = StrategyRequest.model_validate_json(strategy) if strategy else None
         requested: list[str] = []
         if knowledge_base_version_ids:
             parsed = json.loads(knowledge_base_version_ids)
@@ -158,7 +162,7 @@ async def answer_paper(
             )
         )
         jobs = build_paper_job_service(settings, selected_subject)
-        if booklet is None:
+        if booklet is None and strategy_request is None:
             return await run_in_threadpool(
                 jobs.create_job_from_stream,
                 file.filename or "uploaded-paper.md",
@@ -171,6 +175,7 @@ async def answer_paper(
             file.file,
             unit_code=unit_code,
             source_booklet=booklet,
+            strategy=strategy_request,
         )
     except (LookupError, ValueError, json.JSONDecodeError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
@@ -379,6 +384,19 @@ async def paper_job_events(
                     return
     except (LookupError, StopAsyncIteration, WebSocketDisconnect):
         return
+
+
+@router.get("/papers/jobs/{job_id}/answer-pdf/layout", response_model=PaperExportLayout)
+def paper_answer_pdf_layout(
+    job_id: str,
+    jobs: PaperJobService = Depends(get_paper_jobs),
+) -> PaperExportLayout:
+    try:
+        return jobs.answer_pdf_layout(job_id)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 @router.get("/papers/jobs/{job_id}/source", response_class=FileResponse)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import uuid
 from pathlib import Path
 from typing import Any, Literal
@@ -10,7 +11,7 @@ from sympy import simplify
 from examtwin.assessment.assessment_repository import AssessmentRepository
 from examtwin.assessment.policies import GRADING_REVIEW_CONFIDENCE_THRESHOLD
 from examtwin.assessment.symbolic import parse_safe_expression
-from examtwin.contracts.evidence import Citation
+from examtwin.contracts.evidence import AnswerDiagram, AnswerImage, Citation
 from examtwin.contracts.grading import (
     GradeRequest,
     GradeResponse,
@@ -69,9 +70,10 @@ class GradingDraft(BaseModel):
 
 def _non_verbatim_evidence(payload: GradingDraft, answer_markdown: str) -> list[str]:
     return [
-        item.student_evidence
+        item.student_evidence or "[missing evidence]"
         for item in payload.rubric_awards
-        if item.student_evidence and item.student_evidence not in answer_markdown
+        if (item.awarded > 0 and not (item.student_evidence or "").strip())
+        or (item.student_evidence and item.student_evidence not in answer_markdown)
     ]
 
 
@@ -82,12 +84,36 @@ def _withheld_non_verbatim_awards(
     sanitized = payload.model_copy(deep=True)
     withheld: list[str] = []
     for item in sanitized.rubric_awards:
-        if not item.student_evidence or item.student_evidence in answer_markdown:
+        if (item.awarded <= 0 and not item.student_evidence) or (
+            item.student_evidence
+            and item.student_evidence.strip()
+            and item.student_evidence in answer_markdown
+        ):
             continue
         withheld.append(item.criterion_id)
         item.student_evidence = None
         item.awarded = 0
     return sanitized, withheld
+
+
+def _bind_confirmed_criteria(
+    payload: GradingDraft, criteria: list[dict[str, Any]] | None
+) -> GradingDraft:
+    if criteria is None:
+        return payload
+    by_id = {str(c["criterion_id"]): c for c in criteria}
+    ids = [a.criterion_id for a in payload.rubric_awards]
+    if len(by_id) != len(criteria) or len(set(ids)) != len(ids) or set(ids) != set(by_id):
+        raise ValueError("评分结果必须与已确认评分原子逐项对应，不能重复、遗漏或新增原子")
+    bound = payload.model_copy(deep=True)
+    for award in bound.rubric_awards:
+        source = by_id[award.criterion_id]
+        award.max_marks = float(source["max_marks"])
+        award.description = str(source["description"])
+        award.mark_type = source.get("mark_type")
+        award.awarded = min(award.awarded, award.max_marks)
+    bound.total_available = sum(float(c["max_marks"]) for c in criteria)
+    return bound
 
 
 def _grading_model(settings: Settings) -> StructuredModelPort:
@@ -216,8 +242,37 @@ class GradingService:
             )
         return question, mark_scheme, citations, warnings
 
-    def grade(self, request: GradeRequest) -> GradeResponse:
+    def grade(
+        self,
+        request: GradeRequest,
+        *,
+        confirmed_criteria: list[dict[str, Any]] | None = None,
+        answer_diagrams: list[AnswerDiagram] | tuple[AnswerDiagram, ...] = (),
+        answer_images: list[AnswerImage] | tuple[AnswerImage, ...] = (),
+    ) -> GradeResponse:
         question, mark_scheme, citations, warnings = self._resolve_context(request)
+        if confirmed_criteria is not None:
+            if not confirmed_criteria:
+                raise ValueError("已确认评分标准不能为空")
+            mark_scheme = json.dumps(confirmed_criteria, ensure_ascii=False)
+        answer_evidence = request.answer_markdown
+        if answer_diagrams:
+            answer_evidence += "\n\nACTUAL ANSWER VECTOR DIAGRAMS (coordinates and elements):\n"
+            answer_evidence += json.dumps(
+                [d.model_dump(mode="json") for d in answer_diagrams], ensure_ascii=False
+            )
+        if answer_images:
+            answer_evidence += (
+                "\n\nUNINSPECTED RASTER ARTIFACTS (metadata is not visual evidence):\n"
+            )
+            answer_evidence += json.dumps(
+                [i.model_dump(mode="json") for i in answer_images], ensure_ascii=False
+            )
+        uninspectable_artifacts = bool(answer_images) or any(d.source for d in answer_diagrams)
+        if (answer_diagrams or answer_images) and (
+            len(answer_evidence) > self.settings.grading_answer_max_chars
+        ):
+            raise ValueError("答案及图形证据超过评分容量，不能截断实际产物后评分")
         checks = symbolic_checks(request)
         cas_context = (
             "\n".join(
@@ -231,7 +286,13 @@ class GradingService:
             if request.max_marks is not None
             else "Derive the maximum only from explicit mark-scheme atoms."
         )
-        system_prompt = load_prompt_template("grading/SYSTEM.md")
+        system_prompt = load_prompt_template("grading/SYSTEM.md") + (
+            "\nActual vector diagram coordinates and elements are supplied as student evidence. "
+            "Inspect the elements, not merely their title or caption. Cite a literal excerpt "
+            "from that supplied structure when awarding a diagram mark. Positive awards "
+            "require non-empty exact evidence. For confirmed criteria, return every exact "
+            "criterion_id once, preserving the server-owned maximum and description."
+        )
 
         user_content = f"""
 QUESTION:
@@ -241,7 +302,7 @@ MARK SCHEME:
 {mark_scheme[: self.settings.grading_mark_scheme_max_chars]}
 
 STUDENT ANSWER:
-{request.answer_markdown[: self.settings.grading_answer_max_chars]}
+{answer_evidence[: self.settings.grading_answer_max_chars]}
 
 CAS CHECKS:
 {cas_context}
@@ -252,26 +313,75 @@ MAXIMUM MARKS:
 RELEVANT KNOWLEDGE CODES:
 {", ".join(request.knowledge_codes) or "None supplied."}
 """.strip()
-        runner = StructuredTaskRunner(self.structured_model or _grading_model(self.settings))
+        runner = None
         task = StructuredTask(system_prompt=system_prompt, user_content=user_content)
-        payload = runner.run(task, GradingDraft, timeout=self.settings.grading_timeout)
-        invalid_evidence = _non_verbatim_evidence(payload, request.answer_markdown)
+        if uninspectable_artifacts:
+            if confirmed_criteria is None:
+                raise ValueError("该答案含当前无法检查的图片或原页底图，需要教师查看实际产物评分")
+            payload = GradingDraft(
+                total_available=sum(float(c["max_marks"]) for c in confirmed_criteria),
+                rubric_awards=[
+                    GradingRubricDraft(
+                        criterion_id=c["criterion_id"],
+                        description=c["description"],
+                        mark_type=c.get("mark_type"),
+                        max_marks=c["max_marks"],
+                        awarded=0,
+                        rationale="含尚不能可靠检查的图片或原页底图；整题暂缓授分，请教师查看原产物。",
+                        confidence=0,
+                    )
+                    for c in confirmed_criteria
+                ],
+                warnings=[
+                    "整题暂缓授分：当前无法检查位图或原页底图，零分只是待复核占位，不表示答错。"
+                ],
+            )
+        elif answer_evidence.strip():
+            runner = StructuredTaskRunner(self.structured_model or _grading_model(self.settings))
+            payload = runner.run(task, GradingDraft, timeout=self.settings.grading_timeout)
+        else:
+            criteria = json.loads(mark_scheme)
+            if not isinstance(criteria, list) or not criteria:
+                raise ValueError("空白答卷评分需要确认后的结构化评分标准")
+            payload = GradingDraft(
+                total_available=sum(float(c["max_marks"]) for c in criteria),
+                rubric_awards=[
+                    GradingRubricDraft(
+                        criterion_id=c["criterion_id"],
+                        description=c["description"],
+                        mark_type=c.get("mark_type"),
+                        max_marks=c["max_marks"],
+                        awarded=0,
+                        rationale="答卷为空白，无可授分证据。",
+                        confidence=1,
+                        error_types=["omission"],
+                    )
+                    for c in criteria
+                ],
+                warnings=["空白答卷按评分标准记录零分，仍需人工复核。"],
+            )
+        payload = _bind_confirmed_criteria(payload, confirmed_criteria)
+        invalid_evidence = _non_verbatim_evidence(payload, answer_evidence)
         if invalid_evidence:
+            if runner is None:
+                raise RuntimeError("空白答卷不能包含学生证据")
             payload = runner.run(
                 StructuredTask(
                     system_prompt=system_prompt,
                     user_content=(
                         f"{user_content}\n\n"
                         "CORRECTION REQUIRED: Every student_evidence value must be an exact, "
-                        "contiguous quote from STUDENT ANSWER. Do not paraphrase evidence."
+                        "contiguous quote from STUDENT ANSWER. Every positive award needs "
+                        "non-empty evidence; null/empty evidence cannot support marks. "
+                        "Do not paraphrase evidence."
                     ),
                 ),
                 GradingDraft,
                 timeout=self.settings.grading_timeout,
             )
             payload, withheld = _withheld_non_verbatim_awards(
-                payload,
-                request.answer_markdown,
+                _bind_confirmed_criteria(payload, confirmed_criteria),
+                answer_evidence,
             )
             if withheld:
                 payload.warnings.append(
@@ -302,7 +412,7 @@ RELEVANT KNOWLEDGE CODES:
             raise ValueError("The model returned no auditable rubric atoms")
 
         total_available = sum(item.max_marks for item in awards)
-        if request.max_marks is not None:
+        if request.max_marks is not None and confirmed_criteria is None:
             total_available = request.max_marks
         total_awarded = min(total_available, sum(item.awarded for item in awards))
         confidence = sum(item.confidence * max(item.max_marks, 0.001) for item in awards) / sum(
@@ -338,7 +448,7 @@ RELEVANT KNOWLEDGE CODES:
                 "id": assessment_id,
                 "subject_code": self.subject.subject_code,
                 "question_ref": request.question_ref,
-                "answer_markdown": request.answer_markdown,
+                "answer_markdown": answer_evidence,
                 "total_awarded": result.total_awarded,
                 "total_available": result.total_available,
                 "confidence": result.confidence,

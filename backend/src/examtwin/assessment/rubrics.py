@@ -1497,7 +1497,10 @@ class RubricService:
                 knowledge_codes=[
                     str(item) for item in json.loads(question["knowledge_codes_json"])
                 ],
-            )
+            ),
+            confirmed_criteria=[_criterion_scoring_payload(item) for item in criteria],
+            answer_diagrams=answer.diagrams,
+            answer_images=answer.images,
         )
         self.assessments.link_context(
             result.assessment_id,

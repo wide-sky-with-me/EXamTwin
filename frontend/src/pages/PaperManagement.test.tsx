@@ -131,6 +131,9 @@ function installServer(
     if (request.method === "POST" && url.pathname.endsWith("/import-answer")) {
       return json({ job_id: "job-uploaded", status: "queued", stage: "queued", paper_unit_id: "unit-1", question_paper_document_id: "qp-1" }, 202);
     }
+    if (request.method === "POST" && url.pathname.endsWith("/answer")) {
+      return json({ job_id: "job-generated", status: "queued", stage: "queued", paper_unit_id: "unit-1", question_paper_document_id: "qp-1" }, 202);
+    }
     if (request.method === "POST" && url.pathname.endsWith("/restore")) {
       const restored = { ...trashedRows[0], status: "active" as const };
       trashedRows = trashedRows.filter((item) => item.id !== restored.id);
@@ -269,6 +272,45 @@ describe("PaperManagement", () => {
     expect(within(summary!).getByText("最近更新")).toBeInTheDocument();
   });
 
+  test.each([subject, economicsSubject])("submits target strategy through the real $subject_code paper entry", async (activeSubject) => {
+    const user = userEvent.setup();
+    const selected = paper({ subject_id: activeSubject.id, subject_code: activeSubject.subject_code });
+    const { requests } = installServer([selected], undefined, undefined, undefined, selected);
+    const onStartAnswering = vi.fn();
+    render(<PaperManagement detail={{ kind: "paper", id: "unit-1" }} subjectId={activeSubject.id} subjects={[activeSubject]} onStartAnswering={onStartAnswering} />);
+    const dialog = await visibleModal("试卷详情");
+    await user.click(within(dialog).getByRole("checkbox", { name: "同时规划备考投入和考试时间" }));
+    fireEvent.change(within(dialog).getByRole("spinbutton", { name: "目标分数" }), { target: { value: "52" } });
+    fireEvent.change(within(dialog).getByRole("spinbutton", { name: "可备考时间（小时）" }), { target: { value: "8" } });
+    await user.click(within(dialog).getByRole("button", { name: "AI 自动作答" }));
+    await waitFor(() => expect(onStartAnswering).toHaveBeenCalledWith(activeSubject.id, "unit-1", "job-generated"));
+    const request = requests.find((item) => item.method === "POST" && item.url.endsWith("/paper-units/unit-1/answer"));
+    expect(request?.headers.get("X-ExamTwin-Subject")).toBe(activeSubject.id);
+    expect(await request!.json()).toMatchObject({
+      question_paper_document_id: "qp-1", source_booklet_document_id: "insert-1",
+      strategy: { target_score: 52, study_budget_minutes: 480, exam_budget_minutes: activeSubject.subject_code === "9640" ? 105 : 90, reserve_minutes: 10 },
+    });
+  });
+
+  test("keeps ordinary answering as the default and blocks invalid strategy fields", async () => {
+    const user = userEvent.setup();
+    const { requests } = installServer();
+    const onStartAnswering = vi.fn();
+    render(<PaperManagement detail={{ kind: "paper", id: "unit-1" }} subjectId={subject.id} subjects={[subject]} onStartAnswering={onStartAnswering} />);
+    const dialog = await visibleModal("试卷详情");
+    const toggle = within(dialog).getByRole("checkbox", { name: "同时规划备考投入和考试时间" });
+    expect(toggle).not.toBeChecked();
+    await user.click(toggle);
+    fireEvent.change(within(dialog).getByRole("spinbutton", { name: "目标分数" }), { target: { value: "0" } });
+    await user.click(within(dialog).getByRole("button", { name: "AI 自动作答" }));
+    expect(requests.filter((item) => item.method === "POST" && item.url.endsWith("/answer"))).toHaveLength(0);
+    await user.click(toggle);
+    await user.click(within(dialog).getByRole("button", { name: "AI 自动作答" }));
+    await waitFor(() => expect(onStartAnswering).toHaveBeenCalled());
+    const request = requests.find((item) => item.method === "POST" && item.url.endsWith("/answer"));
+    expect(await request!.json()).not.toHaveProperty("strategy");
+  });
+
   test("loads an URL-addressed paper outside the current list page", async () => {
     const { requests } = installServer([]);
     render(<PaperManagement detail={{ kind: "paper", id: "unit-1" }} subjectId={subject.id} subjects={[subject]} />);
@@ -355,6 +397,8 @@ describe("PaperManagement", () => {
       status: "completed",
       stage: "completed",
       total_pages: 1,
+      strategy_request: null,
+      strategy_plan: null,
       parsed_pages: 1,
       total_questions: 1,
       completed_questions: 1,
@@ -378,6 +422,7 @@ describe("PaperManagement", () => {
         requires_visual_context: false,
         source_pages: [1],
         source_warnings: [],
+        skipped_by_strategy: false,
         answer_requirements: [],
         agent_steps: [],
         source_digest: "archived-question",

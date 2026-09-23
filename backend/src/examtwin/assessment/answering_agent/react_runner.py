@@ -9,6 +9,7 @@ from examtwin.assessment.answering_agent.finalization import (
     AgentFinalPayload,
     FinalAnswerProvider,
     finalize_payload,
+    subpart_output_instruction,
 )
 from examtwin.assessment.answering_agent.llama_index_adapter import LlamaIndexReActProtocolAdapter
 from examtwin.assessment.answering_agent.prompts import compose_system_prompt
@@ -136,6 +137,9 @@ class ReActHarnessRunner:
         ]
         corrections: list[HarnessMessage] = []
         structured_finalizer_available = self.final_answer_provider is not None
+        output_contract = subpart_output_instruction(task.question_spec.labelled_subparts)
+        final_instruction = FINAL_ONLY_OBSERVATION + "\n" + output_contract
+        repair_instruction = FORMAT_REPAIR_OBSERVATION + "\n" + output_contract
         loop = asyncio.get_running_loop()
         deadline = loop.time() + timeout
         fallback_reserve = min(self.finalization_reserve_seconds, timeout / 3)
@@ -273,7 +277,7 @@ class ReActHarnessRunner:
                     + ", ".join(calls.missing_mandatory)
                 )
             context.emit("deciding", "running", message)
-            events.append(ToolObservationEvent(content=FINAL_ONLY_OBSERVATION))
+            events.append(ToolObservationEvent(content=final_instruction))
             structured = await request_structured_final()
             if structured is not None:
                 return structured
@@ -288,7 +292,7 @@ class ReActHarnessRunner:
                     completed = await finish_protocol_turn(turn)
                     if completed is not None:
                         return completed
-                queue_protocol_retry(content, FINAL_ONLY_OBSERVATION)
+                queue_protocol_retry(content, final_instruction)
             raise RuntimeError(
                 "answering Agent could not produce a valid final answer after recovery"
             )
@@ -312,7 +316,7 @@ class ReActHarnessRunner:
                         "running",
                         "Agent 输出格式不完整，正在自动修复",
                     )
-                    queue_protocol_retry(content, FORMAT_REPAIR_OBSERVATION)
+                    queue_protocol_retry(content, repair_instruction)
                     continue
                 if isinstance(turn, ProtocolInvalid):
                     context.emit(
@@ -320,7 +324,7 @@ class ReActHarnessRunner:
                         "running",
                         "Agent 输出格式不完整，正在自动修复",
                     )
-                    queue_protocol_retry(content, FORMAT_REPAIR_OBSERVATION)
+                    queue_protocol_retry(content, repair_instruction)
                     continue
                 if not isinstance(turn, ProtocolToolCall):
                     raise TypeError("agent protocol returned an unsupported turn")

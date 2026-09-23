@@ -158,12 +158,14 @@ function DiagramScene({
   subjectId,
   titleId,
   descriptionId,
+  overlayOnly = false,
 }: {
   diagram: AnswerDiagram;
   jobId?: string;
   subjectId: string;
   titleId: string;
   descriptionId: string;
+  overlayOnly?: boolean;
 }) {
   const markerPrefix = `answer-arrow-${useId().replaceAll(":", "")}`;
   const [minX, minY, width, height] = diagram.view_box;
@@ -221,7 +223,7 @@ function DiagramScene({
           </marker>
         ))}
       </defs>
-      {diagram.source && jobId && (
+      {diagram.source && jobId && !overlayOnly && (
         <image
           className="paper-diagram-source"
           height={diagram.source.height}
@@ -318,6 +320,30 @@ function DiagramScene({
 }
 
 const MIN_ZOOM = 0.75;
+
+/** Reuse the exact answer scene for PDF rendering without interactive controls. */
+export function PrintableAnswerDiagram({
+  diagram, subjectId, jobId, overlayOnly = false,
+}: {
+  diagram: AnswerDiagram;
+  subjectId: string;
+  jobId: string;
+  overlayOnly?: boolean;
+}) {
+  const id = `print-diagram-${useId().replaceAll(":", "")}`;
+  return (
+    <>
+      <div className="answer-diagram-canvas">
+        <DiagramScene diagram={diagram} subjectId={subjectId} jobId={jobId}
+          titleId={id} descriptionId={`${id}-description`} overlayOnly={overlayOnly} />
+      </div>
+      {!overlayOnly && <>
+        {diagram.legend.map((entry, index) => <p key={index}><InlineMarkdown>{entry.label}</InlineMarkdown></p>)}
+        {diagram.caption && <p><InlineMarkdown>{diagram.caption}</InlineMarkdown></p>}
+      </>}
+    </>
+  );
+}
 const MAX_ZOOM = 2.5;
 const ZOOM_STEP = 0.25;
 

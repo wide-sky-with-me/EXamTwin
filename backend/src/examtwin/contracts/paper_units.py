@@ -6,6 +6,7 @@ from pydantic import Field, model_validator
 
 from examtwin.contracts.base import SerializedResponse
 from examtwin.contracts.papers import PaperJobCreated
+from examtwin.contracts.strategy import StrategyRequest
 
 PaperUnitDocumentRole = Literal["question_paper", "mark_scheme", "source_booklet"]
 
@@ -68,6 +69,7 @@ class CreatePaperUnitAnswerRequest(SerializedResponse):
     source_booklet_document_id: str | None = None
     knowledge_base_version_ids: list[str] = Field(default_factory=list, max_length=20)
     include_supplementary: bool = False
+    strategy: StrategyRequest | None = None
 
 
 class PaperUnitAnswerCreated(PaperJobCreated):

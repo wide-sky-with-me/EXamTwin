@@ -32,6 +32,7 @@ from examtwin.assessment.paper_parsing import (
     validate_question_source_structure,
 )
 from examtwin.assessment.rag import RagService
+from examtwin.assessment.strategy import analyse_strategy, plan_strategy
 from examtwin.contracts.evidence import Citation, SubpartRequirement
 from examtwin.contracts.knowledge import AskRequest
 from examtwin.contracts.papers import (
@@ -39,6 +40,7 @@ from examtwin.contracts.papers import (
     PaperKnowledgeReference,
     PaperQuestionAnswer,
 )
+from examtwin.contracts.strategy import StrategyPlan, StrategyRequest
 from examtwin.knowledge.public import (
     KnowledgeRepository,
     list_knowledge_points,
@@ -50,6 +52,7 @@ from examtwin.platform.agent_runtime.structured import (
     StructuredTask,
     StructuredTaskRunner,
 )
+from examtwin.platform.cache_paths import resolve_markdown_cache_path
 from examtwin.platform.config import Settings
 from examtwin.platform.providers import required_secret
 from examtwin.platform.structured_model import LiteLLMStructuredModel
@@ -889,6 +892,53 @@ class PaperAnswerService:
     def _catalog(self, unit_code: str | None) -> list[dict[str, Any]]:
         return self.catalog_loader(unit_code)
 
+    def create_strategy(
+        self, request: StrategyRequest, questions: list[dict[str, Any]], unit_code: str | None
+    ) -> StrategyPlan:
+        total = sum(part["marks"] for question in questions for part in question["subparts"])
+        if request.target_score > total:
+            raise ValueError(f"目标分数不能超过试卷总分 {total}")
+        model = self.structured_model or LiteLLMStructuredModel(
+            model=self.settings.llm_model,
+            provider=self.settings.litellm_provider,
+            api_base=self.settings.llm_base_url,
+            api_key=required_secret(self.settings.llm_api_key),
+            reasoning_effort=self.settings.llm_reasoning_effort,
+            max_retries=0,
+        )
+        analysis = analyse_strategy(
+            model,
+            request,
+            questions,
+            self._catalog(unit_code),
+            max(self.settings.paper_split_timeout, 180),
+        )
+        return plan_strategy(request, questions, analysis).model_copy(
+            update={"analysis_model": model.model_name}
+        )
+
+    def strategy_source_context(self, job: dict[str, Any]) -> dict[str, str]:
+        document_id = str(job["source_booklet_document_id"])
+        if self.rag.documents is None:
+            raise ValueError("策略规划缺少配套材料读取服务")
+        row = self.rag.documents.get(document_id)
+        checksum = str(job["source_booklet_checksum"])
+        if (
+            row is None
+            or row.get("source_type") != "insert"
+            or row.get("subject_code") != self.subject.subject_code
+            or row.get("pair_key") != job.get("pair_key")
+            or row.get("status") != "converted"
+            or row.get("checksum") != checksum
+            or row.get("converted_source_checksum") != checksum
+        ):
+            raise ValueError("策略规划所需配套材料与冻结试卷不匹配")
+        path = resolve_markdown_cache_path(self.settings, document_id, str(row["markdown_path"]))
+        text = path.read_text(encoding="utf-8")
+        if not text.strip() or len(text) > 80_000:
+            raise ValueError("配套材料内容为空或超过策略分析容量")
+        return {"document_id": document_id, "checksum": checksum, "content_markdown": text}
+
     def _split_with_llm(
         self,
         markdown: str,
@@ -1208,6 +1258,11 @@ Paper Markdown:
             "visual_request_text": question,
             "event_sink": event_sink,
         }
+        if item.get("strategy_instruction"):
+            request_parts[0] = (
+                "Execute only the selected examination approach in the strategy contract."
+            )
+            rag_options["strategy_instruction"] = item["strategy_instruction"]
         if ledger is not None:
             rag_options["ledger"] = ledger
         response = self.rag.ask(

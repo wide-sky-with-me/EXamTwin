@@ -11,6 +11,7 @@ from examtwin.contracts.knowledge import (
     KnowledgePathItem,
     KnowledgeRelationSummary,
 )
+from examtwin.contracts.strategy import StrategyPlan, StrategyRequest
 
 PaperJobStatus = Literal[
     "queued",
@@ -68,6 +69,7 @@ class PaperKnowledgeReference(SerializedResponse):
 
 
 class PaperQuestionAnswer(SerializedResponse):
+    skipped_by_strategy: bool = False
     number: str
     question_markdown: str
     answer_markdown: str
@@ -106,6 +108,7 @@ class AgentStepSummary(SerializedResponse):
 
 
 class PaperJobQuestion(SerializedResponse):
+    skipped_by_strategy: bool = False
     position: int
     status: Literal["pending", "answering", "completed", "failed"]
     attempts: int = 0
@@ -184,6 +187,8 @@ class PaperJobListResponse(SerializedResponse):
 
 
 class PaperJobResponse(SerializedResponse):
+    strategy_request: StrategyRequest | None = None
+    strategy_plan: StrategyPlan | None = None
     job_id: str
     filename: str
     display_name: str | None = None

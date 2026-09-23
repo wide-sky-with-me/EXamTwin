@@ -654,6 +654,23 @@ export interface paths {
         patch: operations["rename_paper_job_api_v1_papers_jobs__job_id__patch"];
         trace?: never;
     };
+    "/api/v1/papers/jobs/{job_id}/answer-pdf/layout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Paper Answer Pdf Layout */
+        get: operations["paper_answer_pdf_layout_api_v1_papers_jobs__job_id__answer_pdf_layout_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/papers/jobs/{job_id}/question-images/{asset_name}": {
         parameters: {
             query?: never;
@@ -1413,6 +1430,8 @@ export interface components {
             knowledge_base_version_ids?: string | null;
             /** Source Booklet */
             source_booklet?: string | null;
+            /** Strategy */
+            strategy?: string | null;
             /** Unit Code */
             unit_code?: string | null;
         };
@@ -1523,6 +1542,7 @@ export interface components {
             question_paper_document_id: string;
             /** Source Booklet Document Id */
             source_booklet_document_id?: string | null;
+            strategy?: components["schemas"]["StrategyRequest"] | null;
         };
         /** CreatePaperUnitRequest */
         CreatePaperUnitRequest: {
@@ -2362,6 +2382,23 @@ export interface components {
             /** Title */
             title: string;
         };
+        /** PaperAnswerRegion */
+        PaperAnswerRegion: {
+            /** Answer Anchor */
+            answer_anchor: string;
+            /** Height */
+            height: number;
+            /** Page Number */
+            page_number: number;
+            /** Question Position */
+            question_position: number;
+            /** Width */
+            width: number;
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
+        };
         /** PaperAssessmentResponse */
         PaperAssessmentResponse: {
             /**
@@ -2402,6 +2439,26 @@ export interface components {
              * @constant
              */
             kind: "paper_page";
+            /** Page Number */
+            page_number: number;
+            /** Width */
+            width: number;
+        };
+        /** PaperExportLayout */
+        PaperExportLayout: {
+            /** Pages */
+            pages: components["schemas"]["PaperExportPage"][];
+            /** Regions */
+            regions: components["schemas"]["PaperAnswerRegion"][];
+            /** Source Sha256 */
+            source_sha256: string;
+            /** Warnings */
+            warnings: string[];
+        };
+        /** PaperExportPage */
+        PaperExportPage: {
+            /** Height */
+            height: number;
             /** Page Number */
             page_number: number;
             /** Width */
@@ -2505,6 +2562,11 @@ export interface components {
             question_markdown: string;
             /** Requires Visual Context */
             requires_visual_context: boolean | null;
+            /**
+             * Skipped By Strategy
+             * @default false
+             */
+            skipped_by_strategy: boolean;
             /** Source Digest */
             source_digest: string | null;
             /** Source Kind */
@@ -2590,6 +2652,8 @@ export interface components {
              * @enum {string}
              */
             status: "queued" | "parsing" | "vision_review" | "splitting" | "answering" | "completed" | "partial_failed" | "failed";
+            strategy_plan: components["schemas"]["StrategyPlan"] | null;
+            strategy_request: components["schemas"]["StrategyRequest"] | null;
             /** Subject Code */
             subject_code: string;
             /** Subject Pack Id */
@@ -3200,6 +3264,147 @@ export interface components {
             relations: number;
             /** Strict Pairs */
             strict_pairs: number;
+        };
+        /** StrategyAnalysis */
+        StrategyAnalysis: {
+            /** Assumptions */
+            assumptions: string[];
+            /** Options */
+            options: components["schemas"]["StrategyOption"][];
+            /** Skills */
+            skills: components["schemas"]["StrategySkill"][];
+        };
+        /** StrategyOption */
+        StrategyOption: {
+            /** Approach */
+            approach: string;
+            /** Exam Minutes */
+            exam_minutes: number;
+            /** Expected Marks */
+            expected_marks: number;
+            /** Id */
+            id: string;
+            /**
+             * Includes Required Artifact
+             * @default true
+             */
+            includes_required_artifact: boolean;
+            /** Lower Marks */
+            lower_marks: number;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "full" | "partial";
+            /** Practice Minutes */
+            practice_minutes: number;
+            /** Question Number */
+            question_number: string;
+            /** Rationale */
+            rationale: string;
+            /** Requires Options */
+            requires_options?: string[];
+            /** Skills */
+            skills: string[];
+            /**
+             * Stop Before
+             * @default
+             */
+            stop_before: string;
+            /** Subpart */
+            subpart: string;
+            /** Upper Marks */
+            upper_marks: number;
+        };
+        /** StrategyPlan */
+        StrategyPlan: {
+            /** Alternatives */
+            alternatives: components["schemas"]["StrategyRoute"][];
+            analysis: components["schemas"]["StrategyAnalysis"];
+            /** Analysis Model */
+            analysis_model?: string | null;
+            /** Input Digest */
+            input_digest: string;
+            request: components["schemas"]["StrategyRequest"];
+            /** Search Truncated */
+            search_truncated: boolean;
+            selected: components["schemas"]["StrategyRoute"];
+            /** Skipped Subparts */
+            skipped_subparts: string[];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "feasible_estimate" | "target_not_reached";
+            /** Total Marks */
+            total_marks: number;
+            /**
+             * Version
+             * @default target-score-v2
+             * @enum {string}
+             */
+            version: "target-score-v1" | "target-score-v2";
+            /** Warnings */
+            warnings: string[];
+        };
+        /** StrategyRequest */
+        StrategyRequest: {
+            /** Exam Budget Minutes */
+            exam_budget_minutes: number;
+            /**
+             * Preparation
+             * @default 基础概念已接触，但尚未系统练习本卷题型。
+             */
+            preparation: string;
+            /**
+             * Reserve Minutes
+             * @default 10
+             */
+            reserve_minutes: number;
+            /**
+             * Score Tolerance
+             * @default 5
+             */
+            score_tolerance: number;
+            /** Study Budget Minutes */
+            study_budget_minutes: number;
+            /** Target Score */
+            target_score: number;
+        };
+        /** StrategyRoute */
+        StrategyRoute: {
+            /** Exam Minutes */
+            exam_minutes: number;
+            /** Expected Marks */
+            expected_marks: number;
+            /** Lower Marks */
+            lower_marks: number;
+            /**
+             * Name
+             * @enum {string}
+             */
+            name: "balanced" | "less_study" | "faster_exam";
+            /** Option Ids */
+            option_ids: string[];
+            /** Skill Codes */
+            skill_codes: string[];
+            /** Study Minutes */
+            study_minutes: number;
+            /** Upper Marks */
+            upper_marks: number;
+        };
+        /** StrategySkill */
+        StrategySkill: {
+            /** Code */
+            code: string;
+            /** Learning Goal */
+            learning_goal: string;
+            /** Prerequisites */
+            prerequisites?: string[];
+            /** Study Minutes */
+            study_minutes: number;
+            /** Title */
+            title: string;
         };
         /** SubjectKnowledgeBaseResponse */
         SubjectKnowledgeBaseResponse: {
@@ -4897,6 +5102,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PaperJobResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    paper_answer_pdf_layout_api_v1_papers_jobs__job_id__answer_pdf_layout_get: {
+        parameters: {
+            query?: {
+                subject?: string | null;
+            };
+            header?: {
+                "X-ExamTwin-Subject"?: string | null;
+            };
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaperExportLayout"];
                 };
             };
             /** @description Validation Error */
