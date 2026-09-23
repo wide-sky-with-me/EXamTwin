@@ -17,7 +17,7 @@ class ExpectedExpression(BaseModel):
 
 
 class GradeRequest(BaseModel):
-    answer_markdown: str = Field(min_length=1)
+    answer_markdown: str
     question_ref: str | None = None
     question_markdown: str | None = None
     mark_scheme_markdown: str | None = None

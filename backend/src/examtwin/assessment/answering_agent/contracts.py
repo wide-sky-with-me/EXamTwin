@@ -89,6 +89,7 @@ class AnswerTask:
     question: str
     subject_code: str
     question_number: str | None = None
+    strategy_instruction: str | None = None
     question_spec: QuestionSpec = field(default_factory=QuestionSpec)
     visual_request_text: str | None = None
     unit_code: str | None = None

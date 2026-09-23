@@ -483,6 +483,8 @@ class PaperJobModel(Base):
     display_name: Mapped[str | None] = mapped_column(Text)
     suffix: Mapped[str] = mapped_column(Text)
     answer_mode: Mapped[str] = mapped_column(Text, default="generated")
+    strategy_request_json: Mapped[str | None] = mapped_column(Text)
+    strategy_plan_json: Mapped[str | None] = mapped_column(Text)
     answer_filename: Mapped[str | None] = mapped_column(Text)
     answer_suffix: Mapped[str | None] = mapped_column(Text)
     answer_source_path: Mapped[str | None] = mapped_column(Text)

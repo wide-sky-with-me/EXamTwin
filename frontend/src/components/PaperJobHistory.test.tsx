@@ -117,6 +117,31 @@ beforeEach(() => {
 
 
 describe("PaperJobHistory", () => {
+  test("clears selections and deletion confirmation when switching paper scope", async () => {
+    const user = userEvent.setup();
+    const props = { currentJobId: null, onDeleted: vi.fn(), onOpen: vi.fn(), refreshKey: 0, subject };
+    const view = render(<PaperJobHistory {...props} paperUnitId="paper-A" />);
+    await screen.findByText("QP-2026-P1.pdf");
+    await user.click(screen.getByRole("button", { name: "进入批量选择" }));
+    await user.click(screen.getByRole("checkbox", { name: "选择记录 QP-2026-P1.pdf" }));
+    await user.click(screen.getByRole("button", { name: "批量删除" }));
+    expect(screen.getByRole("alertdialog", { name: "确认批量删除" })).toBeInTheDocument();
+    let resolveNext!: (value: PaperJobList) => void;
+    listMock.mockReturnValueOnce(new Promise((resolve) => { resolveNext = resolve; }));
+    view.rerender(<PaperJobHistory {...props} paperUnitId="paper-B" />);
+    expect(screen.queryByText("QP-2026-P1.pdf")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("alertdialog", { name: "确认批量删除" })).not.toBeInTheDocument());
+    expect(screen.queryByRole("region", { name: "批量删除操作" })).not.toBeInTheDocument();
+    resolveNext({ ...history, items: [{ ...history.items[0], job_id: "job-B", filename: "paper-B.pdf", paper_unit_id: "paper-B" }] });
+    await screen.findByText("paper-B.pdf");
+    expect(deleteMock).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "进入批量选择" }));
+    await user.click(screen.getByRole("checkbox", { name: "选择记录 paper-B.pdf" }));
+    await user.click(screen.getByRole("button", { name: "批量删除" }));
+    await user.click(screen.getByRole("button", { name: "删除 1 条记录" }));
+    await waitFor(() => expect(deleteMock).toHaveBeenCalledWith(subject.id, ["job-B"]));
+  });
+
   test("loads records, applies filters and opens the selected result", async () => {
     const user = userEvent.setup();
     const onOpen = vi.fn();

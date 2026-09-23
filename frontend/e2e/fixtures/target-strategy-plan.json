@@ -1,0 +1,118 @@
+{
+  "version": "target-score-v1",
+  "input_digest": "4234bae1cc5b4b0b556a7b943571d6ea21216ea8418dea5393ed76985d3684e8",
+  "request": {
+    "target_score": 6.0,
+    "score_tolerance": 5.0,
+    "study_budget_minutes": 240,
+    "exam_budget_minutes": 60,
+    "reserve_minutes": 10,
+    "preparation": "基础概念已接触，但尚未系统练习本卷题型。"
+  },
+  "total_marks": 20,
+  "status": "feasible_estimate",
+  "analysis": {
+    "skills": [
+      {
+        "code": "skill:basic",
+        "title": "供需分析",
+        "study_minutes": 90,
+        "prerequisites": [],
+        "learning_goal": "能独立说明需求变化对均衡的影响"
+      }
+    ],
+    "options": [
+      {
+        "id": "1",
+        "question_number": "1",
+        "subpart": "whole",
+        "mode": "partial",
+        "includes_required_artifact": true,
+        "expected_marks": 6.0,
+        "lower_marks": 4.0,
+        "upper_marks": 8.0,
+        "exam_minutes": 10,
+        "practice_minutes": 20,
+        "skills": [
+          "skill:basic"
+        ],
+        "requires_options": [],
+        "approach": "完成基本概念、材料应用和一条连贯分析链，暂缓扩展评价。",
+        "rationale": "共享基础学习，可控制作答时间。"
+      },
+      {
+        "id": "2",
+        "question_number": "2",
+        "subpart": "whole",
+        "mode": "partial",
+        "includes_required_artifact": true,
+        "expected_marks": 6.0,
+        "lower_marks": 4.0,
+        "upper_marks": 8.0,
+        "exam_minutes": 10,
+        "practice_minutes": 20,
+        "skills": [
+          "skill:basic"
+        ],
+        "requires_options": [],
+        "approach": "完成基本概念、材料应用和一条连贯分析链，暂缓扩展评价。",
+        "rationale": "共享基础学习，可控制作答时间。"
+      }
+    ],
+    "assumptions": [
+      "界面测试合成样例，非真实考试效果"
+    ]
+  },
+  "selected": {
+    "name": "balanced",
+    "option_ids": [
+      "1"
+    ],
+    "skill_codes": [
+      "skill:basic"
+    ],
+    "study_minutes": 110,
+    "exam_minutes": 10,
+    "expected_marks": 6.0,
+    "lower_marks": 4.0,
+    "upper_marks": 8.0
+  },
+  "alternatives": [
+    {
+      "name": "less_study",
+      "option_ids": [
+        "1"
+      ],
+      "skill_codes": [
+        "skill:basic"
+      ],
+      "study_minutes": 110,
+      "exam_minutes": 10,
+      "expected_marks": 6.0,
+      "lower_marks": 4.0,
+      "upper_marks": 8.0
+    },
+    {
+      "name": "faster_exam",
+      "option_ids": [
+        "1"
+      ],
+      "skill_codes": [
+        "skill:basic"
+      ],
+      "study_minutes": 110,
+      "exam_minutes": 10,
+      "expected_marks": 6.0,
+      "lower_marks": 4.0,
+      "upper_marks": 8.0
+    }
+  ],
+  "skipped_subparts": [
+    "2 whole"
+  ],
+  "warnings": [
+    "分数、学习投入与学生作答时间均为未校准估计；独立评分尚未完成，不保证学生达到目标。",
+    "知识清单仅针对本卷所选路径；未选知识不代表长期无需学习。"
+  ],
+  "search_truncated": false
+}

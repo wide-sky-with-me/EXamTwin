@@ -725,6 +725,17 @@
             ],
             "title": "Source Booklet"
           },
+          "strategy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strategy"
+          },
           "unit_code": {
             "anyOf": [
               {
@@ -1113,6 +1124,16 @@
               }
             ],
             "title": "Source Booklet Document Id"
+          },
+          "strategy": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StrategyRequest"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -3649,6 +3670,49 @@
         "title": "KnowledgeRelationSummary",
         "type": "object"
       },
+      "PaperAnswerRegion": {
+        "properties": {
+          "answer_anchor": {
+            "title": "Answer Anchor",
+            "type": "string"
+          },
+          "height": {
+            "title": "Height",
+            "type": "number"
+          },
+          "page_number": {
+            "title": "Page Number",
+            "type": "integer"
+          },
+          "question_position": {
+            "title": "Question Position",
+            "type": "integer"
+          },
+          "width": {
+            "title": "Width",
+            "type": "number"
+          },
+          "x": {
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": [
+          "question_position",
+          "answer_anchor",
+          "page_number",
+          "x",
+          "y",
+          "width",
+          "height"
+        ],
+        "title": "PaperAnswerRegion",
+        "type": "object"
+      },
       "PaperAssessmentResponse": {
         "properties": {
           "created_at": {
@@ -3740,6 +3804,66 @@
           "calibration"
         ],
         "title": "PaperDiagramSource",
+        "type": "object"
+      },
+      "PaperExportLayout": {
+        "properties": {
+          "pages": {
+            "items": {
+              "$ref": "#/components/schemas/PaperExportPage"
+            },
+            "title": "Pages",
+            "type": "array"
+          },
+          "regions": {
+            "items": {
+              "$ref": "#/components/schemas/PaperAnswerRegion"
+            },
+            "title": "Regions",
+            "type": "array"
+          },
+          "source_sha256": {
+            "title": "Source Sha256",
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "source_sha256",
+          "pages",
+          "regions",
+          "warnings"
+        ],
+        "title": "PaperExportLayout",
+        "type": "object"
+      },
+      "PaperExportPage": {
+        "properties": {
+          "height": {
+            "title": "Height",
+            "type": "number"
+          },
+          "page_number": {
+            "title": "Page Number",
+            "type": "integer"
+          },
+          "width": {
+            "title": "Width",
+            "type": "number"
+          }
+        },
+        "required": [
+          "page_number",
+          "width",
+          "height"
+        ],
+        "title": "PaperExportPage",
         "type": "object"
       },
       "PaperJobBulkDeleteRequest": {
@@ -3984,6 +4108,11 @@
             ],
             "title": "Requires Visual Context"
           },
+          "skipped_by_strategy": {
+            "default": false,
+            "title": "Skipped By Strategy",
+            "type": "boolean"
+          },
           "source_digest": {
             "anyOf": [
               {
@@ -4051,6 +4180,7 @@
           }
         },
         "required": [
+          "skipped_by_strategy",
           "position",
           "status",
           "attempts",
@@ -4312,6 +4442,26 @@
             "title": "Status",
             "type": "string"
           },
+          "strategy_plan": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StrategyPlan"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "strategy_request": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StrategyRequest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "subject_code": {
             "title": "Subject Code",
             "type": "string"
@@ -4345,6 +4495,8 @@
           }
         },
         "required": [
+          "strategy_request",
+          "strategy_plan",
           "job_id",
           "filename",
           "display_name",
@@ -6340,6 +6492,402 @@
           "exam_identity_incomplete"
         ],
         "title": "StatsResponse",
+        "type": "object"
+      },
+      "StrategyAnalysis": {
+        "additionalProperties": false,
+        "properties": {
+          "assumptions": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Assumptions",
+            "type": "array"
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/StrategyOption"
+            },
+            "maxItems": 300,
+            "minItems": 1,
+            "title": "Options",
+            "type": "array"
+          },
+          "skills": {
+            "items": {
+              "$ref": "#/components/schemas/StrategySkill"
+            },
+            "maxItems": 150,
+            "minItems": 1,
+            "title": "Skills",
+            "type": "array"
+          }
+        },
+        "required": [
+          "skills",
+          "options",
+          "assumptions"
+        ],
+        "title": "StrategyAnalysis",
+        "type": "object"
+      },
+      "StrategyOption": {
+        "additionalProperties": false,
+        "properties": {
+          "approach": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Approach",
+            "type": "string"
+          },
+          "exam_minutes": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 240.0,
+            "title": "Exam Minutes",
+            "type": "integer"
+          },
+          "expected_marks": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 100.0,
+            "title": "Expected Marks",
+            "type": "number"
+          },
+          "id": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "includes_required_artifact": {
+            "default": true,
+            "title": "Includes Required Artifact",
+            "type": "boolean"
+          },
+          "lower_marks": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Lower Marks",
+            "type": "number"
+          },
+          "mode": {
+            "enum": [
+              "full",
+              "partial"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "practice_minutes": {
+            "maximum": 10000.0,
+            "minimum": 0.0,
+            "title": "Practice Minutes",
+            "type": "integer"
+          },
+          "question_number": {
+            "title": "Question Number",
+            "type": "string"
+          },
+          "rationale": {
+            "maxLength": 600,
+            "minLength": 1,
+            "title": "Rationale",
+            "type": "string"
+          },
+          "requires_options": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 30,
+            "title": "Requires Options",
+            "type": "array"
+          },
+          "skills": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 30,
+            "minItems": 1,
+            "title": "Skills",
+            "type": "array"
+          },
+          "stop_before": {
+            "default": "",
+            "maxLength": 600,
+            "title": "Stop Before",
+            "type": "string"
+          },
+          "subpart": {
+            "title": "Subpart",
+            "type": "string"
+          },
+          "upper_marks": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 100.0,
+            "title": "Upper Marks",
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "question_number",
+          "subpart",
+          "mode",
+          "expected_marks",
+          "lower_marks",
+          "upper_marks",
+          "exam_minutes",
+          "practice_minutes",
+          "skills",
+          "approach",
+          "rationale"
+        ],
+        "title": "StrategyOption",
+        "type": "object"
+      },
+      "StrategyPlan": {
+        "additionalProperties": false,
+        "properties": {
+          "alternatives": {
+            "items": {
+              "$ref": "#/components/schemas/StrategyRoute"
+            },
+            "title": "Alternatives",
+            "type": "array"
+          },
+          "analysis": {
+            "$ref": "#/components/schemas/StrategyAnalysis"
+          },
+          "analysis_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analysis Model"
+          },
+          "input_digest": {
+            "title": "Input Digest",
+            "type": "string"
+          },
+          "request": {
+            "$ref": "#/components/schemas/StrategyRequest"
+          },
+          "search_truncated": {
+            "title": "Search Truncated",
+            "type": "boolean"
+          },
+          "selected": {
+            "$ref": "#/components/schemas/StrategyRoute"
+          },
+          "skipped_subparts": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Skipped Subparts",
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "feasible_estimate",
+              "target_not_reached"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "total_marks": {
+            "title": "Total Marks",
+            "type": "integer"
+          },
+          "version": {
+            "default": "target-score-v2",
+            "enum": [
+              "target-score-v1",
+              "target-score-v2"
+            ],
+            "title": "Version",
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "input_digest",
+          "request",
+          "total_marks",
+          "status",
+          "analysis",
+          "selected",
+          "alternatives",
+          "skipped_subparts",
+          "warnings",
+          "search_truncated"
+        ],
+        "title": "StrategyPlan",
+        "type": "object"
+      },
+      "StrategyRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "exam_budget_minutes": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 1440.0,
+            "title": "Exam Budget Minutes",
+            "type": "integer"
+          },
+          "preparation": {
+            "default": "基础概念已接触，但尚未系统练习本卷题型。",
+            "maxLength": 2000,
+            "title": "Preparation",
+            "type": "string"
+          },
+          "reserve_minutes": {
+            "default": 10,
+            "maximum": 120.0,
+            "minimum": 0.0,
+            "title": "Reserve Minutes",
+            "type": "integer"
+          },
+          "score_tolerance": {
+            "default": 5,
+            "maximum": 50.0,
+            "minimum": 0.0,
+            "title": "Score Tolerance",
+            "type": "number"
+          },
+          "study_budget_minutes": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 100000.0,
+            "title": "Study Budget Minutes",
+            "type": "integer"
+          },
+          "target_score": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 1000.0,
+            "title": "Target Score",
+            "type": "number"
+          }
+        },
+        "required": [
+          "target_score",
+          "study_budget_minutes",
+          "exam_budget_minutes"
+        ],
+        "title": "StrategyRequest",
+        "type": "object"
+      },
+      "StrategyRoute": {
+        "additionalProperties": false,
+        "properties": {
+          "exam_minutes": {
+            "title": "Exam Minutes",
+            "type": "integer"
+          },
+          "expected_marks": {
+            "title": "Expected Marks",
+            "type": "number"
+          },
+          "lower_marks": {
+            "title": "Lower Marks",
+            "type": "number"
+          },
+          "name": {
+            "enum": [
+              "balanced",
+              "less_study",
+              "faster_exam"
+            ],
+            "title": "Name",
+            "type": "string"
+          },
+          "option_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Option Ids",
+            "type": "array"
+          },
+          "skill_codes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Skill Codes",
+            "type": "array"
+          },
+          "study_minutes": {
+            "title": "Study Minutes",
+            "type": "integer"
+          },
+          "upper_marks": {
+            "title": "Upper Marks",
+            "type": "number"
+          }
+        },
+        "required": [
+          "name",
+          "option_ids",
+          "skill_codes",
+          "study_minutes",
+          "exam_minutes",
+          "expected_marks",
+          "lower_marks",
+          "upper_marks"
+        ],
+        "title": "StrategyRoute",
+        "type": "object"
+      },
+      "StrategySkill": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          },
+          "learning_goal": {
+            "maxLength": 600,
+            "minLength": 1,
+            "title": "Learning Goal",
+            "type": "string"
+          },
+          "prerequisites": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Prerequisites",
+            "type": "array"
+          },
+          "study_minutes": {
+            "maximum": 10000.0,
+            "minimum": 0.0,
+            "title": "Study Minutes",
+            "type": "integer"
+          },
+          "title": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "title",
+          "study_minutes",
+          "learning_goal"
+        ],
+        "title": "StrategySkill",
         "type": "object"
       },
       "SubjectKnowledgeBaseResponse": {
@@ -10010,6 +10558,77 @@
           }
         },
         "summary": "Rename Paper Job"
+      }
+    },
+    "/api/v1/papers/jobs/{job_id}/answer-pdf/layout": {
+      "get": {
+        "operationId": "paper_answer_pdf_layout_api_v1_papers_jobs__job_id__answer_pdf_layout_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-ExamTwin-Subject",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Examtwin-Subject"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaperExportLayout"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Paper Answer Pdf Layout"
       }
     },
     "/api/v1/papers/jobs/{job_id}/question-images/{asset_name}": {

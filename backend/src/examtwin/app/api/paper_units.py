@@ -287,6 +287,7 @@ async def answer_paper_unit(
                 source_booklet=booklet,
                 paper_unit_id=paper_unit_id,
                 question_paper_document_id=str(paper["id"]),
+                strategy=request.strategy,
             )
         return PaperUnitAnswerCreated(
             **created.model_dump(),

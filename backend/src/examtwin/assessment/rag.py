@@ -812,6 +812,7 @@ class RagService:
         question_number: str | None = None,
         question_spec: QuestionSpec | None = None,
         visual_request_text: str | None = None,
+        strategy_instruction: str | None = None,
         event_sink: AgentEventSink | None = None,
         ledger: AgentRunLedger | None = None,
     ) -> AskResponse:
@@ -842,6 +843,7 @@ class RagService:
                 question_number=question_number,
                 question_spec=question_spec or QuestionSpec(),
                 visual_request_text=visual_request_text,
+                strategy_instruction=strategy_instruction,
                 subject_code=request.subject_code,
                 unit_code=request.unit_code,
                 pair_key=request.pair_key,

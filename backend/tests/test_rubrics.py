@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import uuid
 from collections.abc import Sequence
@@ -2020,9 +2021,11 @@ class GradeQuestionRubrics:
 class CapturingGradeQuestion:
     def __init__(self) -> None:
         self.request: object | None = None
+        self.evidence: dict[str, Any] = {}
 
-    def grade(self, request: object) -> object:
+    def grade(self, request: object, **kwargs: Any) -> object:
         self.request = request
+        self.evidence = kwargs
         return type("GradeResult", (), {"assessment_id": "assessment-1"})()
 
 
@@ -2053,6 +2056,45 @@ def test_grade_question_serializes_only_scoring_criterion_fields() -> None:
     assert "reviewed_at" not in request.mark_scheme_markdown
     assert "review_status" not in request.mark_scheme_markdown
     assert "ai_review" not in request.mark_scheme_markdown
+    assert grading.evidence["confirmed_criteria"][0]["criterion_id"] == "1-B1"
+    assert grading.evidence["answer_diagrams"] == []
+    assert grading.evidence["answer_images"] == []
+
+
+def test_grade_question_forwards_actual_persisted_artifacts() -> None:
+    class ArtifactPapers(GradeQuestionPapers):
+        def questions(self, paper_job_id: str) -> list[dict[str, object]]:
+            rows = super().questions(paper_job_id)
+            answer = json.loads(str(rows[0]["answer_json"]))
+            answer["diagrams"] = [
+                {
+                    "title": "Actual vector",
+                    "elements": [{"kind": "line", "x1": 0, "y1": 0, "x2": 40, "y2": 20}],
+                }
+            ]
+            answer["images"] = [
+                {
+                    "title": "Actual image",
+                    "content_url": "/api/v1/answer-assets/" + "a" * 32 + ".png",
+                }
+            ]
+            rows[0]["answer_json"] = json.dumps(answer)
+            return rows
+
+    settings = Settings(subject_pack="oxfordaqa-economics-9640")
+    grading = CapturingGradeQuestion()
+    service = RubricService(
+        settings,
+        subject_context(settings),
+        cast(Any, None),
+        cast(Any, ArtifactPapers()),
+        cast(Any, GradeQuestionRubrics()),
+        cast(Any, CapturingAssessmentContext()),
+        cast(Any, grading),
+    )
+    service.grade_question("paper-1", 0, rubric_set_id="rubric-1")
+    assert grading.evidence["answer_diagrams"][0].elements[0].x2 == 40
+    assert grading.evidence["answer_images"][0].content_url.endswith("a" * 32 + ".png")
 
 
 class AssessmentProjectionSession:

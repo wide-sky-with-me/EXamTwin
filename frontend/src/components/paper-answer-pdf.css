@@ -1,0 +1,42 @@
+.answer-pdf-toolbar { display: flex; flex-wrap: wrap; gap: 16px; align-items: end; margin: 16px 0; }
+.answer-pdf-toolbar label { display: grid; gap: 5px; min-width: 150px; }
+.answer-pdf-toolbar label:first-child { min-width: 230px; }
+.answer-pdf-editor { display: grid; grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr); gap: 20px; }
+.answer-pdf-source-scroll { max-height: 66vh; overflow: auto; background: #e8eaef; padding: 12px; }
+.answer-pdf-source { position: relative; background: white; user-select: none; }
+.answer-pdf-source.is-selecting { touch-action: none; cursor: crosshair; }
+.answer-pdf-source > img { display: block; width: 100%; height: 100%; pointer-events: none; }
+.answer-pdf-region { position: absolute; border: 1px solid #3479d9; background: #3479d914; pointer-events: none; }
+.answer-pdf-region.is-selected { border: 2px solid #145bba; background: #3479d924; }
+.answer-pdf-region > span { display: inline-block; max-width: 100%; background: #145bba; color: white; font: 11px/16px sans-serif; padding: 0 3px; overflow: hidden; }
+.answer-pdf-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 14px 0; }
+.answer-pdf-fields label { display: grid; gap: 4px; }
+.answer-pdf-fields .ant-input-number { width: 100%; }
+.answer-pdf-answer-preview { margin-top: 16px; max-height: 42vh; overflow: auto; }
+.answer-pdf-answer-preview > .answer-pdf-ink { padding: 12px; margin-top: 8px; background: white; }
+.answer-pdf-hint { font-size: 12px; color: var(--text-secondary); }
+.answer-pdf-actions { display: flex; margin-top: 20px; }
+.answer-pdf-document { width: 100%; height: 70vh; border: 1px solid #d9dce3; margin-top: 16px; }
+.answer-pdf-capture { position: fixed; left: -20000px; top: 0; pointer-events: none; }
+.answer-pdf-ink {
+  display: flow-root; color: #142d58; background: transparent; font: 11px/1.6 Arial, "Noto Sans CJK SC", sans-serif;
+  --diagram-default: #183552; --diagram-primary: #164e96; --diagram-secondary: #216658;
+  --diagram-tertiary: #744285; --diagram-muted: #65758a;
+}
+.answer-pdf-ink *, .answer-pdf-ink *::before, .answer-pdf-ink *::after { animation: none !important; transition: none !important; }
+.answer-pdf-ink :is(p, ul, ol, blockquote, pre, table, figure) { margin: 0 0 8px; }
+.answer-pdf-ink :is(h1, h2, h3, h4) { font-size: 12px; line-height: 1.4; color: inherit; margin: 0 0 8px; }
+.answer-pdf-ink a { color: inherit; text-decoration: none; }
+.answer-pdf-ink .katex-display { margin: 8px 0; overflow: visible; text-align: left; }
+.answer-pdf-ink .katex { color: inherit; }
+.answer-pdf-ink table { width: 100%; border-collapse: collapse; font-size: inherit; }
+.answer-pdf-ink :is(td, th) { border: 1px solid #8391a2; padding: 4px; background: transparent; color: inherit; }
+.answer-pdf-ink img { display: block; max-width: 100%; height: auto; }
+.answer-pdf-ink .answer-diagram-canvas, .answer-pdf-ink .answer-diagram-canvas > svg { min-height: 0; max-height: none; }
+.answer-pdf-overlay .answer-diagram-canvas, .answer-pdf-overlay svg { width: 100%; height: 100%; }
+@media (max-width: 760px) {
+  .answer-pdf-editor { grid-template-columns: 1fr; }
+  .answer-pdf-source-scroll { max-height: 52vh; }
+  .answer-pdf-answer-preview { max-height: 220px; }
+  .answer-pdf-document { height: 60vh; }
+}

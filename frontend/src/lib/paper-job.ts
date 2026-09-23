@@ -21,6 +21,7 @@ export const PAPER_JOB_STAGE_LABELS = {
 } satisfies Record<PaperJobResult["stage"], string>;
 
 export function paperQuestionStatusLabel(question: PaperJobQuestion): string {
+  if (question.skipped_by_strategy && !question.error) return "按策略留空";
   if (question.status === "pending") {
     return question.attempts > 0
       ? `等待重试 · 已尝试 ${question.attempts} 次`
@@ -77,6 +78,7 @@ function isRequiredArtifactMissing(question: PaperJobQuestion): boolean {
 }
 
 export function canRetryQuestion(question: PaperJobQuestion): boolean {
+  if (question.skipped_by_strategy) return false;
   return question.status === "failed"
     || (question.status === "completed" && isRequiredArtifactMissing(question));
 }

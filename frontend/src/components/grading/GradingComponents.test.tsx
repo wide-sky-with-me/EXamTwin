@@ -207,10 +207,13 @@ const gradingPaper: PaperJobResult = {
     graph_version_id: null,
     job_id: "paper-job",
     knowledge_base_version_ids: [],
+    strategy_request: null,
+    strategy_plan: null,
     parsed_pages: 1,
     questions: [{
       agent_steps: [],
       answer_markdown: "Student answer",
+      skipped_by_strategy: false,
       answer_requirements: [],
       attempts: 1,
       citations: [],

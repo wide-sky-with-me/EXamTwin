@@ -7,6 +7,7 @@ from typing import Any, cast
 
 from llama_index.core.llms import LLM
 
+from examtwin.assessment.answering_agent.blocking import run_blocking_bounded
 from examtwin.assessment.answering_agent.budget import budget_for_task
 from examtwin.assessment.answering_agent.capabilities import CapabilityRegistry
 from examtwin.assessment.answering_agent.contracts import (
@@ -26,6 +27,7 @@ from examtwin.assessment.answering_agent.run_policy import (
     INSUFFICIENT_EVIDENCE,
     required_artifact_tools,
 )
+from examtwin.assessment.answering_agent.strategy_review import StrategyScopeReviewer
 from examtwin.assessment.answering_agent.verification import verify_answer_contract
 from examtwin.contracts.system import API_CONTRACT_VERSION
 from examtwin.platform.agent_runtime.model import ChatModelPort
@@ -44,6 +46,7 @@ class AnsweringAgentRuntime:
         max_tool_calls: int = 6,
         timeout: float = 180,
         question_vision_replay_identity: str | None = None,
+        strategy_reviewer: StrategyScopeReviewer | None = None,
     ):
         if llm is None and model is None:
             raise ValueError("answering Agent requires a chat model")
@@ -56,6 +59,7 @@ class AnsweringAgentRuntime:
         self.max_tool_calls = max_tool_calls
         self.timeout = timeout
         self.question_vision_replay_identity = question_vision_replay_identity
+        self.strategy_reviewer = strategy_reviewer
 
     def solve(
         self,
@@ -225,6 +229,7 @@ class AnsweringAgentRuntime:
                 )
                 context.emit("deciding", "running", "Agent 正在规划检索与解题步骤")
                 remaining = deadline - loop.time()
+                review_reserve = min(60.0, remaining / 3) if task.strategy_instruction else 0
                 if remaining <= 0:
                     raise TimeoutError("answering Agent exhausted its total time budget")
                 payload = await self.runner.run(
@@ -235,7 +240,7 @@ class AnsweringAgentRuntime:
                     context=context,
                     max_iterations=budget.max_iterations,
                     max_tool_calls=budget.max_tool_calls,
-                    timeout=remaining,
+                    timeout=remaining - review_reserve,
                     initial_observations=initial_observations,
                 )
                 if not required_answer_artifacts_are_present(
@@ -258,11 +263,17 @@ class AnsweringAgentRuntime:
                     answer_markdown,
                     context.diagrams,
                     context.images,
-                    source_plot_overlay_mode=skill.source_plot_overlay_mode(task.question),
+                    source_plot_overlay_mode=(
+                        skill.source_plot_overlay_mode(task.question)
+                        if not task.strategy_instruction or "math_plot" in artifact_tool_names
+                        else None
+                    ),
                 )
                 grounded = payload.grounded and bool(marker_ids)
                 cited_evidence = ()
                 if not context.citations:
+                    if task.strategy_instruction:
+                        raise RuntimeError("strategy answer has no retrieved evidence")
                     answer_markdown = INSUFFICIENT_EVIDENCE
                     confidence = 0
                     grounded = False
@@ -272,6 +283,33 @@ class AnsweringAgentRuntime:
                         answer_markdown,
                         tuple(context.citations),
                     )
+                if task.strategy_instruction:
+                    if self.strategy_reviewer is None:
+                        raise RuntimeError("strategy scope reviewer is unavailable")
+                    context.emit("verifying", "running", "正在独立核对选题范围与部分作答停止点")
+                    review_timeout = min(60.0, deadline - loop.time())
+                    if review_timeout <= 0:
+                        raise TimeoutError("strategy scope verification exhausted its time budget")
+                    review = await run_blocking_bounded(
+                        self.strategy_reviewer.review,
+                        task,
+                        answer_markdown,
+                        context.diagrams,
+                        context.images,
+                        review_timeout,
+                        timeout=review_timeout,
+                    )
+                    context.emit(
+                        "verifying",
+                        "completed" if review.status == "compliant" else "failed",
+                        f"作答范围复核 {review.status}：{review.explanation}",
+                    )
+                    for excerpt in review.evidence[:3]:
+                        context.emit("verifying", "running", "范围复核依据：" + excerpt)
+                    if review.status != "compliant":
+                        raise RuntimeError(
+                            "strategy scope review did not pass: " + review.explanation
+                        )
                 context.emit("verifying", "completed", "答案与工具产物校验完成")
                 context.emit("finalizing", "completed", "本题 Agent 作答完成")
                 result = AnswerAgentResult(

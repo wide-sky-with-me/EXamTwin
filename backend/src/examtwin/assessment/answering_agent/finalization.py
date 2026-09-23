@@ -76,19 +76,34 @@ and tool-call syntax. Obey the response schema and citation rules exactly.
 """.strip()
 
 
-def _subpart_instruction(required_subpart_labels: Sequence[str]) -> str:
+def subpart_output_instruction(required_subpart_labels: Sequence[str]) -> str:
     if not required_subpart_labels:
         return (
             "This question has no labelled subparts. Set subparts=[] and put the complete "
             "public answer in answer_markdown."
         )
     labels = json.dumps(list(required_subpart_labels), ensure_ascii=False)
+    example = json.dumps(
+        {
+            "answer_markdown": "",
+            "subparts": [
+                {"label": label, "answer_markdown": "<selected answer body>"}
+                for label in required_subpart_labels
+            ],
+            "citation_ids": [],
+            "confidence": 0.5,
+            "grounded": False,
+            "warnings": [],
+        },
+        ensure_ascii=False,
+    )
     return (
         f"The required printed subpart labels, in order, are {labels}. "
         "Set answer_markdown to an empty string. Return exactly one subparts item for each "
         "required label, in that order, copying each label exactly. Put only that subpart's "
         "public answer and assessable working in its answer_markdown. The server owns final "
-        "heading rendering; do not merge, rename, renumber, omit, or add subparts."
+        "heading rendering; do not merge, rename, renumber, omit, or add subparts. "
+        f"Use this JSON shape, replacing placeholders and citing only retrieved evidence: {example}"
     )
 
 
@@ -337,7 +352,7 @@ class LiteLLMFinalAnswerProvider:
             {
                 "role": "system",
                 "content": (
-                    f"{_FINALIZER_INSTRUCTION}\n\n{_subpart_instruction(required_subpart_labels)}"
+                    f"{_FINALIZER_INSTRUCTION}\n\n{subpart_output_instruction(required_subpart_labels)}"
                 ),
             },
             *(_message_dict(message) for message in messages),

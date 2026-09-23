@@ -28,6 +28,8 @@ function job(overrides: Partial<PaperJobResult>): PaperJobResult {
     status: "answering",
     stage: "answering",
     total_pages: 10,
+    strategy_request: null,
+    strategy_plan: null,
     parsed_pages: 10,
     total_questions: 10,
     completed_questions: 0,
@@ -64,6 +66,7 @@ function question(overrides: Partial<PaperJobQuestion> = {}): PaperJobQuestion {
     source_warnings: [],
     source_kind: "primary",
     source_digest: "source-digest",
+    skipped_by_strategy: false,
     answer_requirements: [],
     agent_steps: [],
     status: "completed",
@@ -115,6 +118,7 @@ describe("paper job presentation", () => {
   test("offers targeted retry only for failed or missing required artifacts", () => {
     expect(canRetryQuestion(question({ status: "failed" }))).toBe(true);
     expect(canRetryQuestion(question({
+      skipped_by_strategy: false,
       answer_requirements: [{
         label: "graph",
         marks: null,

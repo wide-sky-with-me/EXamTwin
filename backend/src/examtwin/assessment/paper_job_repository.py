@@ -326,6 +326,9 @@ class PaperJobRepository:
                 .values(status="pending")
             )
 
+    def save_strategy(self, job_id: str, token: str, plan_json: str) -> None:
+        self._leased_job_update(job_id, token, strategy_plan_json=plan_json)
+
     def set_stage(self, job_id: str, token: str, stage: str) -> None:
         self._leased_job_update(
             job_id,

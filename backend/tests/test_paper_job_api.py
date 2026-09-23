@@ -431,3 +431,66 @@ def test_question_source_warnings_fail_closed_for_legacy_unverified_jobs() -> No
     assert _question_source_warnings("Complete question.", False, "legacy_unverified") == [
         "该题来自旧版未验证分题契约；请创建替代任务后再使用。"
     ]
+
+
+@pytest.mark.parametrize("answer_available", [True, False])
+def test_uploaded_replacement_preserves_external_answer_or_fails(
+    tmp_path: Path, answer_available: bool
+) -> None:
+    from typing import Any
+
+    from examtwin.assessment.paper_sources import PaperSourceStore
+
+    source = tmp_path / "question.md"
+    source.write_text("Question 1: calculate 2 + 2")
+    files = PaperSourceStore(tmp_path / "objects")
+    if answer_available:
+        files.write("old-job/answer-source.md", "Question 1: student's original answer")
+    old = {
+        "id": "old-job",
+        "subject_code": "9660",
+        "status": "completed",
+        "source_integrity_status": "legacy_unverified",
+        "unit_code": "P1",
+        "answer_mode": "uploaded",
+        "answer_filename": "student.md",
+        "answer_source_path": "old-job/answer-source.md",
+    }
+
+    class Repository(CapturingCreateJobRepository):
+        linked: tuple[str, str] | None = None
+
+        def get(self, job_id: str) -> dict[str, Any]:
+            return old
+
+        def replacement_id(self, job_id: str) -> None:
+            return None
+
+        def source_record(self, job_id: str) -> dict[str, Any]:
+            return {"source_path": "old-job/source.md", "filename": "question.md", "suffix": ".md"}
+
+        def link_replacement(self, job_id: str, replacement_id: str) -> None:
+            self.linked = (job_id, replacement_id)
+
+    files.write("old-job/source.md", source.read_bytes())
+    settings = Settings(object_store_local_root=tmp_path)
+    subject = subject_context(settings).with_retrieval_snapshot(
+        version_ids=("version-1",),
+        collections=("collection-1",),
+        graph_version_id=None,
+    )
+    repository = Repository()
+    jobs = PaperJobService(settings, subject, repository=repository, files=files)  # type: ignore[arg-type]
+    if not answer_available:
+        with pytest.raises(ValueError, match="外部答案文件不可用"):
+            jobs.create_replacement("old-job")
+        assert repository.values is None
+        assert repository.linked is None
+        return
+    created = jobs.create_replacement("old-job")
+    assert repository.values is not None
+    assert repository.values["answer_mode"] == "uploaded"
+    assert repository.values["answer_filename"] == "student.md"
+    copied = files.resolve(str(repository.values["answer_source_path"])).read_text()
+    assert copied == "Question 1: student's original answer"
+    assert repository.linked == ("old-job", created.job_id)

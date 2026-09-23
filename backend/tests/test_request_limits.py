@@ -64,3 +64,47 @@ async def test_upload_body_limit_rejects_declared_and_streamed_oversize_requests
     assert declared[0]["status"] == 413
     assert streamed[0]["status"] == 413
     assert "容量限制" in json.loads(streamed[1]["body"])["detail"]
+
+
+@pytest.mark.asyncio
+async def test_paper_upload_body_limit_allows_two_valid_files_and_bounds_total() -> None:
+    from examtwin.app.main import app, settings
+    from examtwin.assessment.paper_parsing import MAX_UPLOAD_BYTES
+
+    configured = next(item for item in app.user_middleware if item.cls is UploadBodyLimitMiddleware)
+    calls = 0
+
+    async def application(scope: Scope, receive: Receive, send: Send) -> None:
+        nonlocal calls
+        calls += 1
+        await send({"type": "http.response.start", "status": 204, "headers": []})
+        await send({"type": "http.response.body", "body": b""})
+
+    middleware = UploadBodyLimitMiddleware(application, **configured.kwargs)
+
+    async def run(size: int) -> int:
+        sent: list[Message] = []
+
+        async def receive() -> Message:
+            return {"type": "http.request", "body": b""}
+
+        async def send(message: Message) -> None:
+            sent.append(message)
+
+        await middleware(
+            {
+                "type": "http",
+                "method": "POST",
+                "path": "/api/v1/papers/answer",
+                "headers": [(b"content-length", str(size).encode())],
+            },
+            receive,
+            send,
+        )
+        return int(sent[0]["status"])
+
+    assert await run(30 * 1024 * 1024) == 204
+    expected_limit = MAX_UPLOAD_BYTES + settings.knowledge_upload_max_bytes + 256 * 1024
+    assert await run(expected_limit) == 204
+    assert await run(expected_limit + 1) == 413
+    assert calls == 2

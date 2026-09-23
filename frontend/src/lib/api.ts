@@ -402,6 +402,7 @@ export async function answerPaperUnit(
   paperUnitId: string,
   questionPaperDocumentId: string,
   sourceBookletDocumentId?: string | null,
+  strategy?: components["schemas"]["StrategyRequest"] | null,
 ): Promise<PaperUnitAnswerCreated> {
   return unwrapApi(
     apiClient.POST("/api/v1/subject-workspaces/{workspace_id}/paper-units/{paper_unit_id}/answer", {
@@ -411,6 +412,7 @@ export async function answerPaperUnit(
         question_paper_document_id: questionPaperDocumentId,
         source_booklet_document_id: sourceBookletDocumentId,
         include_supplementary: false,
+        ...(strategy ? { strategy } : {}),
       },
     }),
   );
@@ -439,9 +441,11 @@ export async function uploadPaper(
   file: File,
   unitCode: string,
   sourceBooklet?: File | null,
+  strategy?: components["schemas"]["StrategyRequest"] | null,
 ): Promise<PaperJobCreated> {
   const form = new FormData();
   form.append("file", file);
+  if (strategy) form.append("strategy", JSON.stringify(strategy));
   if (sourceBooklet) form.append("source_booklet", sourceBooklet);
   if (unitCode) form.append("unit_code", unitCode);
   const response = await checkedFetch(subjectId, "/papers/answer", { method: "POST", body: form });

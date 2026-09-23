@@ -42,8 +42,11 @@ from examtwin.assessment.paper_vision import (
     validate_page_classification_records,
     validate_physical_page_markdown,
 )
+from examtwin.assessment.strategy import question_inputs, strategy_digest
+from examtwin.assessment.strategy_execution import apply_question_strategy
 from examtwin.assessment.task_events import PaperJobWakeup, SleepPaperJobWakeup
 from examtwin.contracts.papers import PaperQuestionAnswer
+from examtwin.contracts.strategy import StrategyPlan, StrategyRequest
 from examtwin.contracts.system import API_PREFIX
 from examtwin.knowledge.public import parse_exam_identity
 from examtwin.platform.config import Settings
@@ -749,6 +752,48 @@ class PaperWorker:
                 self._uploaded_answer_markdown(job),
             )
             return
+        if job.get("strategy_request_json"):
+            request = StrategyRequest.model_validate_json(job["strategy_request_json"])
+            questions = question_inputs(self.jobs.list_questions(job_id))
+            if job.get("source_booklet_document_id"):
+                questions[0]["paired_source_booklet"] = self.answer_service.strategy_source_context(
+                    job
+                )
+            if job.get("strategy_plan_json"):
+                plan = StrategyPlan.model_validate_json(job["strategy_plan_json"])
+                if plan.input_digest != strategy_digest(request, questions):
+                    raise ValueError("已冻结策略与当前试卷或请求不一致，禁止静默重规划")
+            else:
+                plan = self.answer_service.create_strategy(request, questions, job["unit_code"])
+                self.jobs.save_strategy(job_id, token, plan.model_dump_json())
+                job["strategy_plan_json"] = plan.model_dump_json()
+            selected_pending = []
+            for item in pending:
+                requirements = json.loads(item.get("requirements_json") or "{}")
+                parts = requirements.get("subparts") or next(
+                    q["subparts"] for q in questions if q["number"] == item["number"]
+                )
+                scoped_item = apply_question_strategy(plan, item, parts)
+                if scoped_item is None:
+                    self.jobs.complete_question(
+                        job_id,
+                        token,
+                        item["position"],
+                        PaperQuestionAnswer(
+                            number=item["number"],
+                            question_markdown=item["question_markdown"],
+                            answer_markdown="",
+                            confidence=0,
+                            grounded=False,
+                            skipped_by_strategy=True,
+                            warnings=["按目标分数策略留空；非处理失败。"],
+                        ),
+                    )
+                    continue
+                selected_pending.append(scoped_item)
+            pending = selected_pending
+            if not pending:
+                return
         with ThreadPoolExecutor(
             max_workers=min(self.settings.paper_question_concurrency, len(pending))
         ) as executor:
@@ -892,6 +937,7 @@ class PaperWorker:
                 "knowledge_codes": json.loads(row["knowledge_codes_json"]),
                 "answer_requirements": requirements.get("subparts", []),
                 "total_marks": requirements.get("total_marks"),
+                "strategy_instruction": row.get("strategy_instruction"),
             },
             **call_options,
         )

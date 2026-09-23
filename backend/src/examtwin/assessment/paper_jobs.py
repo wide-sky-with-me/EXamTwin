@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
+from contextlib import ExitStack
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
@@ -15,6 +16,7 @@ from examtwin.assessment.answering_agent.contracts import (
 )
 from examtwin.assessment.answering_agent.finalization import compact_cited_evidence
 from examtwin.assessment.paper_answering import SPLIT_CONTRACT_VERSION
+from examtwin.assessment.paper_export import inspect_answer_layout
 from examtwin.assessment.paper_job_repository import PaperJobRepository
 from examtwin.assessment.paper_parsing import (
     MAX_UPLOAD_BYTES,
@@ -23,6 +25,7 @@ from examtwin.assessment.paper_parsing import (
     question_spec_from_item,
 )
 from examtwin.assessment.paper_sources import PaperSourceStore
+from examtwin.contracts.paper_export import PaperExportLayout
 from examtwin.contracts.papers import (
     AgentStepSummary,
     PaperAnswerMode,
@@ -35,6 +38,7 @@ from examtwin.contracts.papers import (
     PaperJobSummary,
     PaperQuestionAnswer,
 )
+from examtwin.contracts.strategy import StrategyPlan, StrategyRequest
 from examtwin.knowledge.public import CorpusRepository, classify_source, parse_exam_identity
 from examtwin.platform.config import Settings
 from examtwin.platform.database.session import utcnow
@@ -207,8 +211,11 @@ class PaperJobService:
         source_booklet: Mapping[str, Any] | None = None,
         paper_unit_id: str | None = None,
         question_paper_document_id: str | None = None,
+        strategy: StrategyRequest | None = None,
     ) -> PaperJobCreated:
         self.subject.require_paper_capability()
+        if strategy is not None and answer_stream is not None:
+            raise ValueError("目标分数策略仅适用于 AI 作答")
         if not self.subject.knowledge_base_version_ids:
             raise ValueError("整卷作答前必须选择已发布的知识库版本")
         suffix = Path(filename).suffix.lower()
@@ -293,6 +300,7 @@ class PaperJobService:
                     "filename": Path(filename).name,
                     "suffix": suffix,
                     "answer_mode": "uploaded" if answer_source_rel else "generated",
+                    "strategy_request_json": strategy.model_dump_json() if strategy else None,
                     "answer_filename": Path(answer_filename).name if answer_filename else None,
                     "answer_suffix": answer_suffix,
                     "answer_source_path": answer_source_rel,
@@ -398,6 +406,7 @@ class PaperJobService:
                     answer_error = "保存的题目结果无法解析"
             questions.append(
                 PaperJobQuestion(
+                    skipped_by_strategy=answer.skipped_by_strategy if answer is not None else False,
                     position=row["position"],
                     status=row["status"],
                     attempts=row["attempts"],
@@ -427,6 +436,16 @@ class PaperJobService:
                 )
             )
         return PaperJobResponse(
+            strategy_request=(
+                StrategyRequest.model_validate_json(job["strategy_request_json"])
+                if job.get("strategy_request_json")
+                else None
+            ),
+            strategy_plan=(
+                StrategyPlan.model_validate_json(job["strategy_plan_json"])
+                if job.get("strategy_plan_json")
+                else None
+            ),
             job_id=job["id"],
             filename=job["filename"],
             display_name=job.get("display_name"),
@@ -487,6 +506,19 @@ class PaperJobService:
             raise LookupError("试卷任务不存在")
         return self.files.source_page(job, job_id, page_number)
 
+    def answer_pdf_layout(self, job_id: str) -> PaperExportLayout:
+        snapshot = self.get_job(job_id)
+        if snapshot.status not in TERMINAL_JOB_STATUSES:
+            raise ValueError("请在作答任务结束后导出 PDF")
+        if snapshot.source_integrity_status != "verified":
+            raise ValueError("请先完成原卷来源核对后再导出 PDF")
+        source, _filename, suffix = self.source_file(job_id)
+        if suffix != ".pdf":
+            raise ValueError("原卷作答导出仅支持 PDF 试卷")
+        if not any(q.status == "completed" and q.answer_markdown for q in snapshot.questions):
+            raise ValueError("当前没有可导出的已完成答案")
+        return inspect_answer_layout(source, snapshot.questions)
+
     def question_image(self, job_id: str, asset_name: str) -> Path:
         self._require_job(job_id)
         return self.files.question_image(job_id, asset_name)
@@ -517,7 +549,21 @@ class PaperJobService:
             if source_booklet is None:
                 raise ValueError("原任务配套的 Source Booklet 已删除或不可用")
         source_path, filename, _suffix = self.source_file(job_id)
-        with source_path.open("rb") as source:
+        with ExitStack() as stack:
+            source = stack.enter_context(source_path.open("rb"))
+            answer_stream = None
+            answer_filename = None
+            if job.get("answer_mode") == "uploaded":
+                answer_source = str(job.get("answer_source_path") or "")
+                answer_filename = str(job.get("answer_filename") or "")
+                if not answer_source or not answer_filename:
+                    raise ValueError("原任务缺少外部答案文件，无法创建替代任务")
+                try:
+                    answer_stream = stack.enter_context(
+                        self.files.resolve(answer_source).open("rb")
+                    )
+                except (LookupError, FileNotFoundError) as error:
+                    raise ValueError("原任务外部答案文件不可用，无法创建替代任务") from error
             replacement = self.create_job_from_stream(
                 filename,
                 source,
@@ -525,6 +571,13 @@ class PaperJobService:
                 source_booklet=source_booklet,
                 paper_unit_id=job.get("paper_unit_id"),
                 question_paper_document_id=job.get("question_paper_document_id"),
+                answer_filename=answer_filename,
+                answer_stream=answer_stream,
+                strategy=(
+                    StrategyRequest.model_validate_json(job["strategy_request_json"])
+                    if job.get("strategy_request_json")
+                    else None
+                ),
             )
         self.repository.link_replacement(job_id, replacement.job_id)
         return replacement
@@ -536,6 +589,8 @@ class PaperJobService:
         if _requires_replacement(job):
             raise ValueError("旧版来源完整性契约的任务不能原地重试，请创建替代任务")
         question = self.repository.retry_candidate(job_id, position)
+        if job.get("strategy_plan_json") and question["status"] == "completed":
+            raise ValueError("已完成的策略答卷不可单题重做；请保留首次结果并新建策略任务")
         if question["status"] == "completed":
             try:
                 requirements = json.loads(question["requirements_json"] or "{}")

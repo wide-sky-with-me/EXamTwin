@@ -69,6 +69,9 @@ class PaperJobRuntime:
     def recover_inflight(self, job_id: str, token: str) -> None:
         self.repository.recover_inflight(job_id, token)
 
+    def save_strategy(self, job_id: str, token: str, plan_json: str) -> None:
+        self.repository.save_strategy(job_id, token, plan_json)
+
     def set_stage(self, job_id: str, token: str, stage: str) -> None:
         self.repository.set_stage(job_id, token, stage)
 

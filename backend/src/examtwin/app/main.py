@@ -49,10 +49,14 @@ app.add_middleware(
 app.add_middleware(
     UploadBodyLimitMiddleware,
     upload_path=f"{API_PREFIX}/papers/answer",
-    # Multipart boundaries and form fields add a small amount beyond the file itself.
-    max_body_bytes=MAX_UPLOAD_BYTES + 256 * 1024,
+    # QP uses the paper limit; Booklet uses the corpus upload limit in its handler.
+    max_body_bytes=MAX_UPLOAD_BYTES + settings.knowledge_upload_max_bytes + 256 * 1024,
 )
-app.add_middleware(LocalOnlyMiddleware, enabled=settings.local_access_only)
+app.add_middleware(
+    LocalOnlyMiddleware,
+    enabled=settings.local_access_only,
+    allowed_origins=settings.cors_origin_list,
+)
 app.add_middleware(RequestContextMiddleware)
 app.include_router(router, prefix=API_PREFIX)
 app.add_exception_handler(Exception, unhandled_api_error)
