@@ -84,8 +84,52 @@ pnpm install
 pnpm dev
 ```
 
-前端地址为 `http://localhost:5173`，FastAPI 文档为
-`http://localhost:8000/docs`。
+前端默认地址为 `http://localhost:5173`，FastAPI 默认文档地址为
+`http://localhost:8000/docs`；本机可通过 `.env` 的 `API_PORT` 改端口，Vite 代理会同步读取。
+本机访问边界同时校验 Host 和浏览器 Origin；自定义前端域名需加入 `CORS_ORIGINS`。
+无 Origin 的本机命令行请求仍可使用。若提高 `KNOWLEDGE_UPLOAD_MAX_BYTES`，也应同步调整
+本地代理的请求容量；默认代理允许 25 MiB 试卷与 256 MiB 配套材料及 multipart 开销。
+
+### Docker Desktop / WSL 本地开发
+
+Docker Desktop 的 `host` 网络可能只在 Docker VM 内可达，表现为容器健康但宿主机无法访问 API。
+此时使用本地覆盖文件，数据库、向量库与 S3 在 Compose 网络中互联；API 仍只监听容器 loopback，
+同网络命名空间的 Nginx 代理只通过宿主机 `127.0.0.1` 发布，不关闭 `LOCAL_ACCESS_ONLY`。
+代理内部使用 `18001`，不要将 `API_PORT` 设为该值。
+
+1. 在私有 `.env` 中选择空闲的 `API_PORT`（例如 `18000`）。如使用 S3，设置非默认的
+   `OBJECT_STORE_ACCESS_KEY` 和随机 `OBJECT_STORE_SECRET_KEY`；容器 DNS 地址同样受凭据门禁约束。
+2. 同步依赖并启动（S3 配置必须带 `--profile s3`）：
+
+```bash
+uv sync --frozen --group dev
+uv run examtwin config-check
+docker compose -f compose.yaml -f compose.local.yaml --profile s3 up -d --build --wait
+cd frontend
+pnpm install --frozen-lockfile
+pnpm dev --host 127.0.0.1 --strictPort
+```
+
+使用上述端口时，页面为 `http://127.0.0.1:5173`，API 文档为 `http://127.0.0.1:18000/docs`。
+后端修改后仍需以**相同的两个 Compose 文件**重新构建并启动；不要混用仅主文件的启动命令，
+否则会恢复 `host` 网络。该覆盖文件沿用主配置的数据卷，不删除或自动导入其他版本遗留的数据卷。
+新数据库自动迁移并注册两个内置科目；原始资料存在不表示已有课程图谱、转换缓存或向量索引。
+
+普通回归从项目根目录执行，不依赖容器，不继承本地供应商凭据；真实基础设施测试单独显式启用：
+
+```bash
+uv run pytest -m "not integration and not local_assets" -q
+cd frontend
+pnpm test && pnpm lint && pnpm build && pnpm api:types:check
+# 默认 4173 不可用时，为浏览器测试指定空闲端口，禁止静默漂移
+PLAYWRIGHT_PORT=4175 pnpm test:visual
+```
+
+`integration` 测试需显式提供 `EXAMTWIN_TEST_DATABASE_URL`，仅对本次生成的临时数据库迁移、
+清理，不使用开发库；S3 往返测试另需 `EXAMTWIN_TEST_S3_ENDPOINT`、`EXAMTWIN_TEST_S3_BUCKET`、
+`EXAMTWIN_TEST_S3_ACCESS_KEY` 和 `EXAMTWIN_TEST_S3_SECRET_KEY`。密钥只通过本机环境注入。
+浏览器截图基线按平台分目录，旧参考图仍保留；环境与对照说明见
+[`frontend/e2e/__screenshots__/README.md`](frontend/e2e/__screenshots__/README.md)，不要用放宽阈值替代人工对照。
 
 默认 `OBJECT_STORE_BACKEND=local`，不依赖额外镜像即可运行。需要 S3 兼容后端时，项目已固定
 SeaweedFS 4.27，并按官方 `weed mini` 方式创建带凭据的 bucket：
@@ -272,6 +316,63 @@ provider 适配器归入 `assessment/answering_agent`，通用模型、embedding
 升级前的已结束任务会显示为 `legacy_unverified`，不能原地重试。调用
 `POST /api/v1/papers/jobs/{job_id}/replace` 可从同一原卷创建新任务；旧任务、新任务及替代
 方向保留用于审计。
+导入答案的替代任务会复制原答案并保留导入模式；原答案缺失时明确拒绝创建。
+
+### 目标分数与双时间预算
+
+在“试卷管理”的试卷详情中，可为 **AI 自动作答** 开启 **目标分数模拟**，填写目标分数、容差、可备考小时、考试分钟、检查
+预留及当前基础。分题完成后先分析知识/前置知识、学习投入、练习与作答时间，再在两个预算
+内选择路径。共同知识学习只计一次，两个预算的使用比例等权比较；同时展示较少学习与较短
+作答的候选方案。当前用有限容量搜索，截断时明确显示近似推荐，不能声称全局最优。
+
+`target-score-v2` 的规划分数指 **正确完成选定内容时的得分**：完整小题由服务端使用原题
+印刷分值，不把假想学生答对概率打折后多选题；部分作答估计同一受限步骤/论证的得分，并
+约束整条路径的得分上界不超过目标加容差；可达候选的下界也必须不低于目标减容差。
+文字论述型部分答案暂按 0 至该小题满分的保守区间筛选：少写一个论点并不能证明等级分
+存在固定上限，停止点合规也不等于估分准确。
+能力自评只影响学习、练习与作答成本。没有画像
+和耗时校准时不预测学生个人成绩；预算不足或无法找到目标附近方案会明确说明。
+
+计划在生成答案前持久化；重试复用同一计划，完成题不能原地重做凑分。支持同一大题内向前
+的小题依赖；跨大题/反向依赖暂不支持。规划读取题面、知识目录与严格配对、校验和一致的
+Source Booklet，不读取 Mark Scheme/考官报告；实际评分仍走独立评分和教师确认。主动留空
+保存为已处理且 `skipped_by_strategy=true`，不是失败；空白答卷按已确认评分标准记录零分，
+仍需复核。策略报告提供学习清单、限时作答顺序与 JSON 下载；原卷 PDF 保留计划内空白。
+
+部分方案新增明确的停止边界 `stop_before`，与每题考试用时、当前题目知识及前置一起传给
+答题 Agent，并在策略报告展示。最终文字／矢量图经过独立范围复核，检查越界扩写和隐藏的
+跳题答案；这次调用不读取目标、评分材料或求解轨迹。违规、不确定、复核不可用或无检索
+证据均不能标记成功，解释和短证据进入审计事件。当前不能复核位图，遇到位图返回不确定。
+旧部分方案缺少停止边界时明确提示新建任务；普通作答不增加复核调用。
+
+数据库迁移 `20260914_0029` 新增请求与冻结计划两列，已有任务保持普通作答模式。启动 API
+时按现有机制迁移；本次代码修改未部署服务。双科实验入口为 `scripts/validate_target_strategy.py`，
+需显式 `--live` 才调用模型，输出目录必须全新；实验的独立分题、文字作答与完整 Worker
+端到端验证分别记录，不混为一项通过。
+工具链实验入口 `scripts/validate_strategy_runtime.py` 使用同一冻结范围编译器及生产答题
+Runtime、计算、作图、配套材料工具，但以本地只读大纲检索代替线上数据库／向量检索。
+`scripts/validate_strategy_scope.py` 检查合成的越界作答与合法引用，两者也须显式 `--live`。
+
+### 导出原卷作答 PDF
+
+PDF 作答任务结束且来源核对通过后，在作答记录中选择 **导出原卷作答 PDF**。
+系统建议可可靠归属的答题横线区域；选择子问、核对原卷页，必要时点击“框选答题区”或输入
+位置。确认区域不遮挡题干/原图后生成预览，再下载。扫描卷、填空和表格等没有可靠建议位置时
+需要人工定位；当前不自动圈选选项或逐单元格填表。
+
+导出复用已保存的正文、公式、图片和图形，不调用模型。已校准图形直接叠到对应原图；正文按
+固定清晰字号排入所选区域，空间不足时在原区写 `See PDF p. N` 并追加带题号的续答页。
+部分作答可以导出，文件名带 `partial`，并附未完成题目清单。位置调整仅用于本次导出，
+不修改原件、答案或评分记录，也不跨导出窗口保存。
+
+原 PDF 的页面内容保留，新增答案以透明高清图像层写入；新增正文当前不是可选择的 PDF
+文本。生成前检查原件 SHA-256、对应来源页、区域越界/重叠、公式溢出、图片加载及空白图形；
+单段超过一页且无法在空白行处分割时停止导出，不能裁掉答案。前端按需加载锁定的
+`pdf-lib` 与 `html-to-image`，不增加后端浏览器或新的云服务。
+
+离线浏览器导出回归：`cd frontend && PLAYWRIGHT_PORT=4175 pnpm test:visual e2e/answer-pdf.spec.ts`。
+可选真实样本测试需显式设置 `EXAMTWIN_PDF_SAMPLE_DIR`，目录内提供 `source.pdf`、原有
+`job.json`、布局接口对应的 `layout.json` 和已完成答案来源页的 `page-N.png`；普通测试会跳过。
 
 ## 评分契约
 
@@ -290,6 +391,10 @@ M/A/B/FT 评分原子最初都是 `pending`：
 逐题自动结果仍进入 `pending_review`。教师最后通过
 `POST /api/v1/grading/reviews/{assessment_id}` 确认或改分，之后状态才变为
 `confirmed` 或 `overridden`。
+
+模型输出必须与已确认原子逐项对应，上限及说明以确认版本为准；正分缺少非空逐字证据时
+会纠错，仍无证据则暂缓授分。实际矢量图随文字进入评分并保存。位图或依赖原卷底图的图形
+尚不能可靠检查时，整题明确暂缓为零置信度占位，教师需查看实际产物；占位零分不表示答错。
 
 待复核列表通过 `GET /api/v1/grading/reviews/all` 跨科目返回，并携带
 `paper_job_id`、试卷显示名/文件名、题位和 `answer_mode` 来源信息。Web 端据此按试卷分组、
