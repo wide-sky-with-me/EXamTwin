@@ -308,7 +308,6 @@ def test_split_batches_are_concurrent_and_resume_from_digest_checkpoints(
                                         "required_tool": None,
                                     }
                                 ],
-                                "knowledge_codes": [],
                             }
                             for number in numbers
                         ]
