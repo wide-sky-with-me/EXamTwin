@@ -8,7 +8,9 @@ from examtwin.app.api.dependencies import (
     get_difficulty_evidence_service,
     get_subject_context,
 )
-from examtwin.app.main import app
+from examtwin.app.api.router import router
+from examtwin.contracts.system import API_PREFIX
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 
@@ -93,6 +95,9 @@ class FakeDifficultyService:
 
 
 def test_difficulty_routes_are_subject_scoped_and_keep_b_evidence_qualitative() -> None:
+    # Exercise the real routes without the deployment lifespan (migrations/storage).
+    app = FastAPI()
+    app.include_router(router, prefix=API_PREFIX)
     service = FakeDifficultyService()
     subject = SimpleNamespace(id="subject-a")
     app.dependency_overrides[get_subject_context] = lambda: subject

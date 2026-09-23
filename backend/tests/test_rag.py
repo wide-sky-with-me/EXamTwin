@@ -433,6 +433,7 @@ def test_query_provider_timeout_is_bounded_independently_from_index_timeout(
     monkeypatch,
 ) -> None:
     settings = Settings(
+        retrieval_api_key="test-retrieval-key",
         embedding_timeout=120,
         rerank_timeout=30,
         retrieval_provider_timeout=15,
