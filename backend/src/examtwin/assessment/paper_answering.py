@@ -32,7 +32,7 @@ from examtwin.assessment.paper_parsing import (
     validate_question_source_structure,
 )
 from examtwin.assessment.rag import RagService
-from examtwin.contracts.evidence import Citation
+from examtwin.contracts.evidence import Citation, SubpartRequirement
 from examtwin.contracts.knowledge import AskRequest
 from examtwin.contracts.papers import (
     PaperAnswerResponse,
@@ -100,10 +100,27 @@ class _QuestionRepairPlan(BaseModel):
     groups: list[_QuestionRepairGroup] = Field(min_length=1)
 
 
+class _QuestionSplitRequirement(SubpartRequirement):
+    model_config = ConfigDict(extra="forbid")
+
+
+class _QuestionSplitItem(BaseModel):
+    """Typed provider payload; provenance is still established by the source gates."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    number: str
+    question_markdown: str
+    source_pages: list[int] | None = Field(default_factory=list)
+    requires_visual_context: bool | None = False
+    total_marks: int | None = Field(default=None, ge=0, le=200)
+    answer_requirements: list[_QuestionSplitRequirement] | None = Field(default_factory=list)
+
+
 class _QuestionSplitPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    questions: list[dict[str, Any]]
+    questions: list[_QuestionSplitItem]
 
 
 class _QuestionCandidateConflict(ValueError):
@@ -972,7 +989,7 @@ Paper Markdown:
                         _QuestionSplitPayload,
                         timeout=self.settings.paper_split_timeout,
                     )
-                    return payload.questions
+                    return [question.model_dump(mode="json") for question in payload.questions]
                 except (TypeError, ValueError, json.JSONDecodeError) as error:
                     last_error = error
                     if attempt < self.settings.paper_split_max_attempts:
