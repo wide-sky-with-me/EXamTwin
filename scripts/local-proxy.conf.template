@@ -1,0 +1,26 @@
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    "" close;
+}
+
+server {
+    listen 18001;
+    # Default QP (25 MiB) + Booklet (256 MiB), plus multipart metadata.
+    # Raise this too if KNOWLEDGE_UPLOAD_MAX_BYTES is increased.
+    # Individual API handlers still enforce their own (often smaller) limits.
+    client_max_body_size 282m;
+
+    location / {
+        proxy_pass http://127.0.0.1:${API_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Host $http_host;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        # Never let caller-supplied forwarding headers impersonate a client.
+        proxy_set_header X-Forwarded-For "";
+        proxy_set_header X-Real-IP "";
+        proxy_set_header Forwarded "";
+        proxy_buffering off;
+        proxy_read_timeout 3600s;
+    }
+}
