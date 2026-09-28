@@ -18,7 +18,8 @@ from examtwin.platform.config import get_settings
 from examtwin.platform.database.migrations import upgrade_database
 from examtwin.platform.database.models import AssessmentModel, ReviewModel
 from examtwin.platform.database.session import create_session_factory
-from examtwin.subjects.public import subject_context
+from examtwin.subjects.public import subject_context, subject_package_registry
+from examtwin.subjects.workspace_repository import WorkspaceRepository
 from pydantic import BaseModel
 
 StructuredResultT = TypeVar("StructuredResultT", bound=BaseModel)
@@ -325,6 +326,10 @@ def test_grading_always_enters_review_queue() -> None:
     settings = get_settings()
     upgrade_database(settings.database_url)
     sessions = create_session_factory(settings.database_url)
+    # A fresh integration DB must not depend on a previous API test's startup.
+    WorkspaceRepository(sessions).synchronize_installed_subjects(
+        subject_package_registry(settings.subject_packages_dir).all()
+    )
     service = GradingService(
         CorpusRepository(sessions),
         AssessmentRepository(sessions),

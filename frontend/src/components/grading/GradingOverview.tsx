@@ -172,6 +172,32 @@ export function GradingOverview({
             </div>
           </section>
 
+          {overview.grade_estimate && (
+            <section className="overview-advice" aria-label="单元等级估计">
+              <div>
+                <span>{overview.grade_estimate.status === "provisional" ? "暂定单元等级 · 待复核" : "单元等级"}</span>
+                <h3>{overview.grade_estimate.grade ?? "暂不可估计"}</h3>
+              </div>
+              <div>
+                <p>{overview.grade_estimate.explanation}</p>
+                {overview.grade_estimate.source_url && (
+                  <p>
+                    {overview.grade_estimate.pair_key} · {overview.grade_estimate.unit_code} · {" "}
+                    <a href={overview.grade_estimate.source_url} target="_blank" rel="noreferrer">
+                      官方分数线（第 {overview.grade_estimate.source_page} 页）
+                    </a>
+                  </p>
+                )}
+                {overview.grade_estimate.next_grade && (
+                  <p>距 {overview.grade_estimate.next_grade} 等级还差 {overview.grade_estimate.marks_to_next_grade} 分。</p>
+                )}
+                {Object.keys(overview.grade_estimate.thresholds).length > 0 && (
+                  <p>分数线：{Object.entries(overview.grade_estimate.thresholds).map(([grade, marks]) => `${grade} ≥ ${marks}`).join("；")}</p>
+                )}
+              </div>
+            </section>
+          )}
+
           <section className="overview-advice" aria-labelledby="overview-advice-title">
             <div>
               <span>总体建议</span>

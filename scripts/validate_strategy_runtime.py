@@ -178,12 +178,24 @@ async def run_subject(args, root: Path, code: str) -> None:
                 == fixture[key]["sha256"]
             )
     save(destination / "frozen-plan.json", plan.model_dump())
+    configured = get_settings()
     save(
         destination / "experiment.json",
         {
             "plan_source": str(plan_dir),
             "plan_sha256": hashlib.sha256((plan_dir / "plan-48-720.json").read_bytes()).hexdigest(),
-            "primary": "48/80, study 720 minutes, first attempt only",
+            "primary": (
+                "48/80, study 720 minutes, recovery with completed submissions reused"
+                if args.reuse_submissions
+                else "48/80, study 720 minutes, first attempt only"
+            ),
+            "answer_model": configured.llm_model,
+            "scope_review_model": configured.llm_model,
+            "reasoning_effort": configured.llm_reasoning_effort,
+            "vision_model": configured.paper_vision_model,
+            "reused_submission_source": str(args.reuse_submissions)
+            if args.reuse_submissions
+            else None,
             "partial_probe": (
                 "Separate scope test; math preset from QP, "
                 "economics largest standalone partial candidate"

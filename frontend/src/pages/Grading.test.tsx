@@ -2485,6 +2485,7 @@ describe("Grading", () => {
 
   test("distinguishes partial and complete whole-paper overviews on the diagnostic track", () => {
     const partial: GradingOverviewResponse = {
+      grade_estimate: null,
       paper_job_id: "job-overview",
       rubric_set_id: "rubric-overview",
       total_awarded: 3,
@@ -2718,6 +2719,7 @@ describe("Grading", () => {
         onRefresh={onRefresh}
         overview={{
           paper_job_id: "empty-paper",
+          grade_estimate: null,
           rubric_set_id: "empty-rubric",
           total_awarded: 0,
           total_available: 0,

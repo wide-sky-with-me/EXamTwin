@@ -2475,6 +2475,16 @@
             "title": "Confirmed Count",
             "type": "integer"
           },
+          "grade_estimate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UnitGradeEstimate"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "incomplete": {
             "title": "Incomplete",
             "type": "boolean"
@@ -2531,6 +2541,7 @@
           }
         },
         "required": [
+          "grade_estimate",
           "paper_job_id",
           "rubric_set_id",
           "total_awarded",
@@ -7352,6 +7363,136 @@
           "detail"
         ],
         "title": "SymbolicCheck",
+        "type": "object"
+      },
+      "UnitGradeEstimate": {
+        "properties": {
+          "explanation": {
+            "title": "Explanation",
+            "type": "string"
+          },
+          "grade": {
+            "anyOf": [
+              {
+                "enum": [
+                  "A",
+                  "B",
+                  "C",
+                  "D",
+                  "E",
+                  "U"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grade"
+          },
+          "marks_to_next_grade": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Marks To Next Grade"
+          },
+          "next_grade": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Grade"
+          },
+          "pair_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pair Key"
+          },
+          "scope": {
+            "const": "unit",
+            "default": "unit",
+            "title": "Scope",
+            "type": "string"
+          },
+          "source_page": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Page"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          },
+          "status": {
+            "enum": [
+              "unavailable",
+              "provisional",
+              "reviewed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "thresholds": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Thresholds",
+            "type": "object"
+          },
+          "unit_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Code"
+          }
+        },
+        "required": [
+          "status",
+          "grade",
+          "scope",
+          "explanation",
+          "pair_key",
+          "unit_code",
+          "source_url",
+          "source_page",
+          "thresholds",
+          "next_grade",
+          "marks_to_next_grade"
+        ],
+        "title": "UnitGradeEstimate",
         "type": "object"
       },
       "UpdatePaperUnitRequest": {

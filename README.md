@@ -17,10 +17,10 @@ OxfordAQA International AS/A-level Mathematics (9660)，科目边界由版本化
 |---|---|
 | Python | `uv`、FastAPI；内部 provider-neutral Agent Harness，LlamaIndex/LiteLLM 作为适配器 |
 | 文档解析 | `llama-index-readers-mineru`，precision 模式；超大 PDF 物理分片，旧 PPT 经 LibreOffice 转 PDF 后可续跑 |
-| 解题/评分 | LiteLLM → DMXAPI，默认 `gpt-5.6-sol`，解题为 medium reasoning |
-| 试卷视觉复核 | PyMuPDF 渲染页图，`gpt-5.6-terra` 对照 MinerU 逐页修复并保存检查点 |
-| 整卷拆题 | LiteLLM → DMXAPI，默认 `gpt-5.6-luna`，独立 90 秒超时 |
-| 通用答案图片 | LiteLLM → DMXAPI `gpt-image-2-ssvip` 生成受控 PNG artifact；数学精确图仍优先使用本地矢量工具 |
+| 解题/评分 | LiteLLM → DMXAPI，默认 `gpt-6-sol`，解题为 low reasoning，评分保留 medium |
+| 试卷视觉复核 | PyMuPDF 渲染页图，`gpt-6-sol` 对照 MinerU 逐页修复并保存检查点 |
+| 整卷拆题 | LiteLLM → DMXAPI，默认 `gpt-6-luna`，独立 90 秒超时 |
+| 通用答案图片 | LiteLLM → DMXAPI `gpt-image-2.5-flare` 生成受控 PNG artifact；数学精确图仍优先使用本地矢量工具 |
 | Embedding | 硅基流动 `Qwen/Qwen3-Embedding-8B` |
 | Rerank | 硅基流动 `Qwen/Qwen3-Reranker-8B` |
 | 关系与任务数据 | Docker 中的 PostgreSQL，SQLAlchemy Repository + Alembic 分批迁移 |

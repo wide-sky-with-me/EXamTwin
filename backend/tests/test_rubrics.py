@@ -1938,6 +1938,49 @@ def test_grading_overview_uses_latest_exact_rubric_and_persisted_override() -> N
     assert questions[2]["available"] == 3.0
 
 
+@pytest.mark.parametrize(
+    "status,warnings,expected",
+    [
+        ("pending_review", [], "provisional"),
+        ("pending_review", ["相关评分原子已暂缓授分"], "unavailable"),
+        ("confirmed", ["相关评分原子已暂缓授分"], "reviewed"),
+        ("overridden", [], "reviewed"),
+    ],
+)
+def test_overview_grade_uses_exact_identity_and_human_review(status, warnings, expected):
+    from types import SimpleNamespace
+
+    settings = Settings(subject_pack="oxfordaqa-economics-9640")
+    rubrics = CapturingReviewRubrics(subject_context(settings).id, status="confirmed")
+    rubrics.rubric["identity"] = {"pair_key": "9640:2024:JAN:U1"}
+    assessments = SimpleNamespace(
+        for_paper=lambda *args, **kwargs: [
+            {
+                "id": "assessment",
+                "rubric_set_id": "rubric-1",
+                "question_position": 1,
+                "status": status,
+                "total_awarded": 58,
+                "total_available": 80,
+                "confidence": 0.9,
+                "result": {"warnings": warnings},
+            }
+        ]
+    )
+    service = _review_service(rubrics, assessments=assessments)
+    service.papers = cast(
+        Any,
+        SimpleNamespace(
+            get=lambda _: {"subject_code": "9640", "pair_key": "9640:2024:JAN:U1"},
+            questions=lambda _: [{"position": 1, "number": "1"}],
+        ),
+    )
+    overview = service.grading_overview("paper-1", "rubric-1")
+    assert overview["grade_estimate"]["status"] == expected
+    assert overview["grade_estimate"]["grade"] == (None if expected == "unavailable" else "A")
+    assert overview["total_awarded"] == 58
+
+
 class GradeQuestionPapers:
     def get(self, paper_job_id: str) -> dict[str, object]:
         assert paper_job_id == "paper-1"

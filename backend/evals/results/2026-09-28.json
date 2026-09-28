@@ -1,0 +1,802 @@
+{
+  "cases_sha256": "62e7d2658a261826dfe1438ec131319da85b16c8df3aabd4a8d7bc449c7ca0bd",
+  "reasoning_effort": "medium",
+  "limitations": "Author-labelled short answers; no teacher labels, essays or student data.",
+  "models": {
+    "gpt-5.6-sol": {
+      "9660": {
+        "cases": 12,
+        "failures": 0,
+        "scored_cases": 12,
+        "numeric_results": 12,
+        "exact": 12,
+        "within_one": 12,
+        "mae_on_numeric_results": 0.0,
+        "deferred_correctly": 0,
+        "review_cases": 0,
+        "execution_paths": {
+          "model": 11,
+          "blank_answer": 1,
+          "deferred_image": 0
+        }
+      },
+      "9640": {
+        "cases": 16,
+        "failures": 0,
+        "scored_cases": 14,
+        "numeric_results": 14,
+        "exact": 14,
+        "within_one": 14,
+        "mae_on_numeric_results": 0.0,
+        "deferred_correctly": 2,
+        "review_cases": 2,
+        "execution_paths": {
+          "model": 12,
+          "blank_answer": 2,
+          "deferred_image": 2
+        }
+      }
+    },
+    "gpt-6-sol": {
+      "9660": {
+        "cases": 12,
+        "failures": 0,
+        "scored_cases": 12,
+        "numeric_results": 12,
+        "exact": 12,
+        "within_one": 12,
+        "mae_on_numeric_results": 0.0,
+        "deferred_correctly": 0,
+        "review_cases": 0,
+        "execution_paths": {
+          "model": 11,
+          "blank_answer": 1,
+          "deferred_image": 0
+        }
+      },
+      "9640": {
+        "cases": 16,
+        "failures": 0,
+        "scored_cases": 14,
+        "numeric_results": 14,
+        "exact": 14,
+        "within_one": 14,
+        "mae_on_numeric_results": 0.0,
+        "deferred_correctly": 2,
+        "review_cases": 2,
+        "execution_paths": {
+          "model": 12,
+          "blank_answer": 2,
+          "deferred_image": 2
+        }
+      }
+    }
+  },
+  "date": "2026-09-28",
+  "latency_seconds": {
+    "gpt-5.6-sol": {
+      "model_calls": 23,
+      "median": 7.268,
+      "mean": 7.974
+    },
+    "gpt-6-sol": {
+      "model_calls": 23,
+      "median": 4.953,
+      "mean": 5.126
+    }
+  },
+  "case_results": [
+    {
+      "id": "econ-grading-05",
+      "model": "gpt-5.6-sol",
+      "subject_code": "9640",
+      "expected": 3,
+      "label_kind": "author_label_from_official_example_or_paraphrase",
+      "awarded": 3.0,
+      "deferred": false,
+      "seconds": 10.525,
+      "execution_path": "model"
+    },
+    {
+      "id": "econ-grading-06",
+      "model": "gpt-5.6-sol",
+      "subject_code": "9640",
+      "expected": 3,
+      "label_kind": "author_label_from_official_example_or_paraphrase",
+      "awarded": 3.0,
+      "deferred": false,
+      "seconds": 7.669,
+      "execution_path": "model"
+    },
+    {
+      "id": "econ-grading-07",
+      "model": "gpt-5.6-sol",
+      "subject_code": "9640",
+      "expected": 2,
+      "label_kind": "author_label_from_official_example_or_paraphrase",
+      "awarded": 2.0,
+      "deferred": false,
+      "seconds": 9.049,
+      "execution_path": "model"
+    },
+    {
+      "id": "econ-grading-08",
+      "model": "gpt-5.6-sol",
+      "subject_code": "9640",
+      "expected": 2,
+      "label_kind": "author_label_from_official_example_or_paraphrase",
+      "awarded": 2.0,
+      "deferred": false,
+      "seconds": 6.544,
+      "execution_path": "model"
+    },
+    {
+      "id": "econ-grading-09",
+      "model": "gpt-5.6-sol",
+      "subject_code": "9640",
+      "expected": 1,
+      "label_kind": "author_label_from_official_example_or_paraphrase",
+      "awarded": 1.0,
+      "deferred": false,
+      "seconds": 8.213,
+      "execution_path": "model"
+    },
+    {
+      "id": "econ-grading-10",
+      "model": "gpt-5.6-sol",
+      "subject_code": "9640",
+      "expected": 0,
+      "label_kind": "author_label_from_official_example_or_paraphrase",
+      "awarded": 0.0,
+      "deferred": false,
+      "seconds": 8.896,
+      "execution_path": "model"
+    },
+    {
+      "id": "econ-grading-11",
+      "model": "gpt-5.6-sol",
+      "subject_code": "9640",
+      "expected": 0,
+      "label_kind": "author_label_from_official_example_or_paraphrase",
+      "awarded": 0.0,
+      "deferred": false,
+      "seconds": 0.0,
+      "execution_path": "blank_answer"
+    },
+    {
+      "id": "econ-grading-12",
+      "model": "gpt-5.6-sol",
+      "subject_code": "9640",
+      "expected": null,
+      "label_kind": "author_label_from_official_example_or_paraphrase",
+      "awarded": 0.0,
+      "deferred": true,
+      "seconds": 0.001,
+      "execution_path": "deferred_image"
+    },
+    {
+      "id": "econ-grading-17",
+      "model": "gpt-5.6-sol",
+      "subject_code": "9640",
+      "expected": 3,
+      "label_kind": "author_label_from_official_example_or_paraphrase",
+      "awarded": 3.0,
+      "deferred": false,
+      "seconds": 5.451,
+      "execution_path": "model"
+    },
+    {
+      "id": "econ-grading-18",
+      "model": "gpt-5.6-sol",
+      "subject_code": "9640",
+      "expected": 3,
+      "label_kind": "author_label_from_official_example_or_paraphrase",
+      "awarded": 3.0,
+      "deferred": false,
+      "seconds": 6.98,
+      "execution_path": "model"
+    },
+    {
+      "id": "econ-grading-19",
+      "model": "gpt-5.6-sol",
+      "subject_code": "9640",
+      "expected": 2,
+      "label_kind": "author_label_from_official_example_or_paraphrase",
+      "awarded": 2.0,
+      "deferred": false,
+      "seconds": 7.268,
+      "execution_path": "model"
+    },
+    {
+      "id": "econ-grading-20",
+      "model": "gpt-5.6-sol",
+      "subject_code": "9640",
+      "expected": 2,
+      "label_kind": "author_label_from_official_example_or_paraphrase",
+      "awarded": 2.0,
+      "deferred": false,
+      "seconds": 7.338,
+      "execution_path": "model"
+    },
+    {
+      "id": "econ-grading-21",
+      "model": "gpt-5.6-sol",
+      "subject_code": "9640",
+      "expected": 1,
+      "label_kind": "author_label_from_official_example_or_paraphrase",
+      "awarded": 1.0,
+      "deferred": false,
+      "seconds": 5.526,
+      "execution_path": "model"
+    },
+    {
+      "id": "econ-grading-22",
+      "model": "gpt-5.6-sol",
+      "subject_code": "9640",
+      "expected": 0,
+      "label_kind": "author_label_from_official_example_or_paraphrase",
+      "awarded": 0.0,
+      "deferred": false,
+      "seconds": 12.615,
+      "execution_path": "model"
+    },
+    {
+      "id": "econ-grading-23",
+      "model": "gpt-5.6-sol",
+      "subject_code": "9640",
+      "expected": 0,
+      "label_kind": "author_label_from_official_example_or_paraphrase",
+      "awarded": 0.0,
+      "deferred": false,
+      "seconds": 0.0,
+      "execution_path": "blank_answer"
+    },
+    {
+      "id": "econ-grading-24",
+      "model": "gpt-5.6-sol",
+      "subject_code": "9640",
+      "expected": null,
+      "label_kind": "author_label_from_official_example_or_paraphrase",
+      "awarded": 0.0,
+      "deferred": true,
+      "seconds": 0.0,
+      "execution_path": "deferred_image"
+    },
+    {
+      "id": "math-indices-1",
+      "model": "gpt-5.6-sol",
+      "subject_code": "9660",
+      "expected": 2,
+      "label_kind": "author_label_from_official_mark_scheme",
+      "awarded": 2.0,
+      "deferred": false,
+      "seconds": 14.352,
+      "execution_path": "model"
+    },
+    {
+      "id": "math-indices-2",
+      "model": "gpt-5.6-sol",
+      "subject_code": "9660",
+      "expected": 1,
+      "label_kind": "author_label_from_official_mark_scheme",
+      "awarded": 1.0,
+      "deferred": false,
+      "seconds": 8.745,
+      "execution_path": "model"
+    },
+    {
+      "id": "math-indices-3",
+      "model": "gpt-5.6-sol",
+      "subject_code": "9660",
+      "expected": 0,
+      "label_kind": "author_label_from_official_mark_scheme",
+      "awarded": 0.0,
+      "deferred": false,
+      "seconds": 4.504,
+      "execution_path": "model"
+    },
+    {
+      "id": "math-indices-4",
+      "model": "gpt-5.6-sol",
+      "subject_code": "9660",
+      "expected": 0,
+      "label_kind": "author_label_from_official_mark_scheme",
+      "awarded": 0.0,
+      "deferred": false,
+      "seconds": 0.0,
+      "execution_path": "blank_answer"
+    },
+    {
+      "id": "math-line-1",
+      "model": "gpt-5.6-sol",
+      "subject_code": "9660",
+      "expected": 2,
+      "label_kind": "author_label_from_official_mark_scheme",
+      "awarded": 2.0,
+      "deferred": false,
+      "seconds": 5.818,
+      "execution_path": "model"
+    },
+    {
+      "id": "math-line-2",
+      "model": "gpt-5.6-sol",
+      "subject_code": "9660",
+      "expected": 1,
+      "label_kind": "author_label_from_official_mark_scheme",
+      "awarded": 1.0,
+      "deferred": false,
+      "seconds": 4.251,
+      "execution_path": "model"
+    },
+    {
+      "id": "math-line-3",
+      "model": "gpt-5.6-sol",
+      "subject_code": "9660",
+      "expected": 1,
+      "label_kind": "author_label_from_official_mark_scheme",
+      "awarded": 1.0,
+      "deferred": false,
+      "seconds": 3.904,
+      "execution_path": "model"
+    },
+    {
+      "id": "math-line-4",
+      "model": "gpt-5.6-sol",
+      "subject_code": "9660",
+      "expected": 0,
+      "label_kind": "author_label_from_official_mark_scheme",
+      "awarded": 0.0,
+      "deferred": false,
+      "seconds": 4.678,
+      "execution_path": "model"
+    },
+    {
+      "id": "math-square-1",
+      "model": "gpt-5.6-sol",
+      "subject_code": "9660",
+      "expected": 3,
+      "label_kind": "author_label_from_official_mark_scheme",
+      "awarded": 3.0,
+      "deferred": false,
+      "seconds": 19.976,
+      "execution_path": "model"
+    },
+    {
+      "id": "math-square-2",
+      "model": "gpt-5.6-sol",
+      "subject_code": "9660",
+      "expected": 2,
+      "label_kind": "author_label_from_official_mark_scheme",
+      "awarded": 2.0,
+      "deferred": false,
+      "seconds": 6.421,
+      "execution_path": "model"
+    },
+    {
+      "id": "math-square-3",
+      "model": "gpt-5.6-sol",
+      "subject_code": "9660",
+      "expected": 1,
+      "label_kind": "author_label_from_official_mark_scheme",
+      "awarded": 1.0,
+      "deferred": false,
+      "seconds": 7.974,
+      "execution_path": "model"
+    },
+    {
+      "id": "math-square-4",
+      "model": "gpt-5.6-sol",
+      "subject_code": "9660",
+      "expected": 0,
+      "label_kind": "author_label_from_official_mark_scheme",
+      "awarded": 0.0,
+      "deferred": false,
+      "seconds": 6.704,
+      "execution_path": "model"
+    },
+    {
+      "id": "econ-grading-05",
+      "model": "gpt-6-sol",
+      "subject_code": "9640",
+      "expected": 3,
+      "label_kind": "author_label_from_official_example_or_paraphrase",
+      "awarded": 3.0,
+      "deferred": false,
+      "seconds": 8.695,
+      "execution_path": "model"
+    },
+    {
+      "id": "econ-grading-06",
+      "model": "gpt-6-sol",
+      "subject_code": "9640",
+      "expected": 3,
+      "label_kind": "author_label_from_official_example_or_paraphrase",
+      "awarded": 3.0,
+      "deferred": false,
+      "seconds": 5.476,
+      "execution_path": "model"
+    },
+    {
+      "id": "econ-grading-07",
+      "model": "gpt-6-sol",
+      "subject_code": "9640",
+      "expected": 2,
+      "label_kind": "author_label_from_official_example_or_paraphrase",
+      "awarded": 2.0,
+      "deferred": false,
+      "seconds": 4.695,
+      "execution_path": "model"
+    },
+    {
+      "id": "econ-grading-08",
+      "model": "gpt-6-sol",
+      "subject_code": "9640",
+      "expected": 2,
+      "label_kind": "author_label_from_official_example_or_paraphrase",
+      "awarded": 2.0,
+      "deferred": false,
+      "seconds": 5.42,
+      "execution_path": "model"
+    },
+    {
+      "id": "econ-grading-09",
+      "model": "gpt-6-sol",
+      "subject_code": "9640",
+      "expected": 1,
+      "label_kind": "author_label_from_official_example_or_paraphrase",
+      "awarded": 1.0,
+      "deferred": false,
+      "seconds": 5.04,
+      "execution_path": "model"
+    },
+    {
+      "id": "econ-grading-10",
+      "model": "gpt-6-sol",
+      "subject_code": "9640",
+      "expected": 0,
+      "label_kind": "author_label_from_official_example_or_paraphrase",
+      "awarded": 0.0,
+      "deferred": false,
+      "seconds": 5.372,
+      "execution_path": "model"
+    },
+    {
+      "id": "econ-grading-11",
+      "model": "gpt-6-sol",
+      "subject_code": "9640",
+      "expected": 0,
+      "label_kind": "author_label_from_official_example_or_paraphrase",
+      "awarded": 0.0,
+      "deferred": false,
+      "seconds": 0.0,
+      "execution_path": "blank_answer"
+    },
+    {
+      "id": "econ-grading-12",
+      "model": "gpt-6-sol",
+      "subject_code": "9640",
+      "expected": null,
+      "label_kind": "author_label_from_official_example_or_paraphrase",
+      "awarded": 0.0,
+      "deferred": true,
+      "seconds": 0.0,
+      "execution_path": "deferred_image"
+    },
+    {
+      "id": "econ-grading-17",
+      "model": "gpt-6-sol",
+      "subject_code": "9640",
+      "expected": 3,
+      "label_kind": "author_label_from_official_example_or_paraphrase",
+      "awarded": 3.0,
+      "deferred": false,
+      "seconds": 4.525,
+      "execution_path": "model"
+    },
+    {
+      "id": "econ-grading-18",
+      "model": "gpt-6-sol",
+      "subject_code": "9640",
+      "expected": 3,
+      "label_kind": "author_label_from_official_example_or_paraphrase",
+      "awarded": 3.0,
+      "deferred": false,
+      "seconds": 4.17,
+      "execution_path": "model"
+    },
+    {
+      "id": "econ-grading-19",
+      "model": "gpt-6-sol",
+      "subject_code": "9640",
+      "expected": 2,
+      "label_kind": "author_label_from_official_example_or_paraphrase",
+      "awarded": 2.0,
+      "deferred": false,
+      "seconds": 10.685,
+      "execution_path": "model"
+    },
+    {
+      "id": "econ-grading-20",
+      "model": "gpt-6-sol",
+      "subject_code": "9640",
+      "expected": 2,
+      "label_kind": "author_label_from_official_example_or_paraphrase",
+      "awarded": 2.0,
+      "deferred": false,
+      "seconds": 4.308,
+      "execution_path": "model"
+    },
+    {
+      "id": "econ-grading-21",
+      "model": "gpt-6-sol",
+      "subject_code": "9640",
+      "expected": 1,
+      "label_kind": "author_label_from_official_example_or_paraphrase",
+      "awarded": 1.0,
+      "deferred": false,
+      "seconds": 3.93,
+      "execution_path": "model"
+    },
+    {
+      "id": "econ-grading-22",
+      "model": "gpt-6-sol",
+      "subject_code": "9640",
+      "expected": 0,
+      "label_kind": "author_label_from_official_example_or_paraphrase",
+      "awarded": 0.0,
+      "deferred": false,
+      "seconds": 4.953,
+      "execution_path": "model"
+    },
+    {
+      "id": "econ-grading-23",
+      "model": "gpt-6-sol",
+      "subject_code": "9640",
+      "expected": 0,
+      "label_kind": "author_label_from_official_example_or_paraphrase",
+      "awarded": 0.0,
+      "deferred": false,
+      "seconds": 0.0,
+      "execution_path": "blank_answer"
+    },
+    {
+      "id": "econ-grading-24",
+      "model": "gpt-6-sol",
+      "subject_code": "9640",
+      "expected": null,
+      "label_kind": "author_label_from_official_example_or_paraphrase",
+      "awarded": 0.0,
+      "deferred": true,
+      "seconds": 0.0,
+      "execution_path": "deferred_image"
+    },
+    {
+      "id": "math-indices-1",
+      "model": "gpt-6-sol",
+      "subject_code": "9660",
+      "expected": 2,
+      "label_kind": "author_label_from_official_mark_scheme",
+      "awarded": 2.0,
+      "deferred": false,
+      "seconds": 4.441,
+      "execution_path": "model"
+    },
+    {
+      "id": "math-indices-2",
+      "model": "gpt-6-sol",
+      "subject_code": "9660",
+      "expected": 1,
+      "label_kind": "author_label_from_official_mark_scheme",
+      "awarded": 1.0,
+      "deferred": false,
+      "seconds": 3.615,
+      "execution_path": "model"
+    },
+    {
+      "id": "math-indices-3",
+      "model": "gpt-6-sol",
+      "subject_code": "9660",
+      "expected": 0,
+      "label_kind": "author_label_from_official_mark_scheme",
+      "awarded": 0.0,
+      "deferred": false,
+      "seconds": 5.184,
+      "execution_path": "model"
+    },
+    {
+      "id": "math-indices-4",
+      "model": "gpt-6-sol",
+      "subject_code": "9660",
+      "expected": 0,
+      "label_kind": "author_label_from_official_mark_scheme",
+      "awarded": 0.0,
+      "deferred": false,
+      "seconds": 0.0,
+      "execution_path": "blank_answer"
+    },
+    {
+      "id": "math-line-1",
+      "model": "gpt-6-sol",
+      "subject_code": "9660",
+      "expected": 2,
+      "label_kind": "author_label_from_official_mark_scheme",
+      "awarded": 2.0,
+      "deferred": false,
+      "seconds": 3.408,
+      "execution_path": "model"
+    },
+    {
+      "id": "math-line-2",
+      "model": "gpt-6-sol",
+      "subject_code": "9660",
+      "expected": 1,
+      "label_kind": "author_label_from_official_mark_scheme",
+      "awarded": 1.0,
+      "deferred": false,
+      "seconds": 5.36,
+      "execution_path": "model"
+    },
+    {
+      "id": "math-line-3",
+      "model": "gpt-6-sol",
+      "subject_code": "9660",
+      "expected": 1,
+      "label_kind": "author_label_from_official_mark_scheme",
+      "awarded": 1.0,
+      "deferred": false,
+      "seconds": 3.821,
+      "execution_path": "model"
+    },
+    {
+      "id": "math-line-4",
+      "model": "gpt-6-sol",
+      "subject_code": "9660",
+      "expected": 0,
+      "label_kind": "author_label_from_official_mark_scheme",
+      "awarded": 0.0,
+      "deferred": false,
+      "seconds": 5.077,
+      "execution_path": "model"
+    },
+    {
+      "id": "math-square-1",
+      "model": "gpt-6-sol",
+      "subject_code": "9660",
+      "expected": 3,
+      "label_kind": "author_label_from_official_mark_scheme",
+      "awarded": 3.0,
+      "deferred": false,
+      "seconds": 4.132,
+      "execution_path": "model"
+    },
+    {
+      "id": "math-square-2",
+      "model": "gpt-6-sol",
+      "subject_code": "9660",
+      "expected": 2,
+      "label_kind": "author_label_from_official_mark_scheme",
+      "awarded": 2.0,
+      "deferred": false,
+      "seconds": 4.988,
+      "execution_path": "model"
+    },
+    {
+      "id": "math-square-3",
+      "model": "gpt-6-sol",
+      "subject_code": "9660",
+      "expected": 1,
+      "label_kind": "author_label_from_official_mark_scheme",
+      "awarded": 1.0,
+      "deferred": false,
+      "seconds": 4.857,
+      "execution_path": "model"
+    },
+    {
+      "id": "math-square-4",
+      "model": "gpt-6-sol",
+      "subject_code": "9660",
+      "expected": 0,
+      "label_kind": "author_label_from_official_mark_scheme",
+      "awarded": 0.0,
+      "deferred": false,
+      "seconds": 5.747,
+      "execution_path": "model"
+    }
+  ],
+  "target_score_runs": {
+    "math_first": {
+      "artifacts": "data/local-runs/gpt6-target-runtime-20260928/9660",
+      "statuses": {
+        "completed": 5,
+        "failed": 2,
+        "skipped": 3
+      },
+      "failed_questions": [
+        "3",
+        "7"
+      ],
+      "independent_model_grade": {
+        "model": "gpt-6-astra",
+        "subject_code": "9660",
+        "bundle_sha256": "bac233e263b22dd4bcd44a47e8dca73798b571d528f2a811f25b463f03440e3d",
+        "questions_sha256": "a366ef5c9f4ecb4078a6763ab0cc47f639a733bf489e541fc70c4b35b4692be0",
+        "status": "incomplete",
+        "awarded_subtotal": 28.0,
+        "available": 80,
+        "failures": 1,
+        "deferred": 0,
+        "notes": "No target, plan, prior score or gold supplied to grader. No teacher review."
+      }
+    },
+    "economics_first": {
+      "artifacts": "data/local-runs/gpt6-target-runtime-20260928/9640",
+      "statuses": {
+        "completed": 3,
+        "failed": 2,
+        "skipped": 16
+      },
+      "failed_questions": [
+        "16",
+        "21"
+      ]
+    },
+    "math_astra_recovery": {
+      "artifacts": "data/local-runs/gpt6-astra-recovery-20260928/9660",
+      "statuses": {
+        "completed": 5,
+        "failed": 2,
+        "skipped": 3
+      },
+      "failed_questions": [
+        "3",
+        "7"
+      ]
+    },
+    "math_low_recovery": {
+      "artifacts": "data/local-runs/gpt6-low-recovery-20260928/9660",
+      "statuses": {
+        "completed": 7,
+        "failed": 0,
+        "skipped": 3
+      },
+      "failed_questions": [],
+      "independent_model_grade": {
+        "model": "gpt-6-astra",
+        "reasoning_effort": "low",
+        "subject_code": "9660",
+        "bundle_sha256": "5cefcf8499cd41ddc3fe950508004113ea7f5f6bf611d03be84fd87cfbfe9030",
+        "questions_sha256": "a366ef5c9f4ecb4078a6763ab0cc47f639a733bf489e541fc70c4b35b4692be0",
+        "status": "model_judgment_needs_teacher_review",
+        "awarded_subtotal": 49.0,
+        "available": 80,
+        "failures": 0,
+        "deferred": 0,
+        "notes": "No target, plan, prior score or gold supplied to grader. No teacher review."
+      }
+    },
+    "economics_low_recovery": {
+      "artifacts": "data/local-runs/gpt6-low-economics-recovery-20260928/9640",
+      "statuses": {
+        "completed": 4,
+        "failed": 1,
+        "skipped": 16
+      },
+      "failed_questions": [
+        "21"
+      ],
+      "independent_model_grade": {
+        "model": "gpt-6-astra",
+        "reasoning_effort": "low",
+        "subject_code": "9640",
+        "bundle_sha256": "4aecc4510c7fe2a3313724d3c23ebdcaad7f55fa9ae3b93b431ab71f8cac1bf0",
+        "questions_sha256": "8ea4b0516b618bff1e703b0970619e7b4b5b8b55e5e08563d2b506ccaf2d1173",
+        "status": "model_judgment_needs_teacher_review",
+        "awarded_subtotal": 28.0,
+        "available": 80,
+        "failures": 0,
+        "deferred": 0,
+        "notes": "No target, plan, prior score or gold supplied to grader. No teacher review."
+      }
+    }
+  }
+}
