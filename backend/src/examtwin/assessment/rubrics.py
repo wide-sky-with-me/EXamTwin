@@ -14,6 +14,7 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from examtwin.assessment.assessment_repository import AssessmentRepository
+from examtwin.assessment.grade_boundaries import estimate_unit_grade
 from examtwin.assessment.grading import GradingService
 from examtwin.assessment.paper_job_repository import PaperJobRepository
 from examtwin.assessment.policies import FOUNDATION_SCORE_PERCENTAGE, STABLE_SCORE_PERCENTAGE
@@ -1661,7 +1662,29 @@ class RubricService:
         percentage = (
             round(total_awarded / total_available * 100, 2) if total_available > 0 else None
         )
+        identity = rubric.get("identity")
+        rubric_pair = str(identity.get("pair_key") or "") if isinstance(identity, Mapping) else ""
+
+        def is_deferred(item: dict[str, object]) -> bool:
+            if item.get("status") != "pending_review":
+                return False
+            result = item.get("result")
+            warnings = result.get("warnings", []) if isinstance(result, Mapping) else []
+            return item.get("confidence") == 0 or any("暂缓授分" in str(w) for w in warnings)
+
+        deferred = any(is_deferred(item) for item in latest_by_position.values())
+        grade_estimate = estimate_unit_grade(
+            subject_code=self.subject.subject_code,
+            pair_key=str(job.get("pair_key") or ""),
+            rubric_pair_key=rubric_pair,
+            awarded=total_awarded,
+            available=total_available,
+            complete=total_questions > 0 and completed_questions == total_questions,
+            pending_review=status_counts["pending_review"] > 0,
+            deferred=deferred,
+        )
         return {
+            "grade_estimate": grade_estimate.model_dump(),
             "paper_job_id": paper_job_id,
             "rubric_set_id": rubric_set_id,
             "total_awarded": total_awarded,

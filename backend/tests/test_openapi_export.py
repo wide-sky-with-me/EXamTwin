@@ -16,5 +16,11 @@ def test_schema_export_environment_bootstraps_settings_without_local_env(
     settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
 
     assert settings.subject_pack == "oxfordaqa-mathematics-9660"
-    assert settings.llm_model == "gpt-5.6-sol"
+    assert settings.llm_model == "gpt-6-sol"
+    assert settings.llm_reasoning_effort == "low"
+    assert settings.grading_reasoning_effort == "medium"
+    assert settings.grading_model == "gpt-6-sol"
+    assert settings.paper_split_model == "gpt-6-luna"
+    assert settings.paper_vision_model == "gpt-6-sol"
+    assert settings.image_generation_model == "gpt-image-2.5-flare"
     assert settings.retrieval_base_url == "https://api.siliconflow.cn/v1"

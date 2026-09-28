@@ -6,6 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from examtwin.contracts.base import SerializedResponse
+from examtwin.contracts.grades import UnitGradeEstimate
 from examtwin.contracts.grading import GradeResponse
 
 
@@ -174,6 +175,7 @@ class GradingOverviewQuestionResponse(SerializedResponse):
 
 
 class GradingOverviewResponse(SerializedResponse):
+    grade_estimate: UnitGradeEstimate | None = None
     paper_job_id: str
     rubric_set_id: str
     total_awarded: float

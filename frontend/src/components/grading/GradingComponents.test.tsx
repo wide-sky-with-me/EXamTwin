@@ -314,6 +314,7 @@ function SuccessfulFilteredReviewStage({
 }
 function overviewFixture(): GradingOverviewResponse {
   return {
+    grade_estimate: null,
     paper_job_id: "paper-job",
     rubric_set_id: "rubric-components",
     total_awarded: 0,
@@ -996,6 +997,32 @@ describe("grading component final-review regressions", () => {
     expect(loading).toHaveAttribute("aria-busy", "true");
     expect(loading).toHaveTextContent("正在加载评分规则版本，请稍候");
     expect(screen.queryByText("返回材料准备并解析评分标准。")).not.toBeInTheDocument();
+  });
+
+  test("shows a provisional unit grade with its exact official source", () => {
+    const overview = overviewFixture();
+    overview.total_questions = overview.completed_questions = 1;
+    overview.grade_estimate = {
+      status: "provisional", grade: "C", scope: "unit",
+      explanation: "根据待复核分数换算。仅适用于单元试卷。",
+      pair_key: "9660:2019:JAN:P1", unit_code: "MA01",
+      source_url: "https://www.oxfordaqa.com/boundaries.pdf", source_page: 1,
+      thresholds: { A: 64, B: 55, C: 46, D: 37, E: 29 },
+      next_grade: "B", marks_to_next_grade: 7,
+    };
+    const { rerender } = render(<GradingOverview overview={overview} loading={false}
+      error={null} onBack={vi.fn()} onRefresh={vi.fn()} />);
+    const region = screen.getByRole("region", { name: "单元等级估计" });
+    expect(region).toHaveTextContent("暂定单元等级 · 待复核");
+    expect(region).toHaveTextContent("距 B 等级还差 7 分");
+    expect(within(region).getByRole("link")).toHaveAttribute("href", overview.grade_estimate.source_url);
+    overview.grade_estimate = { ...overview.grade_estimate, status: "unavailable", grade: null,
+      source_url: null, next_grade: null, marks_to_next_grade: null, thresholds: {},
+      explanation: "整卷评分尚未完成，暂不估计等级。" };
+    rerender(<GradingOverview overview={overview} loading={false}
+      error={null} onBack={vi.fn()} onRefresh={vi.fn()} />);
+    expect(region).toHaveTextContent("暂不可估计");
+    expect(within(region).queryByRole("link")).not.toBeInTheDocument();
   });
 
   test("returns focus to the overview heading after a successful Load action", async () => {

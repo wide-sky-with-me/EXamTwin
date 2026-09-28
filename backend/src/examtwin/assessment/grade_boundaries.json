@@ -1,0 +1,156 @@
+[
+  {
+    "pair_key": "9660:2019:JAN:P1",
+    "unit_code": "MA01",
+    "max_marks": 80,
+    "thresholds": {
+      "A": 64,
+      "B": 55,
+      "C": 46,
+      "D": 37,
+      "E": 29
+    },
+    "source_url": "https://www.oxfordaqa.com/oaqaresources/exams-admin/grade-boundaries-a-level-january-2019.pdf",
+    "source_page": 1
+  },
+  {
+    "pair_key": "9660:2019:JAN:PSM1",
+    "unit_code": "MA02",
+    "max_marks": 80,
+    "thresholds": {
+      "A": 64,
+      "B": 55,
+      "C": 46,
+      "D": 38,
+      "E": 30
+    },
+    "source_url": "https://www.oxfordaqa.com/oaqaresources/exams-admin/grade-boundaries-a-level-january-2019.pdf",
+    "source_page": 1
+  },
+  {
+    "pair_key": "9640:2024:JAN:U1",
+    "unit_code": "EC01",
+    "max_marks": 80,
+    "thresholds": {
+      "A": 58,
+      "B": 50,
+      "C": 42,
+      "D": 34,
+      "E": 27
+    },
+    "source_url": "https://www.oxfordaqa.com/wp-content/uploads/2024/02/OxfordAQA-Jan-24-Grade-Boundaries-International-AS_A-level.pdf",
+    "source_page": 2
+  },
+  {
+    "pair_key": "9640:2024:JAN:U2",
+    "unit_code": "EC02",
+    "max_marks": 80,
+    "thresholds": {
+      "A": 59,
+      "B": 51,
+      "C": 43,
+      "D": 36,
+      "E": 29
+    },
+    "source_url": "https://www.oxfordaqa.com/wp-content/uploads/2024/02/OxfordAQA-Jan-24-Grade-Boundaries-International-AS_A-level.pdf",
+    "source_page": 2
+  },
+  {
+    "pair_key": "9640:2024:JAN:U3",
+    "unit_code": "EC03",
+    "max_marks": 90,
+    "thresholds": {
+      "A": 64,
+      "B": 56,
+      "C": 48,
+      "D": 40,
+      "E": 33
+    },
+    "source_url": "https://www.oxfordaqa.com/wp-content/uploads/2024/02/OxfordAQA-Jan-24-Grade-Boundaries-International-AS_A-level.pdf",
+    "source_page": 2
+  },
+  {
+    "pair_key": "9640:2024:JAN:U4",
+    "unit_code": "EC04",
+    "max_marks": 90,
+    "thresholds": {
+      "A": 65,
+      "B": 57,
+      "C": 49,
+      "D": 41,
+      "E": 33
+    },
+    "source_url": "https://www.oxfordaqa.com/wp-content/uploads/2024/02/OxfordAQA-Jan-24-Grade-Boundaries-International-AS_A-level.pdf",
+    "source_page": 2
+  },
+  {
+    "pair_key": "9660:2024:JAN:P1",
+    "unit_code": "MA01",
+    "max_marks": 80,
+    "thresholds": {
+      "A": 60,
+      "B": 51,
+      "C": 43,
+      "D": 35,
+      "E": 27
+    },
+    "source_url": "https://www.oxfordaqa.com/wp-content/uploads/2024/02/OxfordAQA-Jan-24-Grade-Boundaries-International-AS_A-level.pdf",
+    "source_page": 3
+  },
+  {
+    "pair_key": "9660:2024:JAN:PSM1",
+    "unit_code": "MA02",
+    "max_marks": 80,
+    "thresholds": {
+      "A": 63,
+      "B": 54,
+      "C": 46,
+      "D": 38,
+      "E": 30
+    },
+    "source_url": "https://www.oxfordaqa.com/wp-content/uploads/2024/02/OxfordAQA-Jan-24-Grade-Boundaries-International-AS_A-level.pdf",
+    "source_page": 3
+  },
+  {
+    "pair_key": "9660:2024:JAN:P2",
+    "unit_code": "MA03",
+    "max_marks": 120,
+    "thresholds": {
+      "A": 95,
+      "B": 83,
+      "C": 71,
+      "D": 59,
+      "E": 47
+    },
+    "source_url": "https://www.oxfordaqa.com/wp-content/uploads/2024/02/OxfordAQA-Jan-24-Grade-Boundaries-International-AS_A-level.pdf",
+    "source_page": 3
+  },
+  {
+    "pair_key": "9660:2024:JAN:S2",
+    "unit_code": "MA04",
+    "max_marks": 80,
+    "thresholds": {
+      "A": 64,
+      "B": 56,
+      "C": 48,
+      "D": 40,
+      "E": 32
+    },
+    "source_url": "https://www.oxfordaqa.com/wp-content/uploads/2024/02/OxfordAQA-Jan-24-Grade-Boundaries-International-AS_A-level.pdf",
+    "source_page": 3
+  },
+  {
+    "pair_key": "9660:2024:JAN:M2",
+    "unit_code": "MA05",
+    "max_marks": 80,
+    "thresholds": {
+      "A": 63,
+      "B": 55,
+      "C": 47,
+      "D": 39,
+      "E": 31
+    },
+    "source_url": "https://www.oxfordaqa.com/wp-content/uploads/2024/02/OxfordAQA-Jan-24-Grade-Boundaries-International-AS_A-level.pdf",
+    "source_page": 3
+  }
+]

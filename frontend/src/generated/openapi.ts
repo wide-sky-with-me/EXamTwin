@@ -1951,6 +1951,7 @@ export interface components {
             completed_questions: number;
             /** Confirmed Count */
             confirmed_count: number;
+            grade_estimate: components["schemas"]["UnitGradeEstimate"] | null;
             /** Incomplete */
             incomplete: boolean;
             /** Overall Suggestion */
@@ -3577,6 +3578,40 @@ export interface components {
             expected: string;
             /** Student */
             student: string;
+        };
+        /** UnitGradeEstimate */
+        UnitGradeEstimate: {
+            /** Explanation */
+            explanation: string;
+            /** Grade */
+            grade: ("A" | "B" | "C" | "D" | "E" | "U") | null;
+            /** Marks To Next Grade */
+            marks_to_next_grade: number | null;
+            /** Next Grade */
+            next_grade: string | null;
+            /** Pair Key */
+            pair_key: string | null;
+            /**
+             * Scope
+             * @default unit
+             * @constant
+             */
+            scope: "unit";
+            /** Source Page */
+            source_page: number | null;
+            /** Source Url */
+            source_url: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "unavailable" | "provisional" | "reviewed";
+            /** Thresholds */
+            thresholds: {
+                [key: string]: number;
+            };
+            /** Unit Code */
+            unit_code: string | null;
         };
         /** UpdatePaperUnitRequest */
         UpdatePaperUnitRequest: {
