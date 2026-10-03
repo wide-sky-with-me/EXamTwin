@@ -29,6 +29,7 @@ export type PaperJobHistoryStatus = PaperJobSummary["status"] | "active";
 export type GradeResult = Schemas["GradeResponse"];
 export type ReviewItem = Schemas["ReviewQueueItem"];
 export type SourceDocument = Schemas["SourceDocumentResponse"];
+export type UploadedSourceDocument = Schemas["UploadedSourceDocumentResponse"];
 export type GradingPaper = Schemas["GradingPaperSummary"];
 export type RubricSetSummary = Schemas["RubricSetSummary"];
 export type RubricSet = Schemas["RubricSetResponse"];

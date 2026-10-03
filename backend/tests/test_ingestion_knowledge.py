@@ -1,7 +1,10 @@
 import uuid
 
 import pytest
-from examtwin.knowledge.document_block_repository import DocumentBlockRepository
+from examtwin.knowledge.document_block_repository import (
+    DocumentBlockRepository,
+    build_scoped_block_id,
+)
 from examtwin.knowledge.ingestion import (
     TABLE_EMBED_CHAR_LIMIT,
     _document_block_rows,
@@ -133,6 +136,47 @@ def test_document_blocks_are_scoped_per_build_but_parent_lookup_uses_vector_id()
     assert repository.parents("build-2", [vector_parent_id])[vector_parent_id]["content"] == (
         document.text
     )
+
+
+def test_parent_lookup_still_reads_builds_stored_before_scoped_block_ids() -> None:
+    document = Document(
+        id_="doc-1:section",
+        text="Legacy builds stored parent blocks under their source IDs.",
+        metadata={
+            "document_id": "doc-1",
+            "subject_code": "9640",
+            "source_role": "core_knowledge",
+            "section": "Legacy",
+        },
+    )
+    nodes = _evidence_nodes([document])
+    vector_parent_id = str(nodes[0].metadata["parent_block_id"])
+    scoped_rows = _document_block_rows(
+        [document],
+        nodes,
+        knowledge_base_version_id="version-legacy",
+        build_id="build-legacy",
+    )
+    scoped_parent_id = build_scoped_block_id("build-legacy", vector_parent_id)
+    legacy_rows = [
+        {**row, "id": vector_parent_id}
+        if row["id"] == scoped_parent_id
+        else {**row, "parent_block_id": vector_parent_id}
+        if row["parent_block_id"] == scoped_parent_id
+        else row
+        for row in scoped_rows
+    ]
+    assert any(row["id"] == vector_parent_id for row in legacy_rows)
+
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    sessions = sessionmaker(bind=engine, expire_on_commit=False, class_=Session)
+    repository = DocumentBlockRepository(sessions)
+    repository.replace_build("build-legacy", legacy_rows)
+
+    parents = repository.parents("build-legacy", [vector_parent_id])
+    assert parents[vector_parent_id]["id"] == vector_parent_id
+    assert parents[vector_parent_id]["content"] == document.text
 
 
 def _oversized_mineru_table() -> str:

@@ -781,4 +781,55 @@ describe("PaperManagement", () => {
     await user.click(within(dialog).getByRole("button", { name: "移入回收站" }));
     expect(await within(dialog).findByText("试卷正在作答，暂不能移入回收站")).toBeInTheDocument();
   });
+
+  test("removes only newly created uploads when the paper cannot be saved", async () => {
+    const { requests } = installServer();
+    let uploadCount = 0;
+    const fetchMock = vi.mocked(fetch);
+    const original = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+      if (request.method === "POST" && url.pathname.endsWith("/documents")) {
+        uploadCount += 1;
+        // Uploads are issued in role order: the Mark Scheme first, then the Source Booklet.
+        return uploadCount === 1
+          ? json({ ...source({ id: "ms-new", source_type: "mark_scheme", checksum: "new" }), created: true }, 201)
+          : json({ ...source({ id: "insert-1", source_type: "insert", checksum: "insert" }), created: false }, 201);
+      }
+      if (request.method === "POST" && url.pathname.endsWith("/paper-units")) {
+        return json({ detail: "资料的考试身份不一致" }, 422);
+      }
+      if (request.method === "DELETE" && url.pathname.includes("/documents/")) {
+        requests.push(request.clone());
+        return new Response(null, { status: 204 });
+      }
+      return original(input, init);
+    });
+    const user = userEvent.setup();
+    render(<PaperManagement subjectId={subject.id} subjects={[subject]} />);
+    await screen.findByText("June paper");
+    await user.click(screen.getAllByRole("button", { name: "添加试卷" })[0]);
+    fireEvent.mouseDown(screen.getByRole("combobox", { name: "Question Paper" }));
+    const questionOption = await waitFor(() => {
+      const option = Array.from(document.querySelectorAll<HTMLElement>(".paper-editor-library-option"))
+        .find((item) => /June paper/.test(item.textContent ?? ""))?.closest<HTMLElement>(".ant-select-item-option");
+      expect(option).toBeTruthy();
+      return option!;
+    });
+    fireEvent.click(questionOption);
+    for (const [cardText, filename] of [["官方评分标准 · 可选", "new-scheme.pdf"], ["附加材料与数据 · 可选", "insert.pdf"]] as const) {
+      const card = screen.getByText(cardText).closest<HTMLElement>(".paper-editor-material")!;
+      await user.click(within(card).getByText("上传文件"));
+      await user.upload(card.querySelector<HTMLInputElement>('input[type="file"]')!, new File(["pdf"], filename, { type: "application/pdf" }));
+    }
+    await user.click(screen.getByRole("button", { name: "保存试卷" }));
+
+    expect((await screen.findAllByText("资料的考试身份不一致")).length).toBeGreaterThan(0);
+    await waitFor(() => expect(requests.some((request) => request.method === "DELETE")).toBe(true));
+    const deleted = requests
+      .filter((request) => request.method === "DELETE" && request.url.includes("/documents/"))
+      .map((request) => new URL(request.url).pathname.split("/").at(-1));
+    expect(deleted).toEqual(["ms-new"]);
+  });
 });

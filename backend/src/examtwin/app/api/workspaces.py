@@ -22,6 +22,7 @@ from examtwin.contracts.workspaces import (
     RenameSourceDocumentRequest,
     SourceDocumentResponse,
     UpdateSubjectRequest,
+    UploadedSourceDocumentResponse,
 )
 from examtwin.knowledge.workspace_service import (
     CorpusWorkspaceService,
@@ -241,7 +242,7 @@ def rename_workspace_document(
 
 @router.post(
     "/subject-workspaces/{workspace_id}/documents",
-    response_model=SourceDocumentResponse,
+    response_model=UploadedSourceDocumentResponse,
     status_code=status.HTTP_201_CREATED,
 )
 def upload_workspace_document(
@@ -251,7 +252,7 @@ def upload_workspace_document(
     knowledge_base_id: str | None = Form(default=None),
     license_confirmed: bool = Form(default=False),
     service: CorpusWorkspaceService = Depends(get_corpus_workspace_service),
-) -> SourceDocumentResponse:
+) -> UploadedSourceDocumentResponse:
     try:
         row = service.upload_document(
             workspace_id,
@@ -262,7 +263,7 @@ def upload_workspace_document(
             knowledge_base_id=knowledge_base_id,
             license_confirmed=license_confirmed,
         )
-        return SourceDocumentResponse.model_validate(row)
+        return UploadedSourceDocumentResponse.model_validate(row)
     except WorkspaceNotFoundError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     except (LookupError, ValueError) as error:

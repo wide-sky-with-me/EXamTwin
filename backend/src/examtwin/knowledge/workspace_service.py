@@ -211,7 +211,9 @@ class CorpusWorkspaceService:
             row = self.documents.get(document_id)
             if row is None:
                 raise RuntimeError("上传资料注册失败")
-            return row
+            # Uploads dedupe by checksum; callers that roll back must only remove new rows.
+            created = existing is None or existing.get("status") == "deleted"
+            return {**row, "created": created}
         except Exception:
             if not object_already_existed:
                 self.object_store.delete(object_key)

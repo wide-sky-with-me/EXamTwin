@@ -182,6 +182,8 @@ class PaperJobRepository:
                     .with_for_update()
                 )
             )
+            if len(rows) != len(set(job_ids)):
+                raise LookupError("试卷任务不存在或不属于当前科目")
             now = datetime.now(UTC)
             has_live_lease = any(
                 row.status not in terminal_statuses

@@ -207,6 +207,6 @@ const diagram: AnswerDiagram = {
 
 createRoot(document.getElementById("root")!).render(
   <section className="diagram-fixture">
-    <AnswerDiagramView diagram={diagram} />
+    <AnswerDiagramView diagram={diagram} subjectId="oxfordaqa-mathematics-9660" />
   </section>,
 );

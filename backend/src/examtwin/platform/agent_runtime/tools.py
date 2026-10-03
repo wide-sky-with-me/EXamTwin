@@ -207,11 +207,11 @@ class ToolExecutor:
             result = await tool.invoke(call.arguments)
         except Exception as error:
             observation = safe_tool_error_observation(error)
+            # The observation can quote exam-derived inputs; it goes to the model, not the logs.
             logger.warning(
-                "answering_tool_failed tool_name=%s error_type=%s detail=%s",
+                "answering_tool_failed tool_name=%s error_type=%s",
                 call.tool_name,
                 type(error).__name__,
-                observation,
             )
             result = ToolCallResult(
                 content=observation,

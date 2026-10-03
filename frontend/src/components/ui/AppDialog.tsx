@@ -31,6 +31,7 @@ export function AppDialog({
       aria-label={title}
       className={contentClassName}
       closable={dismissible}
+      footer={null}
       mask={{ closable: dismissible }}
       keyboard={dismissible}
       onCancel={() => {

@@ -90,6 +90,12 @@ class SourceDocumentResponse(SerializedResponse):
     identity_error: str | None = None
 
 
+class UploadedSourceDocumentResponse(SourceDocumentResponse):
+    created: bool = Field(
+        description="False when the upload matched an existing document by checksum."
+    )
+
+
 class RenameSourceDocumentRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

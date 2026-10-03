@@ -12,6 +12,7 @@ import type {
   PaperUnitSummary,
   SourceContextResult,
   SourceDocument,
+  UploadedSourceDocument,
 } from "../types";
 import { API_PREFIX, resolveApiBase } from "./api-config";
 
@@ -476,7 +477,7 @@ export async function uploadWorkspaceDocument(
     knowledgeBaseId?: string;
     licenseConfirmed?: boolean;
   } = {},
-): Promise<SourceDocument> {
+): Promise<UploadedSourceDocument> {
   const form = new FormData();
   form.append("file", file);
   form.append("source_type", sourceType);
@@ -487,7 +488,7 @@ export async function uploadWorkspaceDocument(
     `/subject-workspaces/${encodeURIComponent(workspaceId)}/documents`,
     { method: "POST", body: form },
   );
-  return response.json() as Promise<SourceDocument>;
+  return response.json() as Promise<UploadedSourceDocument>;
 }
 
 export async function getSourceContext(

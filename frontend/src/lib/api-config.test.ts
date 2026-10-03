@@ -14,4 +14,10 @@ describe("API runtime configuration", () => {
     );
   });
 
+  it("drops trailing slashes so the API prefix is still recognised", () => {
+    expect(resolveApiBase("https://api.example.test/api/v1/")).toBe("https://api.example.test/api/v1");
+    expect(resolveApiBase("/api/v1//")).toBe(API_PREFIX);
+    expect(resolveApiBase("/")).toBe(API_PREFIX);
+  });
+
 });

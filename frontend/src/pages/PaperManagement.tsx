@@ -247,6 +247,8 @@ export function PaperManagement({
   const [documentsSubjectId, setDocumentsSubjectId] = useState<string | null>(null);
   const [loading, setLoading] = useState(() => Boolean(subjectId));
   const [error, setError] = useState<string | null>(null);
+  /** Errors raised inside the paper editor or external-answer dialog, shown in that dialog only. */
+  const [dialogError, setDialogError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [unitCode, setUnitCode] = useState("");
   const [examYear, setExamYear] = useState("");
@@ -527,6 +529,7 @@ export function PaperManagement({
   }
 
   function openCreate() {
+    setDialogError(null);
     setEditing(null);
     setDraft(EMPTY_DRAFT);
     setFiles({ question_paper: null, mark_scheme: null, insert: null });
@@ -538,6 +541,7 @@ export function PaperManagement({
   }
 
   function openEdit(paper: PaperUnitSummary) {
+    setDialogError(null);
     setEditing(paper);
     setDraft({
       displayName: paper.display_name ?? paperDisplayName(paper),
@@ -574,25 +578,23 @@ export function PaperManagement({
       }
       setStagedPreview({ file, url: URL.createObjectURL(file) });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "文件预览失败");
+      setDialogError(cause instanceof Error ? cause.message : "文件预览失败");
     }
   }
 
   async function uploadCandidate(role: "question_paper" | "mark_scheme" | "insert") {
     const file = files[role];
-    if (!file || !subjectId) return "";
-    const uploaded = await uploadWorkspaceDocument(subjectId, file, role);
-    return uploaded.id;
+    if (!file || !subjectId) return null;
+    return uploadWorkspaceDocument(subjectId, file, role);
   }
 
   async function savePaper(event: FormEvent) {
     event.preventDefault();
     if (!subjectId) return;
     setSaving(true);
-    setError(null);
-    // Uploads dedupe by checksum, so only documents that did not exist before this save are
-    // new; those are removed again if the paper cannot be saved, leaving no orphaned files.
-    const knownDocumentIds = new Set(documents.map((document) => document.id));
+    setDialogError(null);
+    // Uploads dedupe by checksum, so only documents the server reports as newly created are
+    // removed again if the paper cannot be saved; matched existing documents stay untouched.
     const createdDocumentIds: string[] = [];
     try {
       const uploads = await Promise.allSettled([
@@ -601,13 +603,13 @@ export function PaperManagement({
         uploadCandidate("insert"),
       ]);
       for (const upload of uploads) {
-        if (upload.status === "fulfilled" && upload.value && !knownDocumentIds.has(upload.value)) {
-          createdDocumentIds.push(upload.value);
+        if (upload.status === "fulfilled" && upload.value?.created) {
+          createdDocumentIds.push(upload.value.id);
         }
       }
       const failedUpload = uploads.find((upload) => upload.status === "rejected");
       if (failedUpload) throw failedUpload.reason;
-      const uploadedIds = uploads.map((upload) => upload.status === "fulfilled" ? upload.value : "");
+      const uploadedIds = uploads.map((upload) => upload.status === "fulfilled" ? upload.value?.id ?? "" : "");
       const uploadedByRole = {
         question_paper: uploadedIds[0],
         mark_scheme: uploadedIds[1],
@@ -647,7 +649,7 @@ export function PaperManagement({
           params: { path: { workspace_id: subjectId, document_id: documentId } },
         }),
       )));
-      setError(cause instanceof Error ? cause.message : "试卷保存失败");
+      setDialogError(cause instanceof Error ? cause.message : "试卷保存失败");
     } finally {
       setSaving(false);
     }
@@ -748,7 +750,7 @@ export function PaperManagement({
 
   function openExternalImport() {
     setExternalAnswerFile(null);
-    setError(null);
+    setDialogError(null);
     setExternalImportOpen(true);
   }
 
@@ -756,11 +758,11 @@ export function PaperManagement({
     if (!selectedPaper || !subjectId || !externalAnswerFile) return;
     const questionPaper = selectedPaper.documents.find((item) => item.role === "question_paper");
     if (!questionPaper) {
-      setError("当前试卷缺少 Question Paper，不能导入外部答卷。");
+      setDialogError("当前试卷缺少 Question Paper，不能导入外部答卷。");
       return;
     }
     setImportingAnswer(true);
-    setError(null);
+    setDialogError(null);
     try {
       const created = await importPaperUnitAnswer(
         subjectId,
@@ -773,7 +775,7 @@ export function PaperManagement({
       notify("外部答卷已归入当前试卷，后台开始解析。", "success");
       onStartAnswering?.(subjectId, selectedPaper.id, created.job_id);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "外部答卷导入失败");
+      setDialogError(cause instanceof Error ? cause.message : "外部答卷导入失败");
     } finally {
       setImportingAnswer(false);
     }
@@ -1524,7 +1526,7 @@ export function PaperManagement({
                 );
               })}
             </div>
-            <ErrorBanner message={error} />
+            <ErrorBanner message={dialogError} />
             <Flex className="paper-editor-footer" gap="small" justify="flex-end">
               <Button className="paper-editor-cancel" icon={<X size={16} />} onClick={() => setEditorOpen(false)}>取消</Button>
               <Button className="paper-editor-save" disabled={!draft.questionPaperId && !files.question_paper} htmlType="submit" icon={<Save size={16} />} loading={saving} type="primary">保存试卷</Button>
@@ -1579,7 +1581,7 @@ export function PaperManagement({
             <strong>点击或拖拽答卷文件到这里</strong>
             <small>支持 PDF、Markdown；无需重新上传试卷</small>
           </Upload.Dragger>
-          <ErrorBanner message={error} />
+          <ErrorBanner message={dialogError} />
         </div>
       </Modal>
 
