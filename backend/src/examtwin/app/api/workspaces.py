@@ -208,6 +208,8 @@ def delete_workspace_document(
         corpus_repository(settings).archive(document_id, subject_code=subject.subject_code)
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
 
 
 @router.patch(

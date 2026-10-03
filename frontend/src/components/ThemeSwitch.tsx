@@ -3,9 +3,8 @@ import { Laptop, Moon, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import {
-  applyTheme,
+  appliedThemePreference,
   saveTheme,
-  storedTheme,
   type ThemePreference,
 } from "../lib/theme";
 
@@ -16,27 +15,20 @@ const choices: { value: ThemePreference; label: string; shortLabel: string; icon
 ];
 
 export function ThemeSwitch() {
-  const [preference, setPreference] = useState<ThemePreference>(storedTheme);
+  const [preference, setPreference] = useState<ThemePreference>(appliedThemePreference);
 
   useEffect(() => {
-    applyTheme(preference);
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const updateSystemTheme = () => {
-      if (preference === "system") applyTheme("system");
-    };
-    media.addEventListener("change", updateSystemTheme);
-    return () => media.removeEventListener("change", updateSystemTheme);
-  }, [preference]);
+    const sync = () => setPreference(appliedThemePreference());
+    window.addEventListener("examtwin-theme-change", sync);
+    return () => window.removeEventListener("examtwin-theme-change", sync);
+  }, []);
 
   return (
     <Segmented<ThemePreference>
       aria-label="界面主题"
       block
       className="app-theme-switch"
-      onChange={(value) => {
-        setPreference(value);
-        saveTheme(value);
-      }}
+      onChange={saveTheme}
       options={choices.map(({ value, label, shortLabel, icon: Icon }) => ({
         label: (
           <Tooltip title={label}>

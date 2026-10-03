@@ -8,7 +8,6 @@ import {
   Layout,
   Menu,
   Result,
-  Space,
   Spin,
   Tooltip,
   Typography,
@@ -20,7 +19,7 @@ import {
   PanelLeftOpen,
   ShieldCheck,
 } from "lucide-react";
-import { lazy, type ReactNode, Suspense, useState } from "react";
+import { lazy, type ReactNode, Suspense, useEffect, useState } from "react";
 import {
   Navigate,
   Route,
@@ -30,6 +29,7 @@ import {
   useParams,
 } from "react-router";
 
+import { ConversionQueueProvider } from "./components/ConversionQueueProvider";
 import { ThemeSwitch } from "./components/ThemeSwitch";
 import { apiClient, unwrapApi } from "./lib/api";
 import {
@@ -54,6 +54,8 @@ const Reviews = lazy(() => import("./pages/Reviews").then(({ Reviews: Page }) =>
 
 const { Content } = Layout;
 const { Text, Title } = Typography;
+
+const LAST_SUBJECT_STORAGE_KEY = "examtwin.lastSubjectId";
 
 type AppMenuItem = {
   key: string;
@@ -133,7 +135,7 @@ function subjectOrFirst(subjects: SubjectStatus[], requested?: string) {
 
 
 function SubjectRedirect({ subjects }: { subjects: SubjectStatus[] }) {
-  const subjectId = subjects[0]?.id;
+  const subjectId = subjectOrFirst(subjects, window.localStorage.getItem(LAST_SUBJECT_STORAGE_KEY) ?? undefined);
   if (!subjectId) return <Navigate replace to="/subjects" />;
   return <Navigate replace to={paperIndexPath(subjectId)} />;
 }
@@ -144,11 +146,15 @@ function SubjectWorkspaceRoute({ subjects, refresh, view }: { subjects: SubjectS
   const subject = subjects.find((item) => item.id === subjectId);
   if (!subject) return <Result status="404" title="科目不存在" extra={<Button onClick={() => navigate("/subjects")}>返回科目列表</Button>} />;
   return (
-    <Space direction="vertical" size="large" style={{ width: "100%" }}>
-      <Breadcrumb items={[{ title: <Button onClick={() => navigate("/subjects")} type="link">科目</Button> }, { title: <Button onClick={() => navigate(subjectPath(subject.id))} type="link">{subject.title}</Button> }, { title: view === "documents" ? "资料库" : "知识库" }]} />
-      <Title level={2}>{view === "documents" ? "资料库" : "知识库"}</Title>
+    <div className="subject-overview-page">
+      <Breadcrumb items={[{ title: <a onClick={() => navigate("/subjects")}>科目</a> }, { title: <a onClick={() => navigate(subjectPath(subject.id))}>{subject.title}</a> }, { title: view === "documents" ? "资料库" : "知识库" }]} />
+      <header className="catalog-page-header">
+        <div className="catalog-page-heading">
+          <Title className="catalog-page-title" level={1}>{view === "documents" ? "资料库" : "知识库"}</Title>
+        </div>
+      </header>
       <SubjectWorkspace onChanged={refresh} subject={subject} view={view} />
-    </Space>
+    </div>
   );
 }
 
@@ -157,11 +163,11 @@ function PaperRoute({ subjects, onGradingChanged }: { subjects: SubjectStatus[];
   const { pathname } = useLocation();
   const paperLocation = parsePaperLocation(pathname);
   if (!paperLocation) {
-    return <Result status="404" title="试卷路径无效" subTitle="该 URL 缺少完整的科目、试卷或作答身份。" />;
+    return <Result status="404" title="试卷路径无效" extra={<Button onClick={() => navigate("/subjects")}>返回科目列表</Button>} />;
   }
   const subject = subjects.find((item) => item.id === paperLocation.subjectId);
   if (!subject) {
-    return <Result status="404" title="科目不存在" subTitle="该 URL 中的科目标识无效或科目已被删除。" />;
+    return <Result status="404" title="科目不存在" extra={<Button onClick={() => navigate("/subjects")}>返回科目列表</Button>} />;
   }
   const { detail } = paperLocation;
   return <PaperManagement
@@ -188,11 +194,27 @@ function LegacyPaperChildRedirect({ subjects }: { subjects: SubjectStatus[] }) {
   return <Navigate replace to={paperIndexPath(resolved)} />;
 }
 
-function ReviewRoute({ items, refresh }: { items: ReviewItem[]; refresh: () => Promise<void> }) {
+function ReviewRoute({ items, loading, refresh }: { items: ReviewItem[]; loading: boolean; refresh: () => Promise<void> }) {
+  const navigate = useNavigate();
   const { assessmentId } = useParams();
   const visibleItems = assessmentId ? items.filter((item) => item.id === assessmentId) : items;
-  if (assessmentId && visibleItems.length === 0) return <Result status="404" title="复核项不存在" />;
-  return <Reviews items={visibleItems} refresh={refresh} />;
+  if (assessmentId && visibleItems.length === 0) {
+    if (loading) return <Flex align="center" justify="center" style={{ minHeight: 320 }}><Spin size="large" /></Flex>;
+    return <Result status="404" title="复核项不存在或已处理" extra={<Button onClick={() => navigate("/reviews")} type="primary">返回复核队列</Button>} />;
+  }
+  return (
+    <Reviews
+      focusId={assessmentId}
+      items={visibleItems}
+      onOpenGrading={(item) => {
+        if (item.paper_unit_id && item.paper_job_id) {
+          navigate(paperGradingPath(item.subject_id, item.paper_unit_id, item.paper_job_id));
+        }
+      }}
+      onReviewed={assessmentId ? () => navigate("/reviews") : undefined}
+      refresh={refresh}
+    />
+  );
 }
 
 function selectedMenuKey(pathname: string) {
@@ -208,6 +230,11 @@ export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     () => window.localStorage.getItem("examtwin.sidebar.collapsed") === "true",
   );
+  useEffect(() => {
+    const root = document.documentElement;
+    if (sidebarCollapsed) root.dataset.sidebar = "collapsed";
+    else delete root.dataset.sidebar;
+  }, [sidebarCollapsed]);
   const platformQuery = useQuery({
     queryKey: ["platform", "subjects"],
     queryFn: () => unwrapApi(apiClient.GET("/api/v1/subjects/status")),
@@ -219,7 +246,14 @@ export default function App() {
   const platform = platformQuery.data as PlatformStatus | undefined;
   const reviews = (reviewsQuery.data ?? []) as ReviewItem[];
   const subjects = platform?.subjects ?? [];
-  const navSubjectId = subjectOrFirst(subjects, parseSubjectId(location.pathname) ?? undefined);
+  const routeSubjectId = parseSubjectId(location.pathname);
+  useEffect(() => {
+    if (routeSubjectId) window.localStorage.setItem(LAST_SUBJECT_STORAGE_KEY, routeSubjectId);
+  }, [routeSubjectId]);
+  const navSubjectId = subjectOrFirst(
+    subjects,
+    routeSubjectId ?? window.localStorage.getItem(LAST_SUBJECT_STORAGE_KEY) ?? undefined,
+  );
   const paperMenuPath = navSubjectId ? paperIndexPath(navSubjectId) : "/subjects";
   const refreshSubjects = async () => {
     await queryClient.invalidateQueries({ queryKey: ["platform", "subjects"] });
@@ -247,6 +281,7 @@ export default function App() {
   };
 
   return (
+    <ConversionQueueProvider>
     <Layout hasSider className="app-root">
       <div aria-hidden="true" className="app-ambient-field">
         <span className="app-ambient-orb app-ambient-orb-primary" />
@@ -297,7 +332,7 @@ export default function App() {
             <Suspense fallback={<Flex align="center" justify="center" style={{ minHeight: 320 }}><Spin description="正在加载" size="large" /></Flex>}>
               <Routes>
                 <Route element={<Navigate replace to="/subjects" />} path="/" />
-                <Route element={<SubjectManagement loading={loading} refresh={refreshSubjects} subjects={subjects} />} path="/subjects" />
+                <Route element={<SubjectManagement loading={loading} onOpenSubject={(subjectId) => navigate(paperIndexPath(subjectId))} refresh={refreshSubjects} subjects={subjects} />} path="/subjects" />
                 <Route element={<SubjectOverview subjects={subjects} />} path="/subjects/:subjectId" />
                 <Route element={<SubjectWorkspaceRoute refresh={refreshSubjects} subjects={subjects} view="documents" />} path="/subjects/:subjectId/documents" />
                 <Route element={<SubjectWorkspaceRoute refresh={refreshSubjects} subjects={subjects} view="knowledge" />} path="/subjects/:subjectId/knowledge" />
@@ -316,8 +351,8 @@ export default function App() {
                 <Route element={<SubjectRedirect subjects={subjects} />} path="/grading" />
                 <Route element={<LegacyPaperChildRedirect subjects={subjects} />} path="/subjects/:subjectId/grading" />
                 <Route element={<LegacyPaperChildRedirect subjects={subjects} />} path="/subjects/:subjectId/papers/:paperUnitId/grading" />
-                <Route element={<ReviewRoute items={reviews} refresh={refreshReviews} />} path="/reviews" />
-                <Route element={<ReviewRoute items={reviews} refresh={refreshReviews} />} path="/reviews/:assessmentId" />
+                <Route element={<ReviewRoute items={reviews} loading={reviewsQuery.isPending} refresh={refreshReviews} />} path="/reviews" />
+                <Route element={<ReviewRoute items={reviews} loading={reviewsQuery.isPending} refresh={refreshReviews} />} path="/reviews/:assessmentId" />
                 <Route element={<Navigate replace to="/subjects" />} path="*" />
               </Routes>
             </Suspense>
@@ -340,5 +375,6 @@ export default function App() {
         ))}
       </nav>
     </Layout>
+    </ConversionQueueProvider>
   );
 }

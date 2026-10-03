@@ -43,6 +43,7 @@ import type { CSSProperties } from "react";
 import { DifficultyEvidenceWorkspace } from "../components/DifficultyEvidenceWorkspace";
 import { ErrorBanner } from "../components/Feedback";
 import { SubjectWorkspace } from "../components/SubjectWorkspace";
+import { useToast } from "../components/toast-context";
 import { AppConfirmDialog } from "../components/ui/AppConfirmDialog";
 import {
   DEFAULT_LIST_PAGE_SIZE,
@@ -144,12 +145,13 @@ export function SubjectManagement({
   subjects,
   refresh,
   loading,
+  onOpenSubject,
 }: {
   subjects: SubjectStatus[];
   refresh: () => Promise<void>;
   loading: boolean;
+  onOpenSubject?: (subjectId: string) => void;
 }) {
-  const [queryDraft, setQueryDraft] = useState("");
   const [query, setQuery] = useState("");
   const [availability, setAvailability] = useState<SubjectAvailability>("");
   const [board, setBoard] = useState("");
@@ -168,11 +170,13 @@ export function SubjectManagement({
   const [busy, setBusy] = useState<"create" | "save" | "delete" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<SubjectStatus | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const { notify } = useToast();
 
   const managedSubject = subjects.find((subject) => subject.id === managedSubjectId) ?? null;
   const boards = useMemo(() => [...new Set(subjects.map((subject) => subject.board_name))].sort(), [subjects]);
   const filteredSubjects = useMemo(() => {
-    const normalized = query.toLowerCase();
+    const normalized = query.trim().toLowerCase();
     return subjects.filter((subject) => {
       const matchesQuery = !normalized || [subject.title, subject.subject_code, subject.board_name]
         .some((value) => value.toLowerCase().includes(normalized));
@@ -253,6 +257,7 @@ export function SubjectManagement({
         body: editForm,
       }));
       await refresh();
+      notify("科目信息已保存。");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "科目保存失败");
     } finally {
@@ -262,21 +267,20 @@ export function SubjectManagement({
 
   async function deleteSubject(subject: SubjectStatus) {
     setBusy("delete");
-    setError(null);
+    setDeleteError(null);
     try {
       await unwrapApi(apiClient.POST("/api/v1/subject-workspaces/batch-delete", { body: { subject_ids: [subject.id] } }));
       closeManager();
       setPendingDelete(null);
       await refresh();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "科目删除失败");
+      setDeleteError(cause instanceof Error ? cause.message : "科目删除失败");
     } finally {
       setBusy(null);
     }
   }
 
   function resetFilters() {
-    setQueryDraft("");
     setQuery("");
     setAvailability("");
     setBoard("");
@@ -303,20 +307,16 @@ export function SubjectManagement({
         <form
           aria-label="科目搜索与筛选"
           className="subject-management-toolbar"
-          onSubmit={(event) => {
-            event.preventDefault();
-            setPage(0);
-            setQuery(queryDraft.trim());
-          }}
+          onSubmit={(event) => event.preventDefault()}
         >
           <Input
             allowClear
             aria-label="搜索科目"
             autoComplete="off"
-            onChange={(event) => setQueryDraft(event.target.value)}
+            onChange={(event) => { setPage(0); setQuery(event.target.value); }}
             placeholder="搜索名称、代码或考试局"
             prefix={<Search aria-hidden="true" size={16} />}
-            value={queryDraft}
+            value={query}
           />
           <Select
             aria-label="按科目状态筛选"
@@ -332,13 +332,10 @@ export function SubjectManagement({
             options={[{ label: "全部考试局", value: "" }, ...boards.map((item) => ({ label: item, value: item }))]}
             value={board}
           />
-          <Tooltip title="搜索">
-            <Button aria-label="搜索" htmlType="submit" icon={<Search aria-hidden="true" size={16} />} />
-          </Tooltip>
           <Tooltip title="重置筛选">
             <Button
               aria-label="重置筛选"
-              disabled={!queryDraft && !query && !availability && !board}
+              disabled={!query && !availability && !board}
               icon={<RotateCcw aria-hidden="true" size={16} />}
               onClick={resetFilters}
             />
@@ -355,7 +352,6 @@ export function SubjectManagement({
             description={(
               <span className="catalog-empty-copy">
                 <strong>{query || availability || board ? "没有符合当前条件的科目" : "还没有科目"}</strong>
-                <span>{query || availability || board ? "清除筛选后查看完整课程目录。" : "创建第一个科目后，即可导入资料并管理试卷。"}</span>
               </span>
             )}
             image={<BookOpenText size={48} />}
@@ -376,6 +372,12 @@ export function SubjectManagement({
             const color = subject.color;
             return (
               <article className="subject-management-card" key={subject.id} style={{ "--subject-color": color } as CSSProperties}>
+                <button
+                  aria-label={`查看 ${subject.title} 的试卷`}
+                  className="subject-management-card-main"
+                  onClick={() => onOpenSubject?.(subject.id)}
+                  type="button"
+                >
                 <header>
                   <span className="subject-management-card-icon" style={{ color }}><Icon size={22} /></span>
                   <span className="subject-management-card-title">
@@ -388,22 +390,25 @@ export function SubjectManagement({
                       <Tooltip placement="bottomLeft" title={subject.board_name}>
                         <span className="subject-management-card-board">{subject.board_name}</span>
                       </Tooltip>
-                      <Tag color={subject.answering_enabled ? "success" : "warning"}>{subject.answering_enabled ? "可用" : "需配置"}</Tag>
+                      {subject.answering_enabled ? (
+                        <Tag color="success">可用</Tag>
+                      ) : (
+                        <Tooltip title={subject.answering_disabled_reason || "该科目尚未开放 AI 作答"}>
+                          <Tag color="warning">需配置</Tag>
+                        </Tooltip>
+                      )}
                     </small>
                   </span>
                 </header>
                 <dl className="subject-management-card-overview">
                   <div><dt><FileText size={14} />资料</dt><dd>{subject.stats?.documents_total ?? 0}</dd></div>
                   <div><dt><Database size={14} />向量</dt><dd>{subject.vector_points.toLocaleString()}</dd></div>
-                  <div><dt><BookOpenText size={14} />版本</dt><dd>{subject.knowledge_bases.length}</dd></div>
+                  <div><dt><BookOpenText size={14} />知识库</dt><dd>{subject.knowledge_bases.length}</dd></div>
                 </dl>
+                </button>
                 <footer>
-                  <Tooltip title="科目设置">
-                    <Button aria-label={`设置 ${subject.title}`} icon={<Settings2 size={16} />} onClick={() => openManager(subject)} type="text">设置</Button>
-                  </Tooltip>
-                  <Tooltip title="删除科目">
-                    <Button aria-label={`删除 ${subject.title}`} danger icon={<Trash2 size={16} />} onClick={() => setPendingDelete(subject)} type="text">删除</Button>
-                  </Tooltip>
+                  <Button aria-label={`设置 ${subject.title}`} icon={<Settings2 size={16} />} onClick={() => openManager(subject)} type="text">设置</Button>
+                  <Button aria-label={`删除 ${subject.title}`} danger icon={<Trash2 size={16} />} onClick={() => { setDeleteError(null); setPendingDelete(subject); }} type="text">删除</Button>
                 </footer>
               </article>
             );
@@ -492,8 +497,9 @@ export function SubjectManagement({
         confirmLabel="永久删除科目"
         danger
         description={pendingDelete ? `将删除“${pendingDelete.title}”的资料、知识库、作答和评分记录。此操作不可恢复。` : ""}
+        error={deleteError}
         onConfirm={() => pendingDelete ? deleteSubject(pendingDelete) : undefined}
-        onOpenChange={(open) => { if (!open) setPendingDelete(null); }}
+        onOpenChange={(open) => { if (!open && busy !== "delete") setPendingDelete(null); }}
         open={pendingDelete !== null}
         title="确认删除科目"
       />

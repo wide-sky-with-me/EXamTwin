@@ -175,6 +175,8 @@ class PaperJobSummary(SerializedResponse):
     split_contract_version: str | None = None
     replacement_for_job_id: str | None = None
     replaced_by_job_id: str | None = None
+    graded_questions: int = Field(default=0, ge=0)
+    pending_review_count: int = Field(default=0, ge=0)
     created_at: str
     updated_at: str
 

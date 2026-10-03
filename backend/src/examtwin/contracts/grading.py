@@ -99,6 +99,7 @@ class ReviewQueueItem(SerializedResponse):
     subject_code: str
     subject_id: str
     paper_job_id: str | None
+    paper_unit_id: str | None = None
     paper_display_name: str | None
     paper_filename: str | None
     question_position: int | None

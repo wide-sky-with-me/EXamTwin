@@ -18,7 +18,7 @@ import {
   Tag,
   Typography,
 } from "antd";
-import { CheckCircle2, Eye, FileText, LoaderCircle, PencilLine, ShieldAlert } from "lucide-react";
+import { CheckCircle2, ExternalLink, Eye, FileText, LoaderCircle, PencilLine, ShieldAlert } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { ErrorBanner } from "../components/Feedback";
@@ -158,7 +158,7 @@ function ReviewQueueItem({
                 ? "AI 作答"
                 : "来源未记录"}
           </Tag>
-          {item.question_position !== null && (
+          {item.question_position !== null && label !== `Q${item.question_position + 1}` && (
             <Text type="secondary">题位 {item.question_position + 1}</Text>
           )}
         </Flex>
@@ -176,6 +176,7 @@ function ReviewQueueItem({
         <div className="review-confidence">
           <Text type="secondary">置信度</Text>
           <Progress
+            format={(percent) => `${percent}%`}
             percent={Math.round(item.confidence * 100)}
             size="small"
             status={confidenceTone(item.confidence)}
@@ -203,21 +204,21 @@ function ReviewQueueItem({
             查看证据
           </Button>
           <Button
+            disabled={busy || overrideValue === undefined || overrideValue === ""}
+            icon={<PencilLine size={16} />}
+            onClick={() => onRequestReview("override")}
+          >
+            改分并确认
+          </Button>
+          <Button
             disabled={busy}
             icon={busy
               ? <LoaderCircle className="spin" size={16} />
               : <CheckCircle2 size={16} />}
             onClick={() => onRequestReview("confirm")}
-            type="link"
+            type="primary"
           >
             确认评分
-          </Button>
-          <Button
-            danger
-            icon={<PencilLine size={16} />}
-            onClick={() => onRequestReview("override")}
-          >
-            改分并确认
           </Button>
         </div>
       </footer>
@@ -331,13 +332,27 @@ function EvidenceDrawer({ item, onClose }: { item: ReviewItem | null; onClose: (
   );
 }
 
-export function Reviews({ items, refresh }: { items: ReviewItem[]; refresh: () => Promise<void> }) {
+export function Reviews({
+  focusId,
+  items,
+  onOpenGrading,
+  onReviewed,
+  refresh,
+}: {
+  focusId?: string;
+  items: ReviewItem[];
+  onOpenGrading?: (item: ReviewItem) => void;
+  onReviewed?: () => void;
+  refresh: () => Promise<void>;
+}) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reviewer, setReviewer] = useState(() => window.localStorage.getItem(REVIEWER_STORAGE_KEY) ?? "");
   const [overrideMarks, setOverrideMarks] = useState<Record<string, string>>({});
   const [pendingReview, setPendingReview] = useState<PendingReview | null>(null);
-  const [selectedItem, setSelectedItem] = useState<ReviewItem | null>(items.length === 1 ? items[0] : null);
+  const [selectedItem, setSelectedItem] = useState<ReviewItem | null>(
+    () => (focusId ? items.find((item) => item.id === focusId) ?? null : null),
+  );
   const { notify } = useToast();
 
   const subjectCount = useMemo(() => new Set(items.map((item) => item.subject_id)).size, [items]);
@@ -384,6 +399,7 @@ export function Reviews({ items, refresh }: { items: ReviewItem[]; refresh: () =
       notify(decision === "confirm" ? "评分已确认并写入审计记录。" : "改分已确认并写入审计记录。");
       setPendingReview(null);
       setSelectedItem(null);
+      onReviewed?.();
       await refresh();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "复核失败");
@@ -394,21 +410,22 @@ export function Reviews({ items, refresh }: { items: ReviewItem[]; refresh: () =
 
   return (
     <Space className="reviews-page" orientation="vertical" size="large">
-      <Flex align="flex-end" className="reviews-page-heading" justify="space-between" wrap gap="middle">
-        <Title level={1}>复核</Title>
+      <header className="catalog-page-header reviews-page-heading">
+        <div className="catalog-page-heading">
+          <Title className="catalog-page-title" level={1}>复核</Title>
+        </div>
         {items.length > 0 && (
           <Tag color="warning" icon={<ShieldAlert size={14} />}>
             {items.length} 项待处理 · {subjectCount} 个科目
           </Tag>
         )}
-      </Flex>
+      </header>
 
       {items.length > 0 && (
         <Card className="reviewer-card" size="small">
           <Form layout="vertical">
             <Form.Item
               className="reviewer-field"
-              extra="复核人会写入审计记录；确认沿用建议分，改分需要填写最终分数。"
               label="复核人"
               required
             >
@@ -453,35 +470,27 @@ export function Reviews({ items, refresh }: { items: ReviewItem[]; refresh: () =
                   <div className="review-paper-identity">
                     <span aria-hidden="true"><FileText size={20} /></span>
                     <div>
-                      <Text type="secondary">
-                        {group.kind === "paper" ? "关联试卷" : "独立复核项"}
-                      </Text>
                       <Title id={headingId} level={2}>{group.label}</Title>
                       {group.kind === "paper" ? (
-                        <Flex align="center" gap="small" wrap>
-                          {group.paperFilename && group.paperFilename !== group.label && (
-                            <Text type="secondary">{group.paperFilename}</Text>
-                          )}
-                          <Text code title={group.paperJobId ?? undefined}>
-                            {group.paperJobId?.slice(0, 8)}
-                          </Text>
-                        </Flex>
+                        group.paperFilename && group.paperFilename !== group.label && (
+                          <Text type="secondary">{group.paperFilename}</Text>
+                        )
                       ) : (
                         <Text type="secondary">未关联试卷 · 旧版或独立评估</Text>
                       )}
                     </div>
                   </div>
-                  <div
-                    aria-label={`本组待复核队列：${pendingCount} 项`}
-                    className="review-paper-progress"
-                  >
-                    <Flex align="center" justify="space-between">
-                      <Text strong>待复核队列</Text>
-                      <Tag color="warning">{pendingCount} 项待复核</Tag>
-                    </Flex>
-                    <Text type="secondary">
-                      已按题位顺序排列 · 提交后自动移出队列
-                    </Text>
+                  <div className="review-paper-group-actions">
+                    <Tag className="review-paper-count" color="warning">{pendingCount} 项待复核</Tag>
+                    {onOpenGrading && group.items[0]?.paper_unit_id && group.paperJobId && (
+                      <Button
+                        icon={<ExternalLink size={15} />}
+                        onClick={() => onOpenGrading(group.items[0])}
+                        size="small"
+                      >
+                        打开评分
+                      </Button>
+                    )}
                   </div>
                 </header>
 

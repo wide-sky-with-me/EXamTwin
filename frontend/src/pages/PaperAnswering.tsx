@@ -555,7 +555,6 @@ export function PaperAnswering({
       {jobId && !job && error && (
         <div className="paper-unavailable-state" role="status">
           <ErrorBanner message={error} />
-          <p>作答详情暂时不可用。建议先重新加载；若任务已被删除，请返回作答记录选择其他任务。</p>
           <button className="secondary" onClick={() => setStreamVersion((version) => version + 1)} type="button">
             <RefreshCw size={15} />重新加载作答详情
           </button>
@@ -817,7 +816,7 @@ export function PaperAnswering({
                 {terminal ? <FileText size={24} /> : <LoaderCircle className="spin" size={24} />}
               </span>
               <strong>{terminal ? "未识别到可作答题目" : "正在识别试卷题目"}</strong>
-              <p>{terminal ? "任务已结束，但没有生成逐题结果。建议检查原卷是否包含清晰题面，再重新上传。" : "完成后将自动展示逐题结果；任务会继续在后台处理。"}</p>
+              <p>{terminal ? "任务已结束，没有生成逐题结果。" : "完成后将自动展示逐题结果；任务会继续在后台处理。"}</p>
               {terminal && <button className="secondary" onClick={startAnotherPaper} type="button"><UploadCloud size={15} />重新选择试卷</button>}
             </div>
           )}
@@ -951,7 +950,7 @@ export function PaperAnswering({
                     ) : selected.error ? (
                       <div className="paper-question-error">
                         <ErrorBanner message={selected.error} />
-                        <p>{selectedCanRetry ? "建议仅重试本题；其他题目的结果不会被重新处理。" : "本题当前不可重试。建议核对原题，并返回作答记录查看任务状态。"}</p>
+                        {!selectedCanRetry && <p>本题当前不可重试。</p>}
                       </div>
                     ) : (
                       <section className="answer-block" aria-labelledby="current-answer-title">
@@ -984,19 +983,15 @@ export function PaperAnswering({
                 {selected && (
                   <>
                     <header className="paper-evidence-header">
-                      <div>
-                        <span>同步依据</span>
-                        <h2>证据与知识</h2>
-                      </div>
-                      <span>{selected.citations.length} 条引用 · {selected.knowledge_points.length} 个知识点</span>
+                      <h2>证据与知识</h2>
                     </header>
                     <section className="paper-evidence-group" aria-labelledby="paper-citations-title">
                       <div className="paper-evidence-group-heading">
                         <h3 id="paper-citations-title">答案引用</h3>
-                        <span>{selected.citations.length ? "可打开并核对原文" : "未检索到可展示引用"}</span>
+                        <span>{selected.citations.length} 条</span>
                       </div>
                       {selected.citations.length === 0 ? (
-                        <p className="paper-evidence-empty">当前答案没有可定位引用。建议结合原题与答案内容人工核对。</p>
+                        <p className="paper-evidence-empty">暂无可定位引用</p>
                       ) : (
                         <CitationReferenceList
                           citations={selected.citations}
@@ -1008,10 +1003,10 @@ export function PaperAnswering({
                     <section className="paper-evidence-group" aria-labelledby="paper-knowledge-title">
                       <div className="paper-evidence-group-heading">
                         <h3 id="paper-knowledge-title">知识与难度</h3>
-                        <span>{selected.knowledge_points.length ? "展开条目查看难度依据" : "未可靠映射"}</span>
+                        <span>{selected.knowledge_points.length} 个</span>
                       </div>
                       <div className="paper-knowledge">
-                        {selected.knowledge_points.length === 0 && <p className="paper-evidence-empty">当前题目未能可靠映射知识点。建议以题面和引用原文为准。</p>}
+                        {selected.knowledge_points.length === 0 && <p className="paper-evidence-empty">暂无可靠映射的知识点</p>}
                         {selected.knowledge_points.map((point, index) => (
                           <KnowledgeEvidenceCard point={point} index={index} key={point.code} subjectId={subjectId} />
                         ))}

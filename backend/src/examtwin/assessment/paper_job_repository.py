@@ -77,6 +77,29 @@ class PaperJobRepository:
                 if source_id is not None
             }
 
+    def grading_progress(self, job_ids: Sequence[str]) -> dict[str, tuple[int, int]]:
+        """Return (graded question count, pending review count) for each listed job."""
+        if not job_ids:
+            return {}
+        with self.sessions() as session:
+            rows = session.execute(
+                select(
+                    AssessmentModel.paper_job_id,
+                    func.count(func.distinct(AssessmentModel.question_position)),
+                    func.count().filter(AssessmentModel.status == "pending_review"),
+                )
+                .where(
+                    AssessmentModel.paper_job_id.in_(job_ids),
+                    AssessmentModel.question_position.is_not(None),
+                )
+                .group_by(AssessmentModel.paper_job_id)
+            )
+            return {
+                str(job_id): (int(graded), int(pending))
+                for job_id, graded, pending in rows
+                if job_id is not None
+            }
+
     def replacement_id(self, job_id: str) -> str | None:
         return self.replacement_ids((job_id,)).get(job_id)
 

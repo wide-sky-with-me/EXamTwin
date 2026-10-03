@@ -1,11 +1,14 @@
 import { Button, Modal } from "antd";
 import { AlertTriangle, Check, ShieldAlert, Trash2, X } from "lucide-react";
 
+import { ErrorBanner } from "../Feedback";
+
 export function AppConfirmDialog({
   busy = false,
   confirmLabel,
   danger = false,
   description,
+  error = null,
   onConfirm,
   onOpenChange,
   open,
@@ -15,6 +18,7 @@ export function AppConfirmDialog({
   confirmLabel: string;
   danger?: boolean;
   description: string;
+  error?: string | null;
   onConfirm: () => void | Promise<void>;
   onOpenChange: (open: boolean) => void;
   open: boolean;
@@ -43,15 +47,10 @@ export function AppConfirmDialog({
           <span className={`app-confirm-icon ${danger ? "danger" : "warning"}`}>
             {destructive ? <Trash2 size={21} /> : danger ? <ShieldAlert size={21} /> : <AlertTriangle size={21} />}
           </span>
-          <span className="app-confirm-copy">
-            <span className="app-confirm-kicker">
-              {destructive ? "删除确认" : danger ? "高风险操作" : "操作确认"}
-              <em>{destructive ? "无法撤销" : danger ? "将写入结果" : "请核对范围"}</em>
-            </span>
-            <strong className="app-confirm-title">{title}</strong>
-          </span>
+          <strong className="app-confirm-title">{title}</strong>
         </div>
         <p className="app-confirm-description">{description}</p>
+        <ErrorBanner message={error} />
         <div className="app-confirm-actions">
           <Button aria-label="取消" disabled={busy} icon={<X size={16} />} onClick={() => onOpenChange(false)}>取消</Button>
           <Button

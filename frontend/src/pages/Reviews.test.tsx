@@ -9,6 +9,7 @@ const item: ReviewItem = {
   subject_code: "9660",
   subject_id: "oxfordaqa-mathematics-9660",
   paper_job_id: "paper-job-1",
+  paper_unit_id: "paper-unit-1",
   paper_display_name: "June 2026 U1",
   paper_filename: "question-paper.pdf",
   question_position: 1,
@@ -121,5 +122,32 @@ describe("Reviews", () => {
     await user.click(screen.getByRole("button", { name: "取消" }));
 
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  test("opens evidence only for a deep-linked item and links back to grading", async () => {
+    const user = userEvent.setup();
+    const onOpenGrading = vi.fn();
+    const { unmount } = render(<Reviews items={[item]} onOpenGrading={onOpenGrading} refresh={vi.fn()} />);
+    expect(screen.queryByText("Q1 · 评分证据")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "打开评分" }));
+    expect(onOpenGrading).toHaveBeenCalledWith(item);
+    unmount();
+
+    render(<Reviews focusId={item.id} items={[item]} refresh={vi.fn()} />);
+    expect(await screen.findByText("Q1 · 评分证据")).toBeInTheDocument();
+  });
+
+  test("leaves a deep link once its review is submitted", async () => {
+    const user = userEvent.setup();
+    const onReviewed = vi.fn();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ assessment_id: item.id, status: "confirmed", final_mark: 1, reviewed_by: "Ms Chen" }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    )));
+    render(<Reviews items={[item]} onReviewed={onReviewed} refresh={vi.fn().mockResolvedValue(undefined)} />);
+    await user.type(screen.getByRole("textbox", { name: "复核人" }), "Ms Chen");
+    await user.click(screen.getByRole("button", { name: "确认评分" }));
+    await user.click(screen.getAllByRole("button", { name: "确认评分" }).at(-1)!);
+    await waitFor(() => expect(onReviewed).toHaveBeenCalledOnce());
   });
 });

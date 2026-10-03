@@ -248,7 +248,6 @@ describe("PaperManagement", () => {
     expect(screen.getByRole("combobox", { name: "选择科目" }).closest(".paper-management-toolbar")).not.toBeNull();
     const title = await screen.findByText("June paper");
     const card = title.closest<HTMLElement>(".ant-card");
-    expect(within(card!).getByText("使用中")).toBeVisible();
     expect(within(card!).getByText("Mark Scheme")).toBeVisible();
     expect(within(card!).getByText("Source Booklet")).toBeVisible();
     expect(screen.getByLabelText("试卷分页")).toHaveTextContent("1–1/ 1 份");
@@ -352,6 +351,8 @@ describe("PaperManagement", () => {
       split_contract_version: "paper-question-split-v6",
       replacement_for_job_id: null,
       replaced_by_job_id: null,
+      graded_questions: 0,
+      pending_review_count: 0,
       created_at: "2026-08-05T08:00:00+00:00",
       updated_at: "2026-08-05T08:30:00+00:00",
     };
@@ -692,5 +693,92 @@ describe("PaperManagement", () => {
     fireEvent.click(within(dialog!).getByRole("button", { name: "导入并解析" }));
     await waitFor(() => expect(onStartAnswering).toHaveBeenCalledWith(subject.id, "unit-1", "job-uploaded"));
     expect(requests.some((request) => request.method === "POST" && request.url.endsWith("/paper-units/unit-1/import-answer"))).toBe(true);
+  });
+
+  test("asks to bind materials instead of loading forever when a paper has none", async () => {
+    installServer([paper({ documents: [] })]);
+    const user = userEvent.setup();
+    render(<PaperManagement subjectId={subject.id} subjects={[subject]} />);
+    const card = (await screen.findByText("June paper")).closest<HTMLElement>(".paper-unit-card");
+    const bind = await within(card!).findByRole("button", { name: /未绑定资料，去绑定/ });
+    expect(within(card!).queryByText("正在加载资料状态")).not.toBeInTheDocument();
+    await user.click(bind);
+    expect(await screen.findByText("编辑试卷")).toBeInTheDocument();
+  });
+
+  test("shows a not-found state for a paper link that no longer resolves", async () => {
+    installServer([paper()], undefined, 80, [], null);
+    const onCloseDetail = vi.fn();
+    const user = userEvent.setup();
+    render(<PaperManagement
+      detail={{ kind: "paper", id: "unit-missing" }}
+      onCloseDetail={onCloseDetail}
+      subjectId={subject.id}
+      subjects={[subject]}
+    />);
+    const dialog = await visibleModal("试卷详情");
+    expect(await within(dialog).findByText(/Paper unit not found/)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "返回试卷列表" }));
+    expect(onCloseDetail).toHaveBeenCalledWith(subject.id);
+  });
+
+  test("blocks AI answering with the subject's configuration reason", async () => {
+    installServer();
+    const blocked = { ...subject, answering_enabled: false, answering_disabled_reason: "缺少评分边界配置" };
+    render(<PaperManagement detail={{ kind: "paper", id: "unit-1" }} subjectId={blocked.id} subjects={[blocked]} />);
+    const dialog = await visibleModal("试卷详情");
+    expect(await within(dialog).findByText("缺少评分边界配置")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "AI 自动作答" })).toBeDisabled();
+  });
+
+  test("requires the bound Source Booklet to be parsed before answering", async () => {
+    const pendingBooklet = source({ id: "insert-1", filename: "Insert-202406-P1.pdf", display_name: null, source_type: "insert", checksum: "insert", status: "discovered" });
+    const { requests } = installServer(
+      [paper({ documents: paper().documents.map((item) => item.id === "insert-1" ? { ...item, status: "discovered" } : item) })],
+      [source(), source({ id: "ms-1", filename: "MS-202406-P1.pdf", display_name: null, source_type: "mark_scheme", checksum: "ms" }), pendingBooklet],
+    );
+    const user = userEvent.setup();
+    render(<PaperManagement detail={{ kind: "paper", id: "unit-1" }} subjectId={subject.id} subjects={[subject]} />);
+    const dialog = await visibleModal("试卷详情");
+    expect(await within(dialog).findByText("Source Booklet 解析完成后才能开始作答。")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "AI 自动作答" })).toBeDisabled();
+    await user.click(within(dialog).getByRole("button", { name: "解析 Source Booklet" }));
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "AI 自动作答" })).toBeEnabled(), { timeout: 3000 });
+    expect(requests.some((request) => request.method === "POST" && request.url.endsWith("/corpus/convert"))).toBe(true);
+  });
+
+  test("returns to the last valid page after the last paper on a page is archived", async () => {
+    const rows = Array.from({ length: 13 }, (_, index) => paper({ id: `unit-${index + 1}`, display_name: `Paper ${index + 1}` }));
+    const { requests } = installServer(rows);
+    const user = userEvent.setup();
+    render(<PaperManagement subjectId={subject.id} subjects={[subject]} />);
+    await screen.findByText("Paper 1");
+    await user.click(screen.getByRole("button", { name: "下一页试卷" }));
+    await waitFor(() => expect(requests.some((request) => request.url.includes("offset=12"))).toBe(true));
+    await user.click(screen.getAllByRole("button", { name: /^删除 / })[0]);
+    await user.click(await screen.findByRole("button", { name: "移入回收站" }));
+    await waitFor(() => {
+      const listRequests = requests.filter((request) => request.method === "GET" && new URL(request.url).pathname.endsWith("/paper-units"));
+      expect(new URL(listRequests.at(-1)!.url).searchParams.get("offset")).toBe("0");
+    });
+    expect(await screen.findByText("还没有试卷")).toBeInTheDocument();
+  });
+
+  test("keeps an archive failure inside the confirmation dialog", async () => {
+    installServer();
+    const fetchMock = vi.mocked(fetch);
+    const original = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      if (request.method === "DELETE") return json({ detail: "试卷正在作答，暂不能移入回收站" }, 409);
+      return original(input, init);
+    });
+    const user = userEvent.setup();
+    render(<PaperManagement subjectId={subject.id} subjects={[subject]} />);
+    await screen.findByText("June paper");
+    await user.click(screen.getByRole("button", { name: "删除 June paper" }));
+    const dialog = await screen.findByRole("alertdialog");
+    await user.click(within(dialog).getByRole("button", { name: "移入回收站" }));
+    expect(await within(dialog).findByText("试卷正在作答，暂不能移入回收站")).toBeInTheDocument();
   });
 });

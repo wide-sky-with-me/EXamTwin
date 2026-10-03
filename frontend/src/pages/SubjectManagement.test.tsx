@@ -62,7 +62,6 @@ describe("SubjectManagement", () => {
 
     await user.clear(screen.getByLabelText("搜索科目"));
     await user.type(screen.getByLabelText("搜索科目"), "Subject 9");
-    await user.click(screen.getByRole("button", { name: "搜索" }));
     await waitFor(() => {
       expect(screen.getByText("Subject 9")).toBeVisible();
       expect(screen.queryByText("Subject 3")).not.toBeInTheDocument();
@@ -76,12 +75,15 @@ describe("SubjectManagement", () => {
   test("keeps management actions on each course card and confirms deletion", async () => {
     const user = userEvent.setup();
     const subject = subjectFixture(1);
-    render(<SubjectManagement loading={false} refresh={vi.fn()} subjects={[subject]} />);
+    const onOpenSubject = vi.fn();
+    render(<SubjectManagement loading={false} onOpenSubject={onOpenSubject} refresh={vi.fn()} subjects={[subject]} />);
 
     expect(screen.getByRole("heading", { name: "科目" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: `设置 ${subject.title}` })).toBeVisible();
     await user.hover(screen.getByText(subject.title));
     expect(await screen.findByRole("tooltip")).toHaveTextContent(subject.title);
+    await user.click(screen.getByRole("button", { name: `查看 ${subject.title} 的试卷` }));
+    expect(onOpenSubject).toHaveBeenCalledWith(subject.id);
     await user.click(screen.getByRole("button", { name: `删除 ${subject.title}` }));
 
     const dialog = screen.getByRole("alertdialog", { name: "确认删除科目" });

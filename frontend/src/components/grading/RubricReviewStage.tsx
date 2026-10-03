@@ -1,3 +1,4 @@
+import { Select } from "antd";
 import {
   ArrowRight,
   BookOpenCheck,
@@ -512,21 +513,19 @@ export function RubricReviewStage({
       </header>
 
       {rubrics.length > 1 && (
-        <label className="rubric-version-picker">
+        <div className="rubric-version-picker">
           <span>评分规则版本</span>
-          <select
+          <Select
             aria-label="选择评分规则版本"
             disabled={controlsLocked}
-            onChange={(event) => void onSelectRubric(event.target.value)}
-            value={rubric?.id ?? ""}
-          >
-            {rubrics.map((item) => (
-              <option key={item.id} value={item.id}>
-                版本 {item.version_number} · {item.status}
-              </option>
-            ))}
-          </select>
-        </label>
+            onChange={(value) => void onSelectRubric(value)}
+            options={rubrics.map((item) => ({
+              value: item.id,
+              label: `版本 ${item.version_number} · ${item.status === "confirmed" ? "已确认" : "草稿"}`,
+            }))}
+            value={rubric?.id}
+          />
+        </div>
       )}
 
       {!rubric ? (
@@ -571,19 +570,21 @@ export function RubricReviewStage({
                 <small className="field-error" id={reviewerErrorId}>请填写审核人。</small>
               )}
             </label>
-            <label>
-              审核状态
-              <select
+            <div className="rubric-status-filter">
+              <span>审核状态</span>
+              <Select
+                aria-label="审核状态"
                 disabled={controlsLocked}
-                onChange={(event) => setStatusFilter(event.target.value)}
+                onChange={setStatusFilter}
+                options={[
+                  { value: "all", label: "全部状态" },
+                  { value: "pending", label: "待处理" },
+                  { value: "accepted", label: "已保留" },
+                  { value: "rejected", label: "已排除" },
+                ]}
                 value={statusFilter}
-              >
-                <option value="all">全部状态</option>
-                <option value="pending">待处理</option>
-                <option value="accepted">已保留</option>
-                <option value="rejected">已排除</option>
-              </select>
-            </label>
+              />
+            </div>
           </div>
           {rubric.status === "draft" && (
             <section className="rubric-batch-toolbar" aria-label="批量审核工具">

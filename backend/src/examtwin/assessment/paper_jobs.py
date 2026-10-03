@@ -124,7 +124,9 @@ class PaperJobService:
             limit=limit,
             offset=offset,
         )
-        replacement_ids = self.repository.replacement_ids([str(row["id"]) for row in rows])
+        job_ids = [str(row["id"]) for row in rows]
+        replacement_ids = self.repository.replacement_ids(job_ids)
+        grading_progress = self.repository.grading_progress(job_ids)
         return PaperJobListResponse(
             items=[
                 PaperJobSummary(
@@ -148,6 +150,8 @@ class PaperJobService:
                     split_contract_version=row["split_contract_version"],
                     replacement_for_job_id=row["replacement_for_job_id"],
                     replaced_by_job_id=replacement_ids.get(str(row["id"])),
+                    graded_questions=grading_progress.get(str(row["id"]), (0, 0))[0],
+                    pending_review_count=grading_progress.get(str(row["id"]), (0, 0))[1],
                     created_at=str(row["created_at"]),
                     updated_at=str(row["updated_at"]),
                 )

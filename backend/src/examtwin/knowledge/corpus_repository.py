@@ -10,12 +10,18 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, sessionmaker
 
 from examtwin.platform.database.models import (
+    PaperUnitDocumentModel,
+    PaperUnitModel,
     SourceDocumentLocationModel,
     SourceDocumentModel,
     SourceDocumentVersionModel,
 )
 from examtwin.platform.database.results import affected_rows
 from examtwin.platform.database.session import utcnow
+
+
+class DocumentInUseError(ValueError):
+    """Raised when a source document is still bound to a paper unit."""
 
 
 def _document_dict(row: SourceDocumentModel) -> dict[str, Any]:
@@ -337,6 +343,26 @@ class CorpusRepository:
     def archive(self, document_id: str, *, subject_code: str) -> None:
         now = utcnow()
         with self.sessions.begin() as session:
+            bound_papers = list(
+                session.execute(
+                    select(
+                        PaperUnitModel.display_name, PaperUnitModel.pair_key, PaperUnitModel.status
+                    )
+                    .join(
+                        PaperUnitDocumentModel,
+                        PaperUnitDocumentModel.paper_unit_id == PaperUnitModel.id,
+                    )
+                    .where(PaperUnitDocumentModel.document_id == document_id)
+                )
+            )
+            if bound_papers:
+                names = "、".join(
+                    f"「{name or pair_key}」{'（回收站）' if status == 'archived' else ''}"
+                    for name, pair_key, status in bound_papers
+                )
+                raise DocumentInUseError(
+                    f"该资料已绑定试卷{names}，请先在试卷中替换该文件或永久删除试卷后再删除资料。"
+                )
             result = session.execute(
                 update(SourceDocumentModel)
                 .where(

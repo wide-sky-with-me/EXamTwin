@@ -4582,6 +4582,12 @@
             "title": "Filename",
             "type": "string"
           },
+          "graded_questions": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Graded Questions",
+            "type": "integer"
+          },
           "job_id": {
             "title": "Job Id",
             "type": "string"
@@ -4607,6 +4613,12 @@
               }
             ],
             "title": "Paper Unit Id"
+          },
+          "pending_review_count": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Pending Review Count",
+            "type": "integer"
           },
           "question_paper_document_id": {
             "anyOf": [
@@ -4762,6 +4774,8 @@
           "split_contract_version",
           "replacement_for_job_id",
           "replaced_by_job_id",
+          "graded_questions",
+          "pending_review_count",
           "created_at",
           "updated_at"
         ],
@@ -5399,6 +5413,17 @@
             ],
             "title": "Paper Job Id"
           },
+          "paper_unit_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paper Unit Id"
+          },
           "question_position": {
             "anyOf": [
               {
@@ -5451,6 +5476,7 @@
           "subject_code",
           "subject_id",
           "paper_job_id",
+          "paper_unit_id",
           "paper_display_name",
           "paper_filename",
           "question_position",

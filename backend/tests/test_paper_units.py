@@ -2,12 +2,14 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
+from examtwin.assessment.assessment_repository import AssessmentRepository
 from examtwin.assessment.paper_job_repository import PaperJobRepository
 from examtwin.assessment.paper_unit_repository import PaperUnitRepository
 from examtwin.assessment.paper_units import PaperUnitService
-from examtwin.knowledge.corpus_repository import CorpusRepository
+from examtwin.knowledge.corpus_repository import CorpusRepository, DocumentInUseError
 from examtwin.platform.config import Settings
 from examtwin.platform.database.models import (
+    AssessmentModel,
     Base,
     PaperJobModel,
     SourceDocumentModel,
@@ -91,6 +93,57 @@ def _document(
         )
 
 
+def _completed_job(sessions: sessionmaker[Session], paper_unit_id: str) -> str:
+    now = datetime(2026, 8, 12, tzinfo=UTC)
+    job_id = str(uuid4())
+    with sessions.begin() as session:
+        session.add(
+            PaperJobModel(
+                id=job_id,
+                subject_pack_id="oxfordaqa-mathematics-9660",
+                subject_code="9660",
+                knowledge_base_version_ids_json="[]",
+                knowledge_collection_names_json="[]",
+                graph_version_id=None,
+                source_integrity_status="verified",
+                split_contract_version="v1",
+                split_source_digest="digest",
+                replacement_for_job_id=None,
+                filename="qp.pdf",
+                display_name=None,
+                suffix=".pdf",
+                answer_mode="generated",
+                answer_filename=None,
+                answer_suffix=None,
+                answer_source_path=None,
+                pair_key="9660:2024:JUN:P1",
+                paper_unit_id=paper_unit_id,
+                question_paper_document_id="qp",
+                source_booklet_document_id=None,
+                source_booklet_checksum=None,
+                source_booklet_filename=None,
+                unit_code="P1",
+                source_path=f"{job_id}/source.pdf",
+                status="completed",
+                stage="completed",
+                total_pages=1,
+                parsed_pages=1,
+                total_questions=1,
+                completed_questions=1,
+                failed_questions=0,
+                error=None,
+                lease_token=None,
+                lease_expires_at=None,
+                created_at=now,
+                updated_at=now,
+                started_at=now,
+                completed_at=now,
+            )
+        )
+
+    return job_id
+
+
 def test_paper_unit_preserves_multiple_documents_and_filters_server_side() -> None:
     service, sessions, subject_id = _service()
     _document(sessions, subject_id, "qp-one", "question_paper")
@@ -163,52 +216,7 @@ def test_paper_unit_trash_preserves_lineage_and_permanent_delete_removes_it() ->
     service, sessions, subject_id = _service()
     _document(sessions, subject_id, "qp", "question_paper")
     created = service.create_unit(["qp"], display_name=None)
-    now = datetime(2026, 8, 12, tzinfo=UTC)
-    job_id = str(uuid4())
-    with sessions.begin() as session:
-        session.add(
-            PaperJobModel(
-                id=job_id,
-                subject_pack_id="oxfordaqa-mathematics-9660",
-                subject_code="9660",
-                knowledge_base_version_ids_json="[]",
-                knowledge_collection_names_json="[]",
-                graph_version_id=None,
-                source_integrity_status="verified",
-                split_contract_version="v1",
-                split_source_digest="digest",
-                replacement_for_job_id=None,
-                filename="qp.pdf",
-                display_name=None,
-                suffix=".pdf",
-                answer_mode="generated",
-                answer_filename=None,
-                answer_suffix=None,
-                answer_source_path=None,
-                pair_key="9660:2024:JUN:P1",
-                paper_unit_id=created["id"],
-                question_paper_document_id="qp",
-                source_booklet_document_id=None,
-                source_booklet_checksum=None,
-                source_booklet_filename=None,
-                unit_code="P1",
-                source_path=f"{job_id}/source.pdf",
-                status="completed",
-                stage="completed",
-                total_pages=1,
-                parsed_pages=1,
-                total_questions=1,
-                completed_questions=1,
-                failed_questions=0,
-                error=None,
-                lease_token=None,
-                lease_expires_at=None,
-                created_at=now,
-                updated_at=now,
-                started_at=now,
-                completed_at=now,
-            )
-        )
+    _completed_job(sessions, str(created["id"]))
 
     jobs = PaperJobRepository(sessions, lease_seconds=60)
     service.archive_unit(str(created["id"]))
@@ -227,3 +235,58 @@ def test_paper_unit_trash_preserves_lineage_and_permanent_delete_removes_it() ->
     assert service.list_trash()[1] == 0
     assert jobs.list_for_subject("9660", paper_unit_id=str(created["id"]))[1] == 0
     assert service.documents.get_active("qp") is None
+
+
+def test_bound_document_cannot_be_archived_until_its_paper_is_permanently_deleted() -> None:
+    service, sessions, subject_id = _service()
+    _document(sessions, subject_id, "qp", "question_paper")
+    created = service.create_unit(["qp"], display_name="June paper")
+
+    with pytest.raises(DocumentInUseError, match="「June paper」"):
+        service.documents.archive("qp", subject_code="9660")
+    service.archive_unit(str(created["id"]))
+    with pytest.raises(DocumentInUseError, match="回收站"):
+        service.documents.archive("qp", subject_code="9660")
+    assert service.documents.get_active("qp") is not None
+
+    _document(sessions, subject_id, "loose", "mark_scheme", "9660:2025:JUN:P1")
+    service.documents.archive("loose", subject_code="9660")
+    assert service.documents.get_active("loose") is None
+
+
+def test_answer_records_and_review_queue_expose_grading_progress_and_paper() -> None:
+    service, sessions, subject_id = _service()
+    _document(sessions, subject_id, "qp", "question_paper")
+    created = service.create_unit(["qp"], display_name=None)
+    job_id = _completed_job(sessions, str(created["id"]))
+    ungraded_job_id = _completed_job(sessions, str(created["id"]))
+    now = datetime(2026, 8, 13, tzinfo=UTC)
+    with sessions.begin() as session:
+        for index, (position, status) in enumerate(
+            [(0, "confirmed"), (0, "pending_review"), (1, "pending_review")]
+        ):
+            session.add(
+                AssessmentModel(
+                    id=f"assessment-{index}",
+                    subject_code="9660",
+                    paper_job_id=job_id,
+                    question_position=position,
+                    rubric_set_id="rubric",
+                    question_ref=f"Q{position + 1}",
+                    answer_markdown="answer",
+                    total_awarded=1,
+                    total_available=2,
+                    confidence=0.5,
+                    status=status,
+                    result_json="{}",
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+
+    progress = PaperJobRepository(sessions, lease_seconds=60).grading_progress(
+        [job_id, ungraded_job_id]
+    )
+    assert progress == {job_id: (2, 2)}
+    pending = AssessmentRepository(sessions).pending(subject_code="9660")
+    assert {item["paper_unit_id"] for item in pending} == {created["id"]}
