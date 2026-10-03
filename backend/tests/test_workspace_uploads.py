@@ -6,6 +6,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any, BinaryIO, cast
 
+import pymupdf
 import pytest
 from examtwin.app.api import workspaces as workspace_api_module
 from examtwin.app.api.dependencies import get_corpus_workspace_service, get_subject_context
@@ -281,6 +282,34 @@ def test_workspace_upload_uses_managed_object_store_and_records_exam_identity(
     assert repository.row["identity_status"] == "complete"
     assert repository.row["path"] == f"object://{object_key}"
     assert not (subject.corpus_dir / "uploads").exists()
+
+
+def test_workspace_upload_keeps_printed_foreign_qualification_out_of_pairing(
+    tmp_path: Path,
+) -> None:
+    settings = _settings(tmp_path)
+    subject = subject_context(settings)
+    repository = CorpusRecords()
+    object_store = ManagedObjectStore(LocalObjectStore(settings.object_store_local_root))
+    service = _upload_service(settings, WorkspaceRecords(subject.id), repository, object_store)
+    document = pymupdf.open()
+    document.new_page().insert_text((72, 72), "IB/G/Jun18/E12 7136/1 A-level ECONOMICS")
+    content = document.tobytes()
+
+    row = service.upload_document(
+        subject.id,
+        BytesIO(content),
+        filename="AQA-A-Level-JUN2018-Economics-Paper-1-QP.pdf",
+        content_type="application/pdf",
+        source_type="question_paper",
+        knowledge_base_id=None,
+        license_confirmed=False,
+    )
+
+    assert object_store.materialize(str(row["object_key"])).read_bytes() == content
+    assert repository.row is not None
+    assert repository.row["pair_key"] is None
+    assert repository.row["identity_status"] == "not_applicable"
 
 
 def test_workspace_upload_rejects_oversized_stream_before_persistence(

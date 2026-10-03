@@ -141,9 +141,19 @@ class CorpusWorkspaceService:
             "identity_error": None,
         }
         if assignment.source_role == "assessment_only":
-            from examtwin.knowledge.inventory import parse_exam_identity
+            from examtwin.knowledge.inventory import (
+                parse_exam_identity,
+                read_printed_subject_code,
+            )
 
-            identity = parse_exam_identity(Path(safe_filename), source_type, self.subject.pack)
+            printed_code = read_printed_subject_code(stream) if suffix == ".pdf" else None
+            stream.seek(0)
+            identity = parse_exam_identity(
+                Path(safe_filename),
+                source_type,
+                self.subject.pack,
+                printed_subject_code=printed_code,
+            )
             if existing is not None and existing.get("identity_status") == "complete":
                 incoming_pair = identity.get("pair_key")
                 existing_pair = existing.get("pair_key")

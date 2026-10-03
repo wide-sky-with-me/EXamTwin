@@ -5,7 +5,7 @@ import re
 import zipfile
 from collections import Counter
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 from xml.etree import ElementTree
 
 from pypdf import PdfReader
@@ -14,6 +14,9 @@ from examtwin.knowledge.corpus_repository import CorpusRepository
 from examtwin.subjects.public import DashboardRepository, SubjectPack
 
 SUPPORTED_SUFFIXES = {".pdf", ".ppt", ".pptx", ".doc", ".docx", ".md"}
+EXAM_SOURCE_TYPES = frozenset({"question_paper", "mark_scheme", "examiner_report", "insert"})
+# Component references such as "7136/1" printed on a paper's first page.
+PRINTED_COMPONENT_CODE = re.compile(r"(?<![\d/])(\d{4})/\d(?![\d/])")
 
 MONTH_MAP = {
     "jan": "JAN",
@@ -45,7 +48,7 @@ def classify_source(path: Path) -> str:
         return "markdown"
     if "specification" in filename or "考试大纲" in text:
         return "syllabus"
-    if "章节分类练习" in text:
+    if "分类练习" in text:
         return "topic_practice"
     if (
         re.search(r"(?:^|[^a-z])ms(?:[^a-z]|$)", filename)
@@ -53,9 +56,14 @@ def classify_source(path: Path) -> str:
         or "markscheme" in filename
     ):
         return "mark_scheme"
-    if "examiner" in filename or "report on exam" in filename or re.search(r"(^| )er ", filename):
+    if (
+        "examiner" in filename
+        or re.search(r"(?:^|[^a-z])report(?:[^a-z]|$)", filename)
+        or re.search(r"(^| )er ", filename)
+    ):
         return "examiner_report"
-    if "insert" in filename or re.search(r"(?:^|[-_ ])in(?:[-_ ]|$)", path.stem.lower()):
+    # The IN- code only prefixes dated Source Booklets; a mid-title "in" is English prose.
+    if "insert" in filename or re.match(r"in[-_ ]+\d", path.stem.lower()):
         return "insert"
     if re.search(r"(?:^|[^a-z])qp(?:[^a-z]|$)", filename) or "question paper" in filename:
         return "question_paper"
@@ -108,25 +116,40 @@ def _parse_session(text: str) -> str | None:
     return None
 
 
+def read_printed_subject_code(source: Path | BinaryIO) -> str | None:
+    """Return the qualification code a PDF prints on its first page, if any."""
+    try:
+        reader = PdfReader(source)
+        text = reader.pages[0].extract_text() if reader.pages else ""
+    except Exception:
+        return None
+    for match in PRINTED_COMPONENT_CODE.finditer(text or ""):
+        code = match.group(1)
+        if not code.startswith(("19", "20")):
+            return code
+    return None
+
+
 def parse_exam_identity(
     path: Path,
     source_type: str,
     subject_pack: SubjectPack,
+    *,
+    printed_subject_code: str | None = None,
 ) -> dict[str, Any]:
     text = str(path).lower()
     year = _parse_year(text)
     session = _parse_session(text)
     unit = subject_pack.parse_unit(text)
     filename_subject_code = subject_pack.board.subject_code_from_filename(path.name)
-    foreign_subject = bool(
-        filename_subject_code and not filename_subject_code.startswith(subject_pack.subject_code)
+    # Filenames can omit the qualification, so a printed code from another
+    # qualification (e.g. UK AQA 7136) also keeps the file out of strict pairing.
+    foreign_subject = any(
+        code and not code.startswith(subject_pack.subject_code)
+        for code in (filename_subject_code, printed_subject_code)
     )
     specimen = "样卷" in text or "specimen" in text
-    exam_source = (
-        source_type in {"question_paper", "mark_scheme", "examiner_report", "insert"}
-        and not foreign_subject
-        and not specimen
-    )
+    exam_source = source_type in EXAM_SOURCE_TYPES and not foreign_subject and not specimen
     pair_key = None
     missing: list[str] = []
     if exam_source:
@@ -192,7 +215,14 @@ def scan_corpus(
         source_type = classify_source(path)
         relative = path.relative_to(root)
         digest = checksum(path)
-        identity = parse_exam_identity(path, source_type, subject_pack)
+        printed_code = (
+            read_printed_subject_code(path)
+            if source_type in EXAM_SOURCE_TYPES and path.suffix.lower() == ".pdf"
+            else None
+        )
+        identity = parse_exam_identity(
+            path, source_type, subject_pack, printed_subject_code=printed_code
+        )
         documents.register_discovery(
             {
                 "path": str(path.resolve()),
