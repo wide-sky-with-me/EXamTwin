@@ -31,7 +31,10 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: `pnpm dev --host 127.0.0.1 --port ${port} --strictPort`,
+    // Corepack pins this project to pnpm 11.1.1 while the machine ships 11.7.0, and that gate
+    // aborts `pnpm dev` before Vite starts, which would leave the whole e2e suite unrunnable.
+    // Invoking the installed Vite binary keeps the same dev server without the version gate.
+    command: `./node_modules/.bin/vite --host 127.0.0.1 --port ${port} --strictPort`,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
     url: `${baseURL}/e2e/fixtures/diagram.html`,

@@ -593,10 +593,10 @@ test("keeps every paper-domain dialog reachable at desktop and mobile sizes", as
 
     await page.goto("/subjects/oxfordaqa-economics-9640/papers/paper-u1/answers");
     const refreshedRecords = page.getByRole("dialog", { name: /作答记录 · Economics June U1/ });
-    await refreshedRecords.getByRole("button", {
-      name: "更多作答记录操作：student-answer.pdf",
-    }).click();
-    await page.getByRole("menuitem", { name: "评分" }).click();
+    await refreshedRecords
+      .locator("li", { hasText: "student-answer.pdf" })
+      .getByRole("button", { name: "评分" })
+      .click();
     await expect(page).toHaveURL(/\/papers\/paper-u1\/jobs\/job-uploaded\/grading$/);
     const gradingDialog = page.getByRole("dialog", { name: /试卷评分 · Economics June U1/ });
     await expectViewportSafePaperModal(
@@ -749,13 +749,23 @@ test("shows rich grading selectors and manages Mark Schemes without leaving the 
 
   const paperSelector = page.getByLabel("选择作答记录");
   const schemeSelector = page.getByLabel("选择 Mark Scheme");
-  await expect(paperSelector).toContainText("Economics-9640-U1-June-2026.pdf");
+  const paperField = gradingDialog.locator(".ant-select").filter({ has: paperSelector });
+  const schemeField = gradingDialog.locator(".ant-select").filter({ has: schemeSelector });
+  await expect(paperField).toContainText("Economics-9640-U1-June-2026.pdf");
   await expect(paperSelector).toBeDisabled();
   await expect(gradingDialog.getByRole("button", { name: "上传答卷" })).toHaveCount(0);
-  await expect(paperSelector).toContainText("U1 · 12/12 题 · 作答完整");
-  await expect(schemeSelector).toContainText("官方标准 · 18 页 · 内容就绪");
+  await expect(paperField).toContainText("U1 · 12/12 题 · 作答完整");
+  await expect(schemeField).toContainText("官方标准 · 18 页 · 内容就绪");
 
-  await expect(schemeSelector.getByRole("option", { name: /Economics-9640-U1-June-2026-MS.pdf/ })).toBeAttached();
+  await schemeField.click();
+  const schemeOption = page.locator(
+    ".grading-material-select-popup:not(.ant-select-dropdown-hidden) .ant-select-item-option",
+    { hasText: "Economics-9640-U1-June-2026-MS.pdf" },
+  );
+  await expect(schemeOption).toBeVisible();
+  await expect(schemeOption).toContainText("官方标准 · 18 页 · 内容就绪");
+  await schemeOption.click();
+  await expect(schemeOption).toBeHidden();
   const schemeUpload = page.locator(".grading-scheme-upload");
   await expect(schemeUpload).toHaveCount(1);
   await expect(schemeUpload).not.toContainText("上传官方版本");

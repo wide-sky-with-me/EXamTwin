@@ -1,4 +1,5 @@
 import {
+  Alert,
   Button,
   Card,
   Col,
@@ -20,6 +21,7 @@ import {
   Upload,
 } from "antd";
 import {
+  ArchiveRestore,
   ArrowLeft,
   Check,
   ClipboardList,
@@ -36,6 +38,7 @@ import {
   RotateCcw,
   Save,
   ScanText,
+  Search,
   ShieldCheck,
   Trash2,
   UploadCloud,
@@ -66,6 +69,7 @@ import {
   updatePaperUnit,
   uploadWorkspaceDocument,
 } from "../lib/api";
+import { useConversionQueue } from "../lib/conversion-queue";
 import type { PaperDetail } from "../lib/paper-routes";
 import type {
   PaperUnitDocument,
@@ -119,8 +123,6 @@ type StagedFilePreview = {
   text?: string;
 };
 
-type ConversionQueueState = "queued" | "converting" | "failed";
-type ConversionQueueItem = { document: SourceDocument; subjectId: string };
 
 const EMPTY_DRAFT: BindingDraft = {
   displayName: "",
@@ -177,12 +179,17 @@ function documentStatusLabel(status: string) {
     queued: "排队中",
     converting: "解析中",
     failed: "解析失败",
+    missing: "资料缺失",
   }[status] ?? status;
 }
 
+function isConverted(status: string) {
+  return status === "converted" || status === "indexed";
+}
+
 function conversionStatusColor(status: string) {
-  if (status === "converted") return "success";
-  if (status === "failed") return "error";
+  if (status === "converted" || status === "indexed") return "success";
+  if (status === "failed" || status === "missing") return "error";
   if (status === "queued") return "processing";
   return "warning";
 }
@@ -237,7 +244,8 @@ export function PaperManagement({
   const subject = subjects.find((item) => item.id === subjectId) ?? null;
   const [papers, setPapers] = useState<PaperUnitList>(EMPTY_LIST);
   const [documents, setDocuments] = useState<SourceDocument[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [documentsSubjectId, setDocumentsSubjectId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(() => Boolean(subjectId));
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [unitCode, setUnitCode] = useState("");
@@ -262,6 +270,10 @@ export function PaperManagement({
   const [nameCustomized, setNameCustomized] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deletingCandidate, setDeletingCandidate] = useState<PaperUnitSummary | null>(null);
+  const [archiving, setArchiving] = useState(false);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
+  const [trashError, setTrashError] = useState<string | null>(null);
+  const [permanentDeleteError, setPermanentDeleteError] = useState<string | null>(null);
   const [trashOpen, setTrashOpen] = useState(false);
   const [trash, setTrash] = useState<PaperUnitList>(EMPTY_LIST);
   const [trashLoading, setTrashLoading] = useState(false);
@@ -273,9 +285,6 @@ export function PaperManagement({
   const [externalImportOpen, setExternalImportOpen] = useState(false);
   const [externalAnswerFile, setExternalAnswerFile] = useState<File | null>(null);
   const [importingAnswer, setImportingAnswer] = useState(false);
-  const [convertingDocumentId, setConvertingDocumentId] = useState<string | null>(null);
-  const [conversionQueue, setConversionQueue] = useState<ConversionQueueItem[]>([]);
-  const [conversionStates, setConversionStates] = useState<Partial<Record<string, ConversionQueueState>>>({});
   const [detailPaper, setDetailPaper] = useState<PaperUnitSummary | null>(null);
   const [detailLoading, setDetailLoading] = useState(Boolean(detail));
   const [detailError, setDetailError] = useState<string | null>(null);
@@ -283,6 +292,14 @@ export function PaperManagement({
   const documentRequestRef = useRef(0);
   const previousSubjectIdRef = useRef(subjectId);
   const { notify } = useToast();
+  const {
+    queue: conversionQueue,
+    snapshot: {
+      states: conversionStates,
+      activeDocumentId: convertingDocumentId,
+      finished: finishedConversions,
+    },
+  } = useConversionQueue(notify);
 
   useEffect(() => {
     if (!subjectId && subjects[0]) setLocalSubjectId(subjects[0].id);
@@ -298,7 +315,10 @@ export function PaperManagement({
           params: { path: { workspace_id: subjectId } },
         }),
       );
-      if (requestId === documentRequestRef.current) setDocuments(rows);
+      if (requestId === documentRequestRef.current) {
+        setDocuments(rows);
+        setDocumentsSubjectId(subjectId);
+      }
     } catch (cause) {
       if (requestId === documentRequestRef.current) throw cause;
     }
@@ -307,7 +327,10 @@ export function PaperManagement({
   const loadPapers = useCallback(async () => {
     const requestId = ++paperRequestRef.current;
     if (!subjectId) {
-      if (requestId === paperRequestRef.current) setPapers(EMPTY_LIST);
+      if (requestId === paperRequestRef.current) {
+        setPapers(EMPTY_LIST);
+        setLoading(false);
+      }
       return;
     }
     setLoading(true);
@@ -321,6 +344,11 @@ export function PaperManagement({
         offset: page * PAGE_SIZE,
       });
       if (requestId === paperRequestRef.current) {
+        const lastPage = Math.max(0, Math.ceil(next.total / PAGE_SIZE) - 1);
+        if (page > lastPage) {
+          setPage(lastPage);
+          return;
+        }
         setPapers(next);
         setError(null);
       }
@@ -352,46 +380,12 @@ export function PaperManagement({
     return () => window.clearInterval(timer);
   }, [convertingDocumentId, loadDocuments]);
 
+  const handledConversionsRef = useRef(finishedConversions);
   useEffect(() => {
-    if (!subjectId || convertingDocumentId || !conversionQueue.length) return;
-    const { document, subjectId: queuedSubjectId } = conversionQueue[0];
-    setConversionQueue((current) => current.slice(1));
-    setConvertingDocumentId(document.id);
-    setConversionStates((current) => ({ ...current, [document.id]: "converting" }));
-    void (async () => {
-      try {
-        const conversion = await unwrapApi(
-          apiClient.POST("/api/v1/corpus/convert", {
-            headers: subjectHeaders(queuedSubjectId),
-            body: {
-              authority_tiers: [],
-              document_ids: [document.id],
-              force: false,
-              limit: 1,
-              source_types: [document.source_type],
-              workers: 1,
-            },
-          }),
-        );
-        if (conversion.failed || conversion.succeeded + conversion.skipped !== 1) {
-          throw new Error(conversion.errors.filter(Boolean).join("；") || "资料解析未完成，请重试。");
-        }
-        await loadDocuments();
-        setConversionStates((current) => {
-          const next = { ...current };
-          delete next[document.id];
-          return next;
-        });
-        notify(conversion.skipped ? `${documentLabel(document)} 已有可用解析结果。` : `${documentLabel(document)} 解析完成。`, "success");
-      } catch (cause) {
-        await loadDocuments().catch(() => undefined);
-        setConversionStates((current) => ({ ...current, [document.id]: "failed" }));
-        notify(cause instanceof Error ? cause.message : `${documentLabel(document)} 解析失败。`, "error");
-      } finally {
-        setConvertingDocumentId(null);
-      }
-    })();
-  }, [conversionQueue, convertingDocumentId, loadDocuments, notify, subjectId]);
+    if (handledConversionsRef.current === finishedConversions) return;
+    handledConversionsRef.current = finishedConversions;
+    void loadDocuments().catch(() => undefined);
+  }, [finishedConversions, loadDocuments]);
 
   useEffect(() => () => {
     if (stagedPreview?.url) URL.revokeObjectURL(stagedPreview.url);
@@ -457,6 +451,45 @@ export function PaperManagement({
   useEffect(() => {
     setAnswerStrategy(null);
   }, [subjectId, selectedPaper?.id]);
+  const documentsLoaded = documentsSubjectId === subjectId;
+
+  function paperMaterialStates(paper: PaperUnitSummary) {
+    return paper.documents.map((binding) => {
+      const sourceDocument = documents.find((document) => document.id === binding.id);
+      const missing = documentsLoaded && !sourceDocument;
+      return {
+        binding,
+        sourceDocument,
+        status: missing ? "missing" : conversionStates[binding.id] ?? sourceDocument?.status ?? binding.status,
+      };
+    });
+  }
+
+  const answerReadiness = (() => {
+    if (!selectedPaper) return null;
+    const states = paperMaterialStates(selectedPaper);
+    const questionPaper = states.find(({ binding }) => binding.role === "question_paper");
+    const booklets = states.filter(({ binding }) => binding.role === "source_booklet");
+    const booklet = booklets[0];
+    if (!subject?.answering_enabled) {
+      return { blocker: subject?.answering_disabled_reason || "该科目尚未开放 AI 作答。", booklet: null };
+    }
+    if (!questionPaper || questionPaper.status === "missing") {
+      return { blocker: "试卷缺少可用的 Question Paper，请先编辑试卷重新绑定。", booklet: null };
+    }
+    if (subject.source_booklet_required && booklets.length !== 1) {
+      return { blocker: "该科目作答需要且只能绑定一份 Source Booklet，请先编辑试卷。", booklet: null };
+    }
+    if (booklet?.status === "missing") {
+      return { blocker: "绑定的 Source Booklet 已缺失，请先编辑试卷重新绑定。", booklet: null };
+    }
+    if (booklet && !isConverted(booklet.status)) return { blocker: null, booklet };
+    return { blocker: null, booklet: null };
+  })();
+  const bookletConversionRunning = answerReadiness?.booklet
+    ? answerReadiness.booklet.status === "queued" || answerReadiness.booklet.status === "converting"
+    : false;
+
   const selectedDocument = detail?.kind === "document"
     ? documents.find((item) => item.id === detail.id) ?? null
     : null;
@@ -557,12 +590,24 @@ export function PaperManagement({
     if (!subjectId) return;
     setSaving(true);
     setError(null);
+    // Uploads dedupe by checksum, so only documents that did not exist before this save are
+    // new; those are removed again if the paper cannot be saved, leaving no orphaned files.
+    const knownDocumentIds = new Set(documents.map((document) => document.id));
+    const createdDocumentIds: string[] = [];
     try {
-      const uploadedIds = await Promise.all([
+      const uploads = await Promise.allSettled([
         uploadCandidate("question_paper"),
         uploadCandidate("mark_scheme"),
         uploadCandidate("insert"),
       ]);
+      for (const upload of uploads) {
+        if (upload.status === "fulfilled" && upload.value && !knownDocumentIds.has(upload.value)) {
+          createdDocumentIds.push(upload.value);
+        }
+      }
+      const failedUpload = uploads.find((upload) => upload.status === "rejected");
+      if (failedUpload) throw failedUpload.reason;
+      const uploadedIds = uploads.map((upload) => upload.status === "fulfilled" ? upload.value : "");
       const uploadedByRole = {
         question_paper: uploadedIds[0],
         mark_scheme: uploadedIds[1],
@@ -592,17 +637,31 @@ export function PaperManagement({
         await createPaperUnit(subjectId, documentIds, draft.displayName.trim() || null);
         notify("试卷已加入管理库。");
       }
+      createdDocumentIds.length = 0;
       setEditorOpen(false);
       await Promise.all([loadDocuments(), loadPapers()]);
     } catch (cause) {
+      await Promise.allSettled(createdDocumentIds.map((documentId) => unwrapApi(
+        apiClient.DELETE("/api/v1/subject-workspaces/{workspace_id}/documents/{document_id}", {
+          headers: subjectHeaders(subjectId),
+          params: { path: { workspace_id: subjectId, document_id: documentId } },
+        }),
+      )));
       setError(cause instanceof Error ? cause.message : "试卷保存失败");
     } finally {
       setSaving(false);
     }
   }
 
+  function requestArchive(paper: PaperUnitSummary) {
+    setArchiveError(null);
+    setDeletingCandidate(paper);
+  }
+
   async function confirmDelete() {
-    if (!deletingCandidate || !subjectId) return;
+    if (!deletingCandidate || !subjectId || archiving) return;
+    setArchiving(true);
+    setArchiveError(null);
     try {
       await archivePaperUnit(subjectId, deletingCandidate.id);
       notify("试卷已移入回收站，可随时恢复。");
@@ -610,7 +669,9 @@ export function PaperManagement({
       onCloseDetail?.(subjectId);
       await loadPapers();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "试卷删除失败");
+      setArchiveError(cause instanceof Error ? cause.message : "试卷删除失败");
+    } finally {
+      setArchiving(false);
     }
   }
 
@@ -618,10 +679,11 @@ export function PaperManagement({
     if (!subjectId) return;
     setTrashOpen(true);
     setTrashLoading(true);
+    setTrashError(null);
     try {
       setTrash(await listTrashedPaperUnits(subjectId));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "回收站加载失败");
+      setTrashError(cause instanceof Error ? cause.message : "回收站加载失败");
     } finally {
       setTrashLoading(false);
     }
@@ -630,6 +692,7 @@ export function PaperManagement({
   async function restoreFromTrash(paper: PaperUnitSummary) {
     if (!subjectId) return;
     setTrashBusyId(paper.id);
+    setTrashError(null);
     try {
       await restorePaperUnit(subjectId, paper.id);
       notify("试卷已恢复到管理列表。");
@@ -637,7 +700,7 @@ export function PaperManagement({
       setTrash(nextTrash);
       await Promise.all([loadDocuments(), loadPapers()]);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "试卷恢复失败");
+      setTrashError(cause instanceof Error ? cause.message : "试卷恢复失败");
     } finally {
       setTrashBusyId(null);
     }
@@ -647,6 +710,7 @@ export function PaperManagement({
     if (!subjectId || !permanentDeleteCandidate) return;
     const candidate = permanentDeleteCandidate;
     setTrashBusyId(candidate.id);
+    setPermanentDeleteError(null);
     try {
       await permanentlyDeletePaperUnit(subjectId, candidate.id);
       notify("试卷及关联资料、作答、评分和复核记录已永久删除。");
@@ -655,7 +719,7 @@ export function PaperManagement({
       setTrash(nextTrash);
       await loadDocuments();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "试卷永久删除失败");
+      setPermanentDeleteError(cause instanceof Error ? cause.message : "试卷永久删除失败");
     } finally {
       setTrashBusyId(null);
     }
@@ -724,28 +788,10 @@ export function PaperManagement({
     message: (count: number) => string,
   ) {
     if (!subjectId) return;
-    const unique = candidates.filter((document, index) =>
-      candidates.findIndex((candidate) => candidate.id === document.id) === index
-      && (conversionStates[document.id] ?? document.status) !== "converted"
-      && conversionStates[document.id] !== "queued"
-      && conversionStates[document.id] !== "converting",
-    );
-    if (!unique.length) return;
+    const added = conversionQueue.enqueue(candidates, subjectId);
+    if (!added) return;
     setError(null);
-    setConversionStates((current) => unique.reduce(
-      (next, document) => ({ ...next, [document.id]: "queued" as const }),
-      current,
-    ));
-    setConversionQueue((current) => {
-      const queuedIds = new Set(current.map((item) => item.document.id));
-      return [
-        ...current,
-        ...unique
-          .filter((document) => !queuedIds.has(document.id))
-          .map((document) => ({ document, subjectId })),
-      ];
-    });
-    notify(message(unique.length));
+    notify(message(added));
   }
 
   function convertDocument(document: SourceDocument) {
@@ -776,9 +822,6 @@ export function PaperManagement({
       <header className="catalog-page-header">
         <div className="catalog-page-heading">
           <Title className="catalog-page-title" level={1}>试卷</Title>
-          <Text className="catalog-page-context" type="secondary">
-            {subject ? `${subject.title} · ${subject.subject_code}` : "请选择科目"}
-          </Text>
         </div>
         <Button
           className="catalog-primary-action"
@@ -800,13 +843,15 @@ export function PaperManagement({
             placeholder="选择科目"
             value={subjectId || undefined}
           />
-          <Input.Search
+          <Input
             allowClear
             aria-label="搜索试卷"
+            autoComplete="off"
             className="paper-search-filter"
-            disabled={!subject || loading}
+            disabled={!subject}
             onChange={(event) => { setQuery(event.target.value); setPage(0); }}
             placeholder="搜索名称、年份或配对键"
+            prefix={<Search aria-hidden="true" size={16} />}
             value={query}
           />
           <Select
@@ -833,8 +878,11 @@ export function PaperManagement({
             options={[{ label: "全部考季", value: "" }, ...papers.available_sessions.map((value) => ({ label: sessionLabel(value), value }))]}
             value={examSession}
           />
-          <Tooltip title="试卷回收站">
-            <Button aria-label="打开试卷回收站" disabled={!subject || loading} icon={<Trash2 size={17} />} onClick={() => void openTrash()} />
+          <Tooltip title="重置筛选">
+            <Button aria-label="重置筛选" disabled={!paperFiltersActive} icon={<RotateCcw aria-hidden="true" size={16} />} onClick={resetPaperFilters} />
+          </Tooltip>
+          <Tooltip title="回收站">
+            <Button aria-label="打开试卷回收站" disabled={!subject} icon={<ArchiveRestore size={17} />} onClick={() => void openTrash()} />
           </Tooltip>
         </Flex>
       </Card>
@@ -853,20 +901,15 @@ export function PaperManagement({
             <Row gutter={[16, 16]}>
               {papers.items.map((paper) => {
                 const name = paperDisplayName(paper);
-                const materialStates = paper.documents.map((binding) => {
-                  const sourceDocument = documents.find((document) => document.id === binding.id);
-                  return {
-                    binding,
-                    sourceDocument,
-                    status: conversionStates[binding.id] ?? sourceDocument?.status ?? binding.status,
-                  };
-                });
-                const convertedCount = materialStates.filter(({ status }) => status === "converted").length;
+                const materialStates = paperMaterialStates(paper);
+                const convertedCount = materialStates.filter(({ status }) => isConverted(status)).length;
                 const allConverted = materialStates.length > 0 && convertedCount === materialStates.length;
                 const conversionActive = materialStates.some(({ status }) => status === "queued" || status === "converting");
                 const canQuickConvert = materialStates.some(({ sourceDocument, status }) =>
-                  sourceDocument && status !== "converted" && status !== "queued" && status !== "converting",
+                  sourceDocument && !isConverted(status) && status !== "queued" && status !== "converting",
                 );
+                const needsBinding = documentsLoaded
+                  && (materialStates.length === 0 || materialStates.some(({ status }) => status === "missing"));
                 return (
                   <Col key={paper.id} lg={8} md={12} xs={24}>
                     <Card className="paper-unit-card" hoverable>
@@ -882,7 +925,6 @@ export function PaperManagement({
                             <Tooltip placement="topLeft" title={name}><strong>{name}</strong></Tooltip>
                             <small>{paper.exam_year} · {sessionLabel(paper.exam_session)} · {paper.unit_code}</small>
                           </span>
-                          <Tag color={paper.status === "active" ? "success" : "default"}>{paper.status === "active" ? "使用中" : "已删除"}</Tag>
                         </span>
                         <span className="paper-unit-card-overview">
                           <span><small>资料</small><strong>{paper.documents.length}</strong></span>
@@ -904,6 +946,15 @@ export function PaperManagement({
                       <div className={`paper-unit-card-quick-action${allConverted ? " is-complete" : ""}`}>
                         {allConverted ? (
                           <span><Check aria-hidden="true" size={15} />资料已全部解析</span>
+                        ) : needsBinding && !conversionActive ? (
+                          <Button
+                            danger
+                            icon={<Pencil aria-hidden="true" size={15} />}
+                            onClick={() => openEdit(paper)}
+                            size="small"
+                          >
+                            {materialStates.length ? "资料缺失，重新绑定" : "未绑定资料，去绑定"}
+                          </Button>
                         ) : (
                           <Button
                             aria-label={`一键解析 ${name}`}
@@ -920,7 +971,7 @@ export function PaperManagement({
                       <footer>
                         <Tooltip title={paper.pair_key}><code>{paper.pair_key}</code></Tooltip>
                         <Button aria-label={`编辑 ${name}`} icon={<Pencil size={15} />} onClick={() => openEdit(paper)} type="text">编辑</Button>
-                        <Button aria-label={`删除 ${name}`} danger icon={<Trash2 size={15} />} onClick={() => setDeletingCandidate(paper)} type="text">删除</Button>
+                        <Button aria-label={`删除 ${name}`} danger icon={<Trash2 size={15} />} onClick={() => requestArchive(paper)} type="text">删除</Button>
                       </footer>
                     </Card>
                   </Col>
@@ -933,7 +984,6 @@ export function PaperManagement({
                   description={(
                     <span className="catalog-empty-copy">
                       <strong>{paperFiltersActive ? "没有符合当前条件的试卷" : "还没有试卷"}</strong>
-                      <span>{paperFiltersActive ? "清除筛选后查看当前科目的完整试卷目录。" : "添加 Question Paper，并按需绑定 Mark Scheme 与支撑材料。"}</span>
                     </span>
                   )}
                 >
@@ -970,7 +1020,6 @@ export function PaperManagement({
             description={(
               <span className="catalog-empty-copy">
                 <strong>尚未选择科目</strong>
-                <span>{subjects.length > 0 ? "选择一个科目，再查看该课程的试卷目录。" : "先创建科目，才能建立试卷目录。"}</span>
               </span>
             )}
           >
@@ -1002,15 +1051,43 @@ export function PaperManagement({
                 </Text>
                 <Text className="paper-detail-identity" code copyable>{selectedPaper.pair_key}</Text>
               </div>
-              <Tag color={selectedPaper.status === "active" ? "success" : "default"}>{selectedPaper.status === "active" ? "使用中" : "已删除"}</Tag>
             </div>
             <form id="paper-answer-options" onSubmit={(event) => { event.preventDefault(); void startAnswering(selectedPaper); }}>
               <fieldset disabled={starting} style={{ border: 0, margin: 0, padding: 0 }}>
                 <TargetScoreFields value={answerStrategy} onChange={setAnswerStrategy} economics={subject?.subject_code === "9640"} />
               </fieldset>
             </form>
+            {answerReadiness?.blocker && (
+              <Alert className="paper-answer-blocker" message={answerReadiness.blocker} showIcon type="warning" />
+            )}
+            {answerReadiness?.booklet && (
+              <Alert
+                action={answerReadiness.booklet.sourceDocument && (
+                  <Button
+                    loading={bookletConversionRunning}
+                    onClick={() => answerReadiness.booklet?.sourceDocument && convertDocument(answerReadiness.booklet.sourceDocument)}
+                    size="small"
+                  >
+                    {bookletConversionRunning ? "解析中" : "解析 Source Booklet"}
+                  </Button>
+                )}
+                className="paper-answer-blocker"
+                message="Source Booklet 解析完成后才能开始作答。"
+                showIcon
+                type="info"
+              />
+            )}
             <Flex className="paper-detail-primary-actions" gap="small" wrap>
-              <Button form="paper-answer-options" htmlType="submit" icon={<Play size={16} />} loading={starting} type="primary">AI 自动作答</Button>
+              <Button
+                disabled={Boolean(answerReadiness?.blocker || answerReadiness?.booklet)}
+                form="paper-answer-options"
+                htmlType="submit"
+                icon={<Play size={16} />}
+                loading={starting}
+                type="primary"
+              >
+                AI 自动作答
+              </Button>
               <Dropdown
                 menu={{
                   items: [
@@ -1024,7 +1101,7 @@ export function PaperManagement({
                     if (key === "import") openExternalImport();
                     if (key === "history") onOpenAnswers?.(subjectId, selectedPaper.id);
                     if (key === "edit") openEdit(selectedPaper);
-                    if (key === "delete") setDeletingCandidate(selectedPaper);
+                    if (key === "delete") requestArchive(selectedPaper);
                   },
                 }}
                 placement="bottomRight"
@@ -1121,7 +1198,20 @@ export function PaperManagement({
             </section>
           </div>
         )}
-        {((detail?.kind === "paper" && !selectedPaper) || (detail?.kind === "document" && !selectedDocument)) && <Skeleton active />}
+        {detail?.kind === "paper" && !selectedPaper && (detailLoading ? <Skeleton active /> : (
+          <div className="paper-route-unavailable" role="status">
+            <ErrorBanner message={detailError ?? "找不到这份试卷，可能已被移入回收站或永久删除。"} />
+            <Button onClick={() => onCloseDetail?.(subjectId)} type="primary">返回试卷列表</Button>
+          </div>
+        ))}
+        {detail?.kind === "document" && !selectedDocument && (!documentsLoaded ? <Skeleton active /> : (
+          <div className="paper-route-unavailable" role="status">
+            <ErrorBanner message="找不到这份资料，可能已被删除。" />
+            <Button onClick={() => onCloseDetail?.(subjectId)} type="primary">
+              {detail.parentPaperId ? "返回试卷详情" : "返回试卷列表"}
+            </Button>
+          </div>
+        ))}
       </TaskWorkspaceDialog>}
 
       {detail?.kind === "answers" && <TaskWorkspaceDialog
@@ -1146,7 +1236,6 @@ export function PaperManagement({
         ) : detailLoading ? <Skeleton active /> : (
           <div className="paper-route-unavailable" role="status">
             <ErrorBanner message={detailError ?? "找不到这份试卷，可能已被移入回收站或永久删除。"} />
-            <p>无法打开作答记录。建议返回试卷列表，选择仍可用的试卷。</p>
             <Button onClick={() => onCloseDetail?.(subjectId)} type="primary">返回试卷列表</Button>
           </div>
         )}
@@ -1188,23 +1277,18 @@ export function PaperManagement({
         ) : detailLoading ? <Skeleton active /> : (
           <div className="paper-route-unavailable" role="status">
             <ErrorBanner message={detailError ?? "找不到这份试卷或作答任务，链接可能已失效。"} />
-            <p>无法打开作答详情。建议返回试卷列表，重新选择作答记录。</p>
             <Button onClick={() => onCloseDetail?.(subjectId)} type="primary">返回试卷列表</Button>
           </div>
         )}
       </TaskWorkspaceDialog>}
 
-      {detail?.kind === "grading" && <Modal
-        footer={null}
-        onCancel={() => {
-          if (detail?.kind === "grading") onOpenAnswers?.(subjectId, detail.paperId);
-        }}
-        open
-        rootClassName="paper-domain-modal paper-workflow-modal paper-grading-modal"
+      {detail?.kind === "grading" && <TaskWorkspaceDialog
+        className="paper-domain-modal paper-workflow-modal paper-grading-modal"
+        onClose={() => onOpenAnswers?.(subjectId, detail.paperId)}
         title={selectedPaper ? `试卷评分 · ${paperDisplayName(selectedPaper)}` : "试卷评分"}
         width={1380}
       >
-        {detail?.kind === "grading" && subject ? (
+        {subject ? (
           <Suspense fallback={<Skeleton active />}>
             <Grading
               initialPaperJobId={detail.id}
@@ -1215,7 +1299,7 @@ export function PaperManagement({
             />
           </Suspense>
         ) : <Skeleton active />}
-      </Modal>}
+      </TaskWorkspaceDialog>}
 
       <Modal
         destroyOnHidden
@@ -1506,13 +1590,14 @@ export function PaperManagement({
         rootClassName="paper-domain-modal paper-trash-modal"
         title={(
           <span className="paper-trash-title">
-            <span><Trash2 size={18} /></span>
-            <span><strong>试卷回收站</strong><small>恢复试卷，或永久清理全部关联数据</small></span>
+            <span><ArchiveRestore size={18} /></span>
+            <span><strong>试卷回收站</strong></span>
           </span>
         )}
         width={760}
         zIndex={1350}
       >
+        <ErrorBanner message={trashError} />
         <Spin spinning={trashLoading} tip="正在加载回收站…">
           {trash.items.length ? (
             <div className="paper-trash-list">
@@ -1527,7 +1612,7 @@ export function PaperManagement({
                     </span>
                     <span className="paper-trash-item-actions">
                       <Button disabled={trashBusyId !== null} icon={<RotateCcw size={15} />} loading={trashBusyId === paper.id && !permanentDeleteCandidate} onClick={() => void restoreFromTrash(paper)}>恢复</Button>
-                      <Button danger disabled={trashBusyId !== null} icon={<Trash2 size={15} />} onClick={() => setPermanentDeleteCandidate(paper)}>永久删除</Button>
+                      <Button danger disabled={trashBusyId !== null} icon={<Trash2 size={15} />} onClick={() => { setPermanentDeleteError(null); setPermanentDeleteCandidate(paper); }}>永久删除</Button>
                     </span>
                   </article>
                 );
@@ -1540,10 +1625,12 @@ export function PaperManagement({
       </Modal>
 
       <AppConfirmDialog
+        busy={archiving}
         confirmLabel="移入回收站"
+        error={archiveError}
         description="试卷会从当前列表移入回收站；原始资料、作答、评分和复核记录完整保留，可从回收站恢复。"
         onConfirm={() => void confirmDelete()}
-        onOpenChange={(open) => { if (!open) setDeletingCandidate(null); }}
+        onOpenChange={(open) => { if (!open && !archiving) setDeletingCandidate(null); }}
         open={Boolean(deletingCandidate)}
         title={`将「${deletingCandidate ? paperDisplayName(deletingCandidate) : "试卷"}」移入回收站？`}
       />
@@ -1552,6 +1639,7 @@ export function PaperManagement({
         busy={Boolean(permanentDeleteCandidate && trashBusyId === permanentDeleteCandidate.id)}
         confirmLabel="永久删除"
         danger
+        error={permanentDeleteError}
         description={permanentDeleteCandidate
           ? `将永久删除该试卷的 ${permanentDeleteCandidate.documents.length} 份原始资料、${permanentDeleteCandidate.paper_job_count} 条作答，以及全部关联评分、复核记录和文件。此操作无法恢复。`
           : ""}

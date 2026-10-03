@@ -1,4 +1,4 @@
-import { Tooltip } from "antd";
+import { type GetRef, Select, Tooltip } from "antd";
 import {
   ArrowRight,
   BookOpenCheck,
@@ -10,7 +10,7 @@ import {
   Sparkles,
   UploadCloud,
 } from "lucide-react";
-import { type ChangeEvent, useEffect, useRef, useState } from "react";
+import { type ChangeEvent, type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
 
 import type {
   GradingPaper,
@@ -26,6 +26,58 @@ import {
   AnswerRecordManagerDialog,
   MarkSchemeManagerDialog,
 } from "./GradingMaterialManagerDialog";
+
+type MaterialOption = { value: string; name: string; meta: string };
+
+function MaterialSelect({
+  ariaLabel,
+  disabled,
+  icon: Icon,
+  onChange,
+  options,
+  placeholder,
+  selectRef,
+  value,
+}: {
+  ariaLabel: string;
+  disabled: boolean;
+  icon: typeof FileText;
+  onChange: (value: string) => void;
+  options: MaterialOption[];
+  placeholder: string;
+  selectRef: RefObject<GetRef<typeof Select> | null>;
+  value: string;
+}) {
+  const byValue = new Map(options.map((option) => [option.value, option]));
+  const renderOption = (option: MaterialOption | undefined, fallback: ReactNode) => option ? (
+    <span className="grading-material-option">
+      <Icon aria-hidden="true" size={16} />
+      <span>
+        <strong title={option.name}>{option.name}</strong>
+        <small>{option.meta}</small>
+      </span>
+    </span>
+  ) : fallback;
+  return (
+    <Select
+      aria-label={ariaLabel}
+      className="grading-control-boundary grading-material-select-trigger"
+      classNames={{ popup: { root: "grading-material-select-popup" } }}
+      disabled={disabled}
+      labelRender={({ label, value: selected }) => renderOption(byValue.get(String(selected)), label)}
+      onChange={(next) => onChange(next ?? "")}
+      optionFilterProp="label"
+      optionRender={({ value: optionValue, label }) => renderOption(byValue.get(String(optionValue)), label)}
+      options={options.map((option) => ({ value: option.value, label: `${option.name} · ${option.meta}` }))}
+      placeholder={placeholder}
+      popupMatchSelectWidth={false}
+      ref={selectRef}
+      showSearch
+      value={value || undefined}
+      virtual={false}
+    />
+  );
+}
 
 export function GradingMaterialsStage({
   papers,
@@ -92,8 +144,8 @@ export function GradingMaterialsStage({
   lockPaperSelection?: boolean;
   onContinue: () => Promise<void>;
 }) {
-  const paperSelectRef = useRef<HTMLSelectElement>(null);
-  const documentSelectRef = useRef<HTMLSelectElement>(null);
+  const paperSelectRef = useRef<GetRef<typeof Select>>(null);
+  const documentSelectRef = useRef<GetRef<typeof Select>>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const retryButtonRef = useRef<HTMLButtonElement>(null);
   const [retryPhase, setRetryPhase] = useState<"idle" | "pending" | "settled">("idle");
@@ -125,6 +177,15 @@ export function GradingMaterialsStage({
       : papers.length
         ? "请选择作答记录"
         : "暂无可评分作答记录";
+  const paperSelectDisabled = lockPaperSelection
+    || materialSelectionBusy
+    || papersLoading
+    || papersError !== null
+    || papers.length === 0;
+  const documentSelectDisabled = materialSelectionBusy
+    || documentsLoading
+    || documentsError !== null
+    || documents.length === 0;
   const documentPlaceholder = documentsLoading
     ? "正在加载 Mark Scheme…"
     : documentsError
@@ -164,14 +225,11 @@ export function GradingMaterialsStage({
     }
     setRetryAnnouncement("材料列表已更新。");
     window.requestAnimationFrame(() => {
-      const firstValidControl = [
-        paperSelectRef.current,
-        documentSelectRef.current,
-        uploadInputRef.current,
-      ].find((control) => control !== null && !control.disabled);
-      firstValidControl?.focus();
+      if (!paperSelectDisabled) paperSelectRef.current?.focus();
+      else if (!documentSelectDisabled) documentSelectRef.current?.focus();
+      else if (uploadInputRef.current && !uploadInputRef.current.disabled) uploadInputRef.current.focus();
     });
-  }, [discoveryError, discoveryLoading, retryPhase]);
+  }, [discoveryError, discoveryLoading, documentSelectDisabled, paperSelectDisabled, retryPhase]);
 
   useEffect(() => {
     if (
@@ -228,21 +286,20 @@ export function GradingMaterialsStage({
               <Settings2 aria-hidden="true" size={15} />管理答卷
             </button>}
           </div>
-          <select
-            aria-label="选择作答记录"
-            className="grading-control-boundary grading-material-select-trigger"
-            disabled={lockPaperSelection || materialSelectionBusy || papersLoading || papersError !== null || papers.length === 0}
-            onChange={(event) => onChoosePaper(event.target.value)}
-            ref={paperSelectRef}
+          <MaterialSelect
+            ariaLabel="选择作答记录"
+            disabled={paperSelectDisabled}
+            icon={FileCheck2}
+            onChange={onChoosePaper}
+            options={papers.map((item) => ({
+              value: item.job_id,
+              name: item.display_name || item.filename,
+              meta: paperMaterialMeta(item),
+            }))}
+            placeholder={paperPlaceholder}
+            selectRef={paperSelectRef}
             value={paperId}
-          >
-            <option value="">{paperPlaceholder}</option>
-            {papers.map((item) => (
-              <option key={item.job_id} value={item.job_id}>
-                {item.display_name || item.filename} · {paperMaterialMeta(item)}
-              </option>
-            ))}
-          </select>
+          />
           {papersLoading ? (
             <div className="grading-discovery-state is-loading" role="status">
               <LoaderCircle aria-hidden="true" className="spin" size={15} />
@@ -286,26 +343,20 @@ export function GradingMaterialsStage({
             </button>
           </div>
           <div className="scheme-picker">
-            <select
-              aria-label="选择 Mark Scheme"
-              className="grading-control-boundary grading-material-select-trigger"
-              disabled={
-                materialSelectionBusy
-                || documentsLoading
-                || documentsError !== null
-                || documents.length === 0
-              }
-              onChange={(event) => onChooseDocument(event.target.value)}
-              ref={documentSelectRef}
+            <MaterialSelect
+              ariaLabel="选择 Mark Scheme"
+              disabled={documentSelectDisabled}
+              icon={BookOpenCheck}
+              onChange={onChooseDocument}
+              options={documents.map((item) => ({
+                value: item.id,
+                name: item.display_name || item.filename,
+                meta: schemeMaterialMeta(item),
+              }))}
+              placeholder={documentPlaceholder}
+              selectRef={documentSelectRef}
               value={documentId}
-            >
-              <option value="">{documentPlaceholder}</option>
-              {documents.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.display_name || item.filename} · {schemeMaterialMeta(item)}
-                </option>
-              ))}
-            </select>
+            />
             <Tooltip mouseEnterDelay={0.3} title="上传官方版本">
               <label
                 aria-disabled={busy !== null}

@@ -2686,12 +2686,22 @@ export interface components {
             failed_questions: number;
             /** Filename */
             filename: string;
+            /**
+             * Graded Questions
+             * @default 0
+             */
+            graded_questions: number;
             /** Job Id */
             job_id: string;
             /** Pair Key */
             pair_key: string | null;
             /** Paper Unit Id */
             paper_unit_id: string | null;
+            /**
+             * Pending Review Count
+             * @default 0
+             */
+            pending_review_count: number;
             /** Question Paper Document Id */
             question_paper_document_id: string | null;
             /** Replaced By Job Id */
@@ -2942,6 +2952,8 @@ export interface components {
             paper_filename: string | null;
             /** Paper Job Id */
             paper_job_id: string | null;
+            /** Paper Unit Id */
+            paper_unit_id: string | null;
             /** Question Position */
             question_position: number | null;
             /** Question Ref */

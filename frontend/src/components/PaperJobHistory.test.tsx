@@ -91,6 +91,8 @@ const history: PaperJobList = {
       split_contract_version: "paper-question-split-v6",
       replacement_for_job_id: null,
       replaced_by_job_id: null,
+      graded_questions: 0,
+      pending_review_count: 0,
       created_at: "2026-08-05T08:00:00+00:00",
       updated_at: "2026-08-05T08:30:00+00:00",
     },
@@ -288,6 +290,8 @@ describe("PaperJobHistory", () => {
           job_id: "job-replaced",
           filename: "QP-2026-replaced.pdf",
           replaced_by_job_id: "job-2",
+          graded_questions: 0,
+          pending_review_count: 0,
         },
       ],
       total: 3,
@@ -402,6 +406,32 @@ describe("PaperJobHistory", () => {
     ));
   });
 
+  test("shows grading progress and continues grading a graded record", async () => {
+    const user = userEvent.setup();
+    const onGrade = vi.fn();
+    listMock.mockResolvedValue({
+      ...history,
+      items: [{ ...history.items[0], graded_questions: 2, pending_review_count: 1 }],
+    });
+    render(
+      <PaperJobHistory
+        currentJobId={null}
+        embedded
+        onDeleted={vi.fn()}
+        onGrade={onGrade}
+        onOpen={vi.fn()}
+        paperUnitId="paper-1"
+        refreshKey={0}
+        subject={subject}
+      />,
+    );
+
+    expect(await screen.findByText(/已评分 2\//)).toBeInTheDocument();
+    expect(screen.getByText("1 项待复核")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "继续评分" }));
+    expect(onGrade).toHaveBeenCalledWith(history.items[0].job_id, history.items[0].paper_unit_id);
+  });
+
   test("starts grading from the exact completed answer record", async () => {
     const user = userEvent.setup();
     const onGrade = vi.fn();
@@ -418,7 +448,7 @@ describe("PaperJobHistory", () => {
       />,
     );
 
-    await selectRecordAction(user, "QP-2026-P1.pdf", "评分");
+    await user.click(await screen.findByRole("button", { name: "评分" }));
     expect(onGrade).toHaveBeenCalledWith("job-1", null);
   });
 
@@ -436,10 +466,7 @@ describe("PaperJobHistory", () => {
     );
 
     await screen.findByText("1 / 3");
-    await user.selectOptions(
-      screen.getByRole("combobox", { name: "每页显示条数" }),
-      "20",
-    );
+    await selectFilterOption(user, "每页显示条数", "20 条/页");
     await waitFor(() =>
       expect(listMock).toHaveBeenLastCalledWith(
         subject.id,

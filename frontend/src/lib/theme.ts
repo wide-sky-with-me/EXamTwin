@@ -46,6 +46,22 @@ export function applyTheme(preference: ThemePreference): void {
   }));
 }
 
+/** The preference currently applied to the document; every theme control reads this one value. */
+export function appliedThemePreference(): ThemePreference {
+  const value = document.documentElement.dataset.themePreference;
+  return value === "light" || value === "dark" || value === "system" ? value : storedTheme();
+}
+
+/** Follows OS colour-scheme changes once for the whole app, only while "system" is chosen. */
+export function watchSystemTheme(): () => void {
+  const media = window.matchMedia("(prefers-color-scheme: dark)");
+  const update = () => {
+    if (storedTheme() === "system") applyTheme("system");
+  };
+  media.addEventListener("change", update);
+  return () => media.removeEventListener("change", update);
+}
+
 export function saveTheme(preference: ThemePreference): void {
   window.localStorage.setItem(THEME_STORAGE_KEY, preference);
   applyTheme(preference);

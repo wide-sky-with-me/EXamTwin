@@ -1,4 +1,4 @@
-import { Button, Checkbox, Dropdown } from "antd";
+import { Button, Checkbox, Dropdown, Tooltip } from "antd";
 import {
   BookOpenCheck,
   FileClock,
@@ -339,14 +339,14 @@ export function PaperJobHistory({
       >
         {selectionMode ? "完成选择" : "批量选择"}
       </Button>
-      <Button
-        aria-label="刷新试卷作答记录"
-        disabled={loading || !subject}
-        icon={loading ? <LoaderCircle className="spin" size={15} /> : <RefreshCw size={15} />}
-        onClick={() => setLocalRefresh((value) => value + 1)}
-      >
-        刷新
-      </Button>
+      <Tooltip title="刷新">
+        <Button
+          aria-label="刷新试卷作答记录"
+          disabled={loading || !subject}
+          icon={loading ? <LoaderCircle className="spin" size={15} /> : <RefreshCw size={15} />}
+          onClick={() => setLocalRefresh((value) => value + 1)}
+        />
+      </Tooltip>
     </>
   );
 
@@ -535,6 +535,12 @@ export function PaperJobHistory({
                     ? `${item.completed_questions}/${item.total_questions} 题已处理`
                     : "等待识别题目"}
                   {item.failed_questions > 0 ? ` · ${item.failed_questions} 题处理失败` : ""}
+                  {item.graded_questions > 0 && (
+                    <span className="paper-history-grading">
+                      已评分 {item.graded_questions}/{item.total_questions || item.graded_questions} 题
+                      {item.pending_review_count > 0 && <b>{item.pending_review_count} 项待复核</b>}
+                    </span>
+                  )}
                 </span>
                 <div className="paper-history-actions">
                     {editingId === item.job_id ? (
@@ -569,12 +575,18 @@ export function PaperJobHistory({
                         >
                           查看
                         </Button>
+                        {onGrade && ["completed", "partial_failed"].includes(item.status) && (
+                          <Button
+                            icon={<BookOpenCheck size={14} />}
+                            onClick={() => onGrade(item.job_id, item.paper_unit_id)}
+                            size="small"
+                          >
+                            {item.graded_questions > 0 ? "继续评分" : "评分"}
+                          </Button>
+                        )}
                         <Dropdown
                           menu={{
                             items: [
-                              ...(onGrade && ["completed", "partial_failed"].includes(item.status)
-                                ? [{ key: "grade", icon: <BookOpenCheck size={14} />, label: "评分" }]
-                                : []),
                               ...(item.replaced_by_job_id
                                 ? [{ key: "replacement", icon: <FileClock size={14} />, label: "查看替代任务" }]
                                 : []),
@@ -595,7 +607,6 @@ export function PaperJobHistory({
                                 : []),
                             ],
                             onClick: ({ key }) => {
-                              if (key === "grade") onGrade?.(item.job_id, item.paper_unit_id);
                               if (key === "replacement" && item.replaced_by_job_id) {
                                 onOpen(item.replaced_by_job_id, item.paper_unit_id);
                               }
@@ -618,9 +629,7 @@ export function PaperJobHistory({
                             aria-label={`更多作答记录操作：${item.display_name || item.filename}`}
                             icon={<MoreHorizontal size={16} />}
                             size="small"
-                          >
-                            更多
-                          </Button>
+                          />
                         </Dropdown>
                       </>
                     )}
@@ -633,13 +642,6 @@ export function PaperJobHistory({
       ) : (
         <div className="paper-history-empty">
           <strong>{query || status || answerMode || unitCode || range !== "all" ? "没有符合当前条件的作答记录" : "还没有作答记录"}</strong>
-          <span>
-            {query || status || answerMode || unitCode || range !== "all"
-              ? "建议重置筛选，查看当前范围内的全部记录。"
-              : scopedToPaper
-                ? "建议返回试卷详情，开始 AI 作答或导入外部答卷。"
-                : "建议选择一份试卷并开始作答。"}
-          </span>
           {(query || status || answerMode || unitCode || range !== "all") && (
             <Button onClick={resetFilters} size="small">重置筛选</Button>
           )}

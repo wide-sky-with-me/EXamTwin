@@ -21,6 +21,7 @@ import { RubricCriterionEditor } from "../components/grading/RubricCriterionEdit
 import { ToastContext } from "../components/toast-context";
 import { DesignSystemProvider } from "../components/ui/DesignSystemProvider";
 import { subscribeTaskSnapshots } from "../lib/task-events";
+import { chooseSelectOption, selectRoot } from "../test/antd-select";
 import { Grading } from "./Grading";
 
 vi.mock("../lib/task-events", () => ({
@@ -66,10 +67,7 @@ async function chooseMaterialOption(
   label: "选择作答记录" | "选择 Mark Scheme",
   filename: string,
 ) {
-  const select = screen.getByLabelText<HTMLSelectElement>(label);
-  const escapedFilename = filename.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const option = within(select).getByRole<HTMLOptionElement>("option", { name: new RegExp(escapedFilename) });
-  await user.selectOptions(select, option.value);
+  await chooseSelectOption(user, label, filename);
 }
 
 function criterionFixture(
@@ -493,7 +491,7 @@ describe("Grading", () => {
       subscription?.onSnapshot(importedPaper);
     });
 
-    await waitFor(() => expect(screen.getByLabelText("选择作答记录")).toHaveTextContent(
+    await waitFor(() => expect(selectRoot("选择作答记录")).toHaveTextContent(
       `${importedJobId}.pdf`,
     ));
     expect(window.localStorage.getItem(
@@ -575,8 +573,8 @@ describe("Grading", () => {
     );
     expect(screen.queryByText(/还没有已完成的作答记录/)).not.toBeInTheDocument();
     expect(screen.queryByText(/还没有已转换的 Mark Scheme/)).not.toBeInTheDocument();
-    expect(screen.getByLabelText("选择作答记录")).toHaveClass("grading-control-boundary");
-    expect(screen.getByLabelText("选择 Mark Scheme")).toHaveClass("grading-control-boundary");
+    expect(selectRoot("选择作答记录")).toHaveClass("grading-control-boundary");
+    expect(selectRoot("选择 Mark Scheme")).toHaveClass("grading-control-boundary");
     expect(screen.getByRole("heading", { name: "评分材料" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "解析评分标准" })).toBeDisabled();
 
@@ -591,8 +589,8 @@ describe("Grading", () => {
     expect(screen.getByText(
       "还没有已转换的 Mark Scheme。你可以在此上传官方文件并完成转换。",
     )).toHaveClass("grading-discovery-state", "is-empty");
-    expect(screen.getByLabelText("选择作答记录")).toHaveTextContent("暂无可评分作答记录");
-    expect(screen.getByLabelText("选择 Mark Scheme")).toHaveTextContent("暂无可用 Mark Scheme");
+    expect(selectRoot("选择作答记录")).toHaveTextContent("暂无可评分作答记录");
+    expect(selectRoot("选择 Mark Scheme")).toHaveTextContent("暂无可用 Mark Scheme");
   });
 
   test("retries both discovery lists after the paper list fails", async () => {
@@ -663,7 +661,7 @@ describe("Grading", () => {
     )).toHaveClass("grading-discovery-state", "is-error");
     await user.click(screen.getByRole("button", { name: "重试材料列表" }));
 
-    await waitFor(() => expect(screen.getByLabelText("选择 Mark Scheme"))
+    await waitFor(() => expect(selectRoot("选择 Mark Scheme"))
       .toHaveTextContent("retry-scheme.pdf"));
     expect(paperRequests).toBe(2);
     expect(documentRequests).toBe(2);
@@ -853,8 +851,8 @@ describe("Grading", () => {
     vi.stubGlobal("fetch", fetch);
     render(<Grading subject={subject} onCreated={vi.fn()} />);
 
-    await waitFor(() => expect(screen.getByLabelText("选择作答记录")).toHaveTextContent("paper.pdf"));
-    await waitFor(() => expect(screen.getByLabelText("选择 Mark Scheme")).toHaveTextContent("mark-scheme.pdf"));
+    await waitFor(() => expect(selectRoot("选择作答记录")).toHaveTextContent("paper.pdf"));
+    await waitFor(() => expect(selectRoot("选择 Mark Scheme")).toHaveTextContent("mark-scheme.pdf"));
     await waitFor(() => expect(screen.getByLabelText("所选答卷内容")).toHaveTextContent("Q1答案已保存"));
     expect(screen.queryByPlaceholderText("粘贴学生作答内容")).not.toBeInTheDocument();
   });
@@ -893,15 +891,14 @@ describe("Grading", () => {
       onCreated={vi.fn(async () => { throw new Error("queue refresh failed"); })}
     />);
 
-    const schemeSelector = await screen.findByLabelText("选择 Mark Scheme");
-    await waitFor(() => expect(schemeSelector).toHaveValue("scheme-current"));
+    await screen.findByLabelText("选择 Mark Scheme");
+    await waitFor(() => expect(selectRoot("选择 Mark Scheme")).toHaveTextContent("current-scheme.pdf"));
     await user.click(screen.getByRole("button", { name: "管理标准" }));
     await user.click(await screen.findByLabelText("删除 current-scheme.pdf"));
     await user.click(await screen.findByRole("button", { name: "删除 Mark Scheme" }));
 
     await waitFor(() => expect(deleteRequests).toHaveLength(1));
-    await waitFor(() => expect(schemeSelector).toHaveValue(""));
-    expect(schemeSelector).toHaveTextContent("请选择 Mark Scheme");
+    await waitFor(() => expect(selectRoot("选择 Mark Scheme")).toHaveTextContent("请选择 Mark Scheme"));
     expect(screen.getByText("other-scheme.pdf")).toBeInTheDocument();
   });
 
@@ -1105,7 +1102,7 @@ describe("Grading", () => {
     render(<Grading subject={subject} onCreated={vi.fn()} />);
     await screen.findByLabelText("所选答卷内容");
     const schemeSelector = await screen.findByLabelText("选择 Mark Scheme");
-    await waitFor(() => expect(schemeSelector).toHaveValue("ms-a"));
+    await waitFor(() => expect(selectRoot("选择 Mark Scheme")).toHaveTextContent("scheme-a.pdf"));
     await user.click(screen.getByRole("button", { name: "解析评分标准" }));
     await waitFor(() => expect(createBody).toEqual({
       paper_job_id: paper.job_id,
@@ -1119,7 +1116,7 @@ describe("Grading", () => {
       await createRequest;
     });
 
-    expect(screen.getByLabelText("选择 Mark Scheme")).toHaveValue("ms-a");
+    expect(selectRoot("选择 Mark Scheme")).toHaveTextContent("scheme-a.pdf");
     expect(await screen.findByText("Criterion M1")).toBeInTheDocument();
   });
 
@@ -1155,15 +1152,15 @@ describe("Grading", () => {
       screen.getByLabelText("上传官方 Mark Scheme"),
       new File(["scheme"], "new-scheme.pdf", { type: "application/pdf" }),
     );
-    await waitFor(() => expect(screen.getByLabelText("选择 Mark Scheme"))
+    await waitFor(() => expect(selectRoot("选择 Mark Scheme"))
       .toHaveTextContent("new-scheme.pdf"));
 
     await act(async () => {
       resolveOldSources?.(await response([oldSource]));
       await oldSourcesRequest;
     });
-    expect(screen.getByLabelText("选择 Mark Scheme")).not.toHaveTextContent("old-scheme.pdf");
-    expect(screen.getByLabelText("选择 Mark Scheme")).toHaveValue("ms-new");
+    expect(selectRoot("选择 Mark Scheme")).not.toHaveTextContent("old-scheme.pdf");
+    expect(selectRoot("选择 Mark Scheme")).toHaveTextContent("new-scheme.pdf");
   });
 
   test("keeps the selected scheme and surfaces backend errors when conversion reports failure", async () => {
@@ -1201,8 +1198,8 @@ describe("Grading", () => {
         <Grading subject={subject} onCreated={vi.fn()} />
       </ToastContext.Provider>,
     );
-    const schemeSelector = await screen.findByLabelText("选择 Mark Scheme");
-    await waitFor(() => expect(schemeSelector).toHaveValue(existingSource.id));
+    await screen.findByLabelText("选择 Mark Scheme");
+    await waitFor(() => expect(selectRoot("选择 Mark Scheme")).toHaveTextContent(existingSource.filename));
 
     await user.upload(
       screen.getByLabelText("上传官方 Mark Scheme"),
@@ -1210,7 +1207,7 @@ describe("Grading", () => {
     );
 
     expect(await screen.findByText("PDF 无法转换")).toBeInTheDocument();
-    expect(schemeSelector).toHaveValue(existingSource.id);
+    expect(selectRoot("选择 Mark Scheme")).toHaveTextContent(existingSource.filename);
     expect(sourceRequests).toBe(1);
     expect(notify).not.toHaveBeenCalled();
   });
@@ -1263,16 +1260,16 @@ describe("Grading", () => {
         <Grading subject={subject} onCreated={vi.fn()} />
       </ToastContext.Provider>,
     );
-    const schemeSelector = await screen.findByLabelText("选择 Mark Scheme");
-    await waitFor(() => expect(schemeSelector).toHaveValue(existingSource.id));
+    await screen.findByLabelText("选择 Mark Scheme");
+    await waitFor(() => expect(selectRoot("选择 Mark Scheme")).toHaveTextContent(existingSource.filename));
 
     await user.upload(
       screen.getByLabelText("上传官方 Mark Scheme"),
       new File(["scheme"], "uploaded-scheme.pdf", { type: "application/pdf" }),
     );
 
-    await waitFor(() => expect(schemeSelector).toHaveValue(uploadedSource.id));
-    expect(screen.getByLabelText("选择 Mark Scheme")).toHaveTextContent("uploaded-scheme.pdf");
+    await waitFor(() => expect(selectRoot("选择 Mark Scheme")).toHaveTextContent(uploadedSource.filename));
+    expect(selectRoot("选择 Mark Scheme")).toHaveTextContent("uploaded-scheme.pdf");
     expect(sourceRequests).toBe(2);
     expect(notify).toHaveBeenCalledWith(
       "Mark Scheme 已上传并完成转换，可开始解析评分规则。",
@@ -1308,8 +1305,8 @@ describe("Grading", () => {
 
     render(<Grading subject={subject} onCreated={vi.fn()} />);
 
-    const schemeSelector = await screen.findByLabelText("选择 Mark Scheme");
-    await waitFor(() => expect(schemeSelector).toHaveValue(readyScheme.id));
+    await screen.findByLabelText("选择 Mark Scheme");
+    await waitFor(() => expect(selectRoot("选择 Mark Scheme")).toHaveTextContent(readyScheme.filename));
     expect(await screen.findByRole("button", { name: "解析评分标准" })).toBeEnabled();
     expect(staleRubricDetailRequests).toBe(0);
   });
@@ -1352,7 +1349,7 @@ describe("Grading", () => {
 
     const user = userEvent.setup();
     render(<Grading subject={subject} onCreated={vi.fn()} />);
-    await waitFor(() => expect(screen.getByLabelText("选择 Mark Scheme")).toHaveValue(schemeA.id));
+    await waitFor(() => expect(selectRoot("选择 Mark Scheme")).toHaveTextContent(schemeA.filename));
     await user.click(await screen.findByRole("button", { name: "开始逐题判分" }));
     await user.click(screen.getByRole("button", { name: "查看评分标准" }));
 
@@ -1404,9 +1401,9 @@ describe("Grading", () => {
 
     const user = userEvent.setup();
     render(<Grading subject={subject} onCreated={vi.fn()} />);
-    const schemeSelector = await screen.findByLabelText("选择 Mark Scheme");
+    await screen.findByLabelText("选择 Mark Scheme");
     await waitFor(() => {
-      expect(schemeSelector).toHaveValue(schemeA.id);
+      expect(selectRoot("选择 Mark Scheme")).toHaveTextContent(schemeA.filename);
       expect(rubricDetailRequests).toBe(1);
     });
 
@@ -1421,7 +1418,7 @@ describe("Grading", () => {
       await rubricARequest;
     });
 
-    expect(screen.getByLabelText("选择 Mark Scheme")).toHaveValue(schemeB.id);
+    expect(selectRoot("选择 Mark Scheme")).toHaveTextContent(schemeB.filename);
     expect(screen.getByRole("button", { name: "解析评分标准" })).toBeEnabled();
     expect(screen.getByRole("button", { name: /02.*逐题判分/ })).toBeDisabled();
     expect(screen.queryByRole("button", { name: "开始逐题判分" })).not.toBeInTheDocument();
@@ -1471,7 +1468,7 @@ describe("Grading", () => {
     await user.click(screen.getByRole("button", { name: "返回材料" }));
     await chooseMaterialOption(user, "选择 Mark Scheme", schemeB.filename);
 
-    expect(screen.getByLabelText("选择 Mark Scheme")).toHaveValue(schemeB.id);
+    expect(selectRoot("选择 Mark Scheme")).toHaveTextContent(schemeB.filename);
     expect(screen.getByRole("button", { hidden: true, name: /02.*逐题判分/ })).toBeDisabled();
     expect(screen.getByRole("button", { hidden: true, name: /03.*整卷结果/ })).toBeDisabled();
     expect(screen.getByRole("button", { name: "解析评分标准" })).toBeDisabled();
@@ -1530,7 +1527,7 @@ describe("Grading", () => {
     await user.click(await screen.findByRole("button", { name: "开始逐题判分" }));
     await user.click(screen.getByRole("button", { name: "查看评分标准" }));
     const versionSelector = await screen.findByLabelText("选择评分规则版本");
-    await user.selectOptions(versionSelector, rubricB.id);
+    await chooseSelectOption(user, "选择评分规则版本", "版本 2");
 
     expect(versionSelector).toBeDisabled();
     expect(screen.queryByText("Criterion A1")).not.toBeInTheDocument();
@@ -1603,9 +1600,14 @@ describe("Grading", () => {
     render(<Grading subject={subject} onCreated={vi.fn()} />);
     await user.click(await screen.findByRole("button", { name: "开始逐题判分" }));
     await user.click(screen.getByRole("button", { name: "查看评分标准" }));
-    const versionSelector = await screen.findByLabelText("选择评分规则版本");
-    fireEvent.change(versionSelector, { target: { value: rubricB.id } });
-    fireEvent.change(versionSelector, { target: { value: rubricC.id } });
+    await user.click(await screen.findByLabelText("选择评分规则版本"));
+    const versionOption = async (label: string) => (await screen.findAllByTitle(label)).find(
+      (node) => node.classList.contains("ant-select-item-option"),
+    )!;
+    const optionB = await versionOption("版本 2 · 已确认");
+    const optionC = await versionOption("版本 3 · 草稿");
+    fireEvent.click(optionB);
+    fireEvent.click(optionC);
     expect(await screen.findByText("Criterion C1")).toBeInTheDocument();
 
     await act(async () => {

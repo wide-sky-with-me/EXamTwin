@@ -74,7 +74,6 @@ export function ListFilterBar({
         />
         {children}
         <Space>
-          <Button htmlType="submit" type="primary">搜索</Button>
           <Button
             aria-label="重置"
             disabled={resetDisabled}
@@ -170,17 +169,17 @@ export function ListPagination({
         <strong>{firstItem}–{lastItem}</strong>/<span> {total} {itemUnit}</span>
       </Typography.Text>
       <Space className="list-pagination-controls">
-        <select
-          aria-label={resolvedPageSizeLabel}
-          className="list-page-size-trigger"
-          disabled={disabled}
-          onChange={(event) => onPageSizeChange(Number(event.target.value))}
-          value={String(pageSize)}
-        >
-          {pageSizes.map((size) => (
-            <option key={size} value={String(size)}>{size} {itemUnit}/页</option>
-          ))}
-        </select>
+        {pageSizes.length > 1 && (
+          <Select
+            aria-label={resolvedPageSizeLabel}
+            className="list-page-size-trigger"
+            disabled={disabled}
+            onChange={onPageSizeChange}
+            options={pageSizes.map((size) => ({ label: `${size} ${itemUnit}/页`, value: size }))}
+            popupMatchSelectWidth={false}
+            value={pageSize}
+          />
+        )}
         <Typography.Text aria-live="polite" className="list-pagination-page">{currentPage + 1} / {totalPages}</Typography.Text>
         <Button
           aria-label={`上一页${itemName}`}

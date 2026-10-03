@@ -7,9 +7,10 @@ import App from "./App";
 import { ToastProvider } from "./components/Toast";
 import { DesignSystemProvider } from "./components/ui/DesignSystemProvider";
 import "./styles.css";
-import { applyTheme, storedTheme } from "./lib/theme";
+import { applyTheme, storedTheme, watchSystemTheme } from "./lib/theme";
 
 applyTheme(storedTheme());
+watchSystemTheme();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

@@ -17,6 +17,7 @@ import { RubricCriterionEditor } from "./RubricCriterionEditor";
 import { GradingQuestionStage } from "./GradingQuestionStage";
 import { RubricReviewStage } from "./RubricReviewStage";
 import { DesignSystemProvider } from "../ui/DesignSystemProvider";
+import { chooseSelectOption, selectRoot } from "../../test/antd-select";
 
 function render(ui: ReactElement) {
   return testingLibraryRender(ui, { wrapper: DesignSystemProvider });
@@ -790,7 +791,7 @@ describe("grading component final-review regressions", () => {
       />,
     );
 
-    await user.selectOptions(screen.getByLabelText("审核状态"), "pending");
+    await chooseSelectOption(user, "审核状态", "待处理");
     const card = screen.getByRole("heading", { name: "Q1 · B1" }).closest("article")!;
     await user.type(within(card).getByLabelText("审核说明"), "Checked against source");
     await waitFor(() => expect(window.sessionStorage).toHaveLength(1));
@@ -826,7 +827,7 @@ describe("grading component final-review regressions", () => {
         onReviewCriterion={onReviewCriterion}
       />,
     );
-    await user.selectOptions(screen.getByLabelText("审核状态"), "pending");
+    await chooseSelectOption(user, "审核状态", "待处理");
 
     await user.click(screen.getByRole("button", { name: "保留 Q1 · M1" }));
     const nextAccept = await screen.findByRole("button", { name: "保留 Q1 · B1" });
@@ -1328,8 +1329,8 @@ describe("grading materials UI closure regressions", () => {
       ],
     }));
 
-    expect(screen.getByLabelText("选择作答记录")).toHaveTextContent("paper-ready.pdf");
-    expect(screen.getByLabelText("选择作答记录")).toHaveTextContent("P2 · 2/2 题 · 作答完整");
+    expect(selectRoot("选择作答记录")).toHaveTextContent("paper-ready.pdf");
+    expect(selectRoot("选择作答记录")).toHaveTextContent("P2 · 2/2 题 · 作答完整");
 
     await user.click(screen.getByRole("button", { name: "管理答卷" }));
     const search = await screen.findByPlaceholderText("搜索文件名、Unit 或状态");
@@ -1348,7 +1349,7 @@ describe("grading materials UI closure regressions", () => {
     const onDeleteDocument = vi.fn(async () => undefined);
     render(materialStageElement({ onDeleteDocument }));
 
-    expect(screen.getByLabelText("选择 Mark Scheme")).toHaveTextContent("官方标准 · 2 页 · 内容就绪");
+    expect(selectRoot("选择 Mark Scheme")).toHaveTextContent("官方标准 · 2 页 · 内容就绪");
     await user.click(screen.getByRole("button", { name: "管理标准" }));
     await user.click(await screen.findByLabelText("删除 scheme-ready.pdf"));
     await user.click(await screen.findByRole("button", { name: "删除 Mark Scheme" }));

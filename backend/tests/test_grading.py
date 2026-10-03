@@ -228,6 +228,7 @@ def test_pending_reviews_include_paper_provenance_and_preserve_legacy_rows() -> 
         display_name="Economics June U1",
         filename="qp-june-u1.pdf",
         answer_mode="uploaded",
+        paper_unit_id="paper-unit-1",
     )
     captured_statements: list[str] = []
 
@@ -246,11 +247,13 @@ def test_pending_reviews_include_paper_provenance_and_preserve_legacy_rows() -> 
 
     assert "LEFT OUTER JOIN paper_jobs" in captured_statements[0]
     assert items[0]["paper_job_id"] == "job-1"
+    assert items[0]["paper_unit_id"] == "paper-unit-1"
     assert items[0]["paper_display_name"] == "Economics June U1"
     assert items[0]["paper_filename"] == "qp-june-u1.pdf"
     assert items[0]["question_position"] == 2
     assert items[0]["answer_mode"] == "uploaded"
     assert items[1]["paper_job_id"] is None
+    assert items[1]["paper_unit_id"] is None
     assert items[1]["paper_display_name"] is None
     assert items[1]["paper_filename"] is None
     assert items[1]["question_position"] is None

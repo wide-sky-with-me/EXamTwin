@@ -42,6 +42,7 @@ class AssessmentRepository:
                 "id": assessment.id,
                 "subject_code": assessment.subject_code,
                 "paper_job_id": assessment.paper_job_id,
+                "paper_unit_id": paper_job.paper_unit_id if paper_job else None,
                 "paper_display_name": paper_job.display_name if paper_job else None,
                 "paper_filename": paper_job.filename if paper_job else None,
                 "question_position": assessment.question_position,
