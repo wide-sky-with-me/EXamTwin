@@ -99,6 +99,8 @@ Docker Desktop 的 `host` 网络可能只在 Docker VM 内可达，表现为容�
 
 1. 在私有 `.env` 中选择空闲的 `API_PORT`（例如 `18000`）。如使用 S3，设置非默认的
    `OBJECT_STORE_ACCESS_KEY` 和随机 `OBJECT_STORE_SECRET_KEY`；容器 DNS 地址同样受凭据门禁约束。
+   容器访问模型服务需要代理时，设置 `CONTAINER_PROXY_URL`（如 `http://host.docker.internal:7897`）；
+   覆盖文件不会继承宿主 shell 的 `HTTP_PROXY`，因为容器内的 `127.0.0.1` 不是宿主机。
 2. 同步依赖并启动（S3 配置必须带 `--profile s3`）：
 
 ```bash

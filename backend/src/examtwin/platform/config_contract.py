@@ -10,6 +10,7 @@ from examtwin.platform.config import PROJECT_ROOT, Settings
 
 COMPOSE_ONLY_ENV_KEYS = frozenset(
     {
+        "CONTAINER_PROXY_URL",
         "EXAMTWIN_STORAGE_ROOT",
         "LOCAL_GID",
         "LOCAL_UID",

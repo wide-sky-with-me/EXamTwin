@@ -8,6 +8,11 @@ x-local-environment: &local-environment
   DATABASE_URL: postgresql://${POSTGRES_USER:-examtwin}:${POSTGRES_PASSWORD:-examtwin_dev}@postgres:5432/${POSTGRES_DB:-examtwin}
   QDRANT_URL: http://qdrant:6333
   OBJECT_STORE_ENDPOINT_URL: http://seaweedfs:8333
+  # The host shell's loopback proxy is unreachable from the bridge network.
+  HTTP_PROXY: ${CONTAINER_PROXY_URL:-}
+  HTTPS_PROXY: ${CONTAINER_PROXY_URL:-}
+  ALL_PROXY: ""
+  NO_PROXY: localhost,127.0.0.1,postgres,qdrant,seaweedfs
 
 services:
   api:
