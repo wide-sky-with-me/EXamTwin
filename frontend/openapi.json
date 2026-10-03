@@ -7592,6 +7592,186 @@
         "title": "UpdateSubjectRequest",
         "type": "object"
       },
+      "UploadedSourceDocumentResponse": {
+        "properties": {
+          "authority_tier": {
+            "title": "Authority Tier",
+            "type": "string"
+          },
+          "checksum": {
+            "title": "Checksum",
+            "type": "string"
+          },
+          "created": {
+            "description": "False when the upload matched an existing document by checksum.",
+            "title": "Created",
+            "type": "boolean"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "exam_session": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exam Session"
+          },
+          "exam_year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exam Year"
+          },
+          "filename": {
+            "title": "Filename",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "identity_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Identity Error"
+          },
+          "identity_status": {
+            "default": "not_applicable",
+            "title": "Identity Status",
+            "type": "string"
+          },
+          "knowledge_base_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Knowledge Base Id"
+          },
+          "license_confirmed": {
+            "title": "License Confirmed",
+            "type": "boolean"
+          },
+          "object_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Object Key"
+          },
+          "page_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Count"
+          },
+          "pair_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pair Key"
+          },
+          "source_role": {
+            "title": "Source Role",
+            "type": "string"
+          },
+          "source_type": {
+            "title": "Source Type",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "unit_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Code"
+          }
+        },
+        "required": [
+          "id",
+          "filename",
+          "display_name",
+          "source_type",
+          "source_role",
+          "authority_tier",
+          "knowledge_base_id",
+          "license_confirmed",
+          "status",
+          "checksum",
+          "object_key",
+          "page_count",
+          "error",
+          "pair_key",
+          "unit_code",
+          "exam_year",
+          "exam_session",
+          "identity_status",
+          "identity_error",
+          "created"
+        ],
+        "title": "UploadedSourceDocumentResponse",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -12234,7 +12414,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SourceDocumentResponse"
+                  "$ref": "#/components/schemas/UploadedSourceDocumentResponse"
                 }
               }
             },

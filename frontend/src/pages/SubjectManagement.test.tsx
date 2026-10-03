@@ -90,4 +90,20 @@ describe("SubjectManagement", () => {
     expect(dialog).toBeInTheDocument();
     expect(dialog).toHaveTextContent(`将删除“${subject.title}”`);
   });
+
+  test("offers only course templates whose subject code is still free", async () => {
+    const user = userEvent.setup();
+    const installed = subjectFixture(1);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify([
+      { id: "installed-profile", subject_code: installed.subject_code, title: "Installed", version: "1", answering_enabled: true },
+      { id: "free-profile", subject_code: "FREE1", title: "Free template", version: "1", answering_enabled: true },
+    ]), { status: 200, headers: { "Content-Type": "application/json" } })));
+    render(<SubjectManagement loading={false} refresh={vi.fn()} subjects={[installed]} />);
+
+    await user.click(screen.getByRole("button", { name: "新增科目" }));
+    await user.click(await screen.findByRole("combobox", { name: "课程模板" }));
+    expect(await screen.findByText("Free template · FREE1", { selector: ".ant-select-item-option-content" })).toBeInTheDocument();
+    expect(screen.queryByText(`Installed · ${installed.subject_code}`)).not.toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
 });

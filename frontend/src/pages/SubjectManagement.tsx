@@ -174,6 +174,11 @@ export function SubjectManagement({
   const { notify } = useToast();
 
   const managedSubject = subjects.find((subject) => subject.id === managedSubjectId) ?? null;
+  // Subject codes are unique, so a profile whose code is already in use cannot create a subject.
+  const availableProfiles = useMemo(() => {
+    const usedCodes = new Set(subjects.map((subject) => subject.subject_code));
+    return profiles.filter((profile) => !usedCodes.has(profile.subject_code));
+  }, [profiles, subjects]);
   const boards = useMemo(() => [...new Set(subjects.map((subject) => subject.board_name))].sort(), [subjects]);
   const filteredSubjects = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -210,7 +215,7 @@ export function SubjectManagement({
   }
 
   function chooseProfile(profileId: string) {
-    const profile = profiles.find((item) => item.id === profileId);
+    const profile = availableProfiles.find((item) => item.id === profileId);
     setCreateForm((current) => ({
       ...current,
       capability_profile_id: profileId,
@@ -433,13 +438,16 @@ export function SubjectManagement({
       <Modal destroyOnHidden footer={null} onCancel={() => setCreateOpen(false)} open={createOpen} title="新增科目" width={720}>
         <Form layout="vertical" onFinish={() => void createSubject()}>
           <ErrorBanner message={error} />
-          <Form.Item label="课程模板（可选）">
-            <Select
-              onChange={chooseProfile}
-              options={[{ label: "不使用模板", value: "" }, ...profiles.map((profile) => ({ label: `${profile.title} · ${profile.subject_code}`, value: profile.id }))]}
-              value={createForm.capability_profile_id}
-            />
-          </Form.Item>
+          {availableProfiles.length > 0 && (
+            <Form.Item label="课程模板（可选）">
+              <Select
+                aria-label="课程模板"
+                onChange={chooseProfile}
+                options={[{ label: "不使用模板", value: "" }, ...availableProfiles.map((profile) => ({ label: `${profile.title} · ${profile.subject_code}`, value: profile.id }))]}
+                value={createForm.capability_profile_id}
+              />
+            </Form.Item>
+          )}
           <Row gutter={16}>
             <Col span={12}><Form.Item label="科目名称" required><Input maxLength={200} onChange={(event) => setCreateForm({ ...createForm, title: event.target.value })} value={createForm.title} /></Form.Item></Col>
             <Col span={12}><Form.Item label="科目代码" required><Input maxLength={32} onChange={(event) => setCreateForm({ ...createForm, subject_code: event.target.value })} value={createForm.subject_code} /></Form.Item></Col>

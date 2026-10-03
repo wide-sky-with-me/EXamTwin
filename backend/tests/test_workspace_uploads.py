@@ -195,6 +195,7 @@ class WorkspaceApiService:
             raise self.upload_error
         return {
             "id": "document-1",
+            "created": True,
             "filename": filename,
             "source_type": source_type,
             "source_role": "core_knowledge",
@@ -788,6 +789,7 @@ def test_workspace_router_upload_returns_created_response() -> None:
         "exam_session": None,
         "identity_status": "not_applicable",
         "identity_error": None,
+        "created": True,
     }
     assert service.upload_call == {
         "workspace_id": "workspace-1",

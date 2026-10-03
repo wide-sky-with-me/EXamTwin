@@ -290,3 +290,16 @@ def test_answer_records_and_review_queue_expose_grading_progress_and_paper() -> 
     assert progress == {job_id: (2, 2)}
     pending = AssessmentRepository(sessions).pending(subject_code="9660")
     assert {item["paper_unit_id"] for item in pending} == {created["id"]}
+
+
+def test_job_deletion_rejects_unknown_ids_without_deleting_the_valid_ones() -> None:
+    service, sessions, subject_id = _service()
+    _document(sessions, subject_id, "qp", "question_paper")
+    created = service.create_unit(["qp"], display_name=None)
+    job_id = _completed_job(sessions, str(created["id"]))
+    jobs = PaperJobRepository(sessions, lease_seconds=60)
+
+    with pytest.raises(LookupError, match="不存在"):
+        jobs.delete_releasable((job_id, "missing-job"), "9660", terminal_statuses=("completed",))
+    assert jobs.get(job_id) is not None
+    assert jobs.delete_releasable((job_id,), "9660", terminal_statuses=("completed",)) == 1

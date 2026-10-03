@@ -39,9 +39,12 @@ class DocumentBlockRepository:
     def parents(self, build_id: str, parent_ids: Sequence[str]) -> dict[str, dict[str, Any]]:
         if not parent_ids:
             return {}
+        # Builds published before block IDs were build-scoped store the source IDs directly,
+        # so match both forms within the same build.
         stored_to_source = {
             build_scoped_block_id(build_id, source_id): source_id for source_id in parent_ids
         }
+        stored_to_source.update({source_id: source_id for source_id in parent_ids})
         statement = select(DocumentBlockModel).where(
             DocumentBlockModel.build_id == build_id,
             DocumentBlockModel.id.in_(tuple(stored_to_source)),

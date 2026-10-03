@@ -1,3 +1,4 @@
+const path = require("node:path");
 const { chromium } = require("@playwright/test");
 
 const baseUrl = process.env.EXAMTWIN_BASE_URL || "http://127.0.0.1:5173";
@@ -7,7 +8,10 @@ const paperJobId = process.env.EXAMTWIN_PAPER_JOB_ID || "";
 const paperLabel = process.env.EXAMTWIN_PAPER_LABEL
   || "as-level-maths-unit-1-question-paper-Jan19.pdf";
 const markSchemePath = process.env.EXAMTWIN_MARK_SCHEME_PATH
-  || "/home/widsky/workspace/EXamTwin/data/牛津AQA/数学/5.AQA-alevel数学-历年真题/AS/2019 January/as-level-maths-unit-1-mark-scheme-Jan19.pdf";
+  || path.join(
+    path.resolve(__dirname, "../.."),
+    "data/牛津AQA/数学/5.AQA-alevel数学-历年真题/AS/2019 January/as-level-maths-unit-1-mark-scheme-Jan19.pdf",
+  );
 const markSchemeLabel = process.env.EXAMTWIN_MARK_SCHEME_LABEL
   || markSchemePath.split("/").pop();
 const reviewer = process.env.EXAMTWIN_REVIEWER || "widsky-e2e";

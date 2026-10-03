@@ -3644,6 +3644,55 @@ export interface components {
             /** Title */
             title: string;
         };
+        /** UploadedSourceDocumentResponse */
+        UploadedSourceDocumentResponse: {
+            /** Authority Tier */
+            authority_tier: string;
+            /** Checksum */
+            checksum: string;
+            /**
+             * Created
+             * @description False when the upload matched an existing document by checksum.
+             */
+            created: boolean;
+            /** Display Name */
+            display_name: string | null;
+            /** Error */
+            error: string | null;
+            /** Exam Session */
+            exam_session: string | null;
+            /** Exam Year */
+            exam_year: number | null;
+            /** Filename */
+            filename: string;
+            /** Id */
+            id: string;
+            /** Identity Error */
+            identity_error: string | null;
+            /**
+             * Identity Status
+             * @default not_applicable
+             */
+            identity_status: string;
+            /** Knowledge Base Id */
+            knowledge_base_id: string | null;
+            /** License Confirmed */
+            license_confirmed: boolean;
+            /** Object Key */
+            object_key: string | null;
+            /** Page Count */
+            page_count: number | null;
+            /** Pair Key */
+            pair_key: string | null;
+            /** Source Role */
+            source_role: string;
+            /** Source Type */
+            source_type: string;
+            /** Status */
+            status: string;
+            /** Unit Code */
+            unit_code: string | null;
+        };
         /** ValidationError */
         ValidationError: {
             /** Context */
@@ -5897,7 +5946,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SourceDocumentResponse"];
+                    "application/json": components["schemas"]["UploadedSourceDocumentResponse"];
                 };
             };
             /** @description Validation Error */

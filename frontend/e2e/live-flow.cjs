@@ -1,4 +1,11 @@
+const path = require("node:path");
 const { chromium } = require("@playwright/test");
+
+const repositoryRoot = path.resolve(__dirname, "../..");
+const paperPath = process.env.EXAMTWIN_PAPER_PATH || path.join(
+  repositoryRoot,
+  "data/牛津AQA/数学/5.AQA-alevel数学-历年真题/AS/2019 January/as-level-maths-unit-1-question-paper-Jan19.pdf",
+);
 
 (async () => {
   const browser = await chromium.launch({ channel: "chrome", headless: true });
@@ -11,9 +18,7 @@ const { chromium } = require("@playwright/test");
   await page.getByRole("button", { name: "新建作答" }).click();
   await page.getByRole("button", { name: /Mathematics \(9660\)/ }).click();
   await page.getByRole("button", { name: "下一步" }).click();
-  await page.locator('input[type="file"]').setInputFiles(
-    "/home/widsky/workspace/EXamTwin/data/牛津AQA/数学/5.AQA-alevel数学-历年真题/AS/2019 January/as-level-maths-unit-1-question-paper-Jan19.pdf",
-  );
+  await page.locator('input[type="file"]').setInputFiles(paperPath);
   await page.getByLabel("参考单元（可选）").selectOption("P1");
   await page.getByRole("button", { name: "开始整卷作答" }).click();
   const progress = page.locator(".paper-progress");
