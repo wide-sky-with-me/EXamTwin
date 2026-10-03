@@ -722,6 +722,36 @@ describe("PaperManagement", () => {
     expect(onCloseDetail).toHaveBeenCalledWith(subject.id);
   });
 
+  test("keeps a resolved paper link state in place when the paper list arrives later", async () => {
+    installServer([paper()], undefined, 80, [], null);
+    const serve = globalThis.fetch;
+    let releaseList!: () => void;
+    const listGate = new Promise<void>((resolve) => { releaseList = resolve; });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      if (request.method === "GET" && new URL(request.url).pathname.endsWith("/paper-units")) await listGate;
+      return serve(request);
+    }));
+    const onCloseDetail = vi.fn();
+    const user = userEvent.setup();
+    render(<PaperManagement
+      detail={{ kind: "paper", id: "unit-missing" }}
+      onCloseDetail={onCloseDetail}
+      subjectId={subject.id}
+      subjects={[subject]}
+    />);
+    const dialog = await visibleModal("试卷详情");
+    await within(dialog).findByText(/Paper unit not found/);
+    const back = within(dialog).getByRole("button", { name: "返回试卷列表" });
+
+    releaseList();
+    expect(await screen.findByText("June paper")).toBeInTheDocument();
+    expect(back).toBeInTheDocument();
+    expect(within(dialog).queryByText(/Paper unit not found/)).toBeInTheDocument();
+    await user.click(back);
+    expect(onCloseDetail).toHaveBeenCalledWith(subject.id);
+  });
+
   test("blocks AI answering with the subject's configuration reason", async () => {
     installServer();
     const blocked = { ...subject, answering_enabled: false, answering_disabled_reason: "缺少评分边界配置" };

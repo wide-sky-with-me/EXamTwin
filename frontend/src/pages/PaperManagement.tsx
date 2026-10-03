@@ -290,6 +290,7 @@ export function PaperManagement({
   const [detailPaper, setDetailPaper] = useState<PaperUnitSummary | null>(null);
   const [detailLoading, setDetailLoading] = useState(Boolean(detail));
   const [detailError, setDetailError] = useState<string | null>(null);
+  const resolvedDetailKeyRef = useRef<string | null>(null);
   const paperRequestRef = useRef(0);
   const documentRequestRef = useRef(0);
   const previousSubjectIdRef = useRef(subjectId);
@@ -413,21 +414,28 @@ export function PaperManagement({
           ? detail.paperId
           : undefined;
     if (!paperId || !subjectId) {
+      resolvedDetailKeyRef.current = null;
       setDetailPaper(null);
       setDetailLoading(false);
       setDetailError(null);
       return;
     }
+    const detailKey = `${subjectId}:${paperId}`;
     const listed = papers.items.find((item) => item.id === paperId);
     if (listed) {
+      resolvedDetailKeyRef.current = detailKey;
       setDetailPaper(listed);
       setDetailLoading(false);
       setDetailError(null);
       return;
     }
-    setDetailPaper(null);
-    setDetailError(null);
-    setDetailLoading(true);
+    // A list refresh re-fetches an unlisted paper in place; replacing a resolved
+    // detail or not-found state with a skeleton would detach its controls.
+    if (resolvedDetailKeyRef.current !== detailKey) {
+      setDetailPaper(null);
+      setDetailError(null);
+      setDetailLoading(true);
+    }
     let current = true;
     void unwrapApi(apiClient.GET(
       "/api/v1/subject-workspaces/{workspace_id}/paper-units/{paper_unit_id}",
@@ -437,12 +445,15 @@ export function PaperManagement({
       },
     )).then((result) => {
       if (current) {
+        resolvedDetailKeyRef.current = detailKey;
         setDetailError(null);
         setDetailPaper(result);
         setDetailLoading(false);
       }
     }).catch((cause: unknown) => {
       if (current) {
+        resolvedDetailKeyRef.current = detailKey;
+        setDetailPaper(null);
         setDetailError(cause instanceof Error ? cause.message : "试卷详情加载失败");
         setDetailLoading(false);
       }
