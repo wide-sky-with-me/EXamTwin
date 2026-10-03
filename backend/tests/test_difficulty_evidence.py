@@ -309,6 +309,7 @@ def test_candidate_correction_is_revalidated_against_frozen_source(tmp_path: Pat
     assert replacement["difficulty_score"] is None
 
 
+@pytest.mark.local_assets
 @pytest.mark.parametrize(
     "relative_path, expected_text",
     [
