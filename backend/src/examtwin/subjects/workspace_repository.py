@@ -19,13 +19,16 @@ from examtwin.contracts.common import (
 from examtwin.platform.database.models import (
     AssessmentModel,
     AssessmentRunModel,
+    DifficultyEvidenceCandidateModel,
     DifficultyEvidenceModel,
+    DifficultyEvidenceRunModel,
     KnowledgeBaseModel,
     KnowledgeBaseVersionModel,
     KnowledgeBuildRunModel,
     KnowledgePointModel,
     KnowledgeRelationModel,
     PaperJobModel,
+    PaperUnitModel,
     QuestionDifficultyModel,
     RetrievalTraceModel,
     ReviewModel,
@@ -303,9 +306,16 @@ class WorkspaceRepository:
             if missing:
                 raise LookupError(f"科目工作区不存在：{', '.join(missing)}")
 
+            # subjects.subject_code is unique, so rows keyed only by code (and legacy rows without
+            # a workspace ID) belong to exactly one of the selected workspaces.
             subject_codes = tuple(found[subject_id].subject_code for subject_id in unique_ids)
-            owned_jobs = (PaperJobModel.subject_pack_id.in_(unique_ids)) | (
-                PaperJobModel.subject_code.in_(subject_codes)
+            paper_unit_ids = select(PaperUnitModel.id).where(
+                PaperUnitModel.subject_id.in_(unique_ids)
+            )
+            owned_jobs = (
+                PaperJobModel.subject_pack_id.in_(unique_ids)
+                | PaperJobModel.paper_unit_id.in_(paper_unit_ids)
+                | PaperJobModel.subject_code.in_(subject_codes)
             )
             active_job = session.scalar(
                 select(PaperJobModel.id)
@@ -318,43 +328,55 @@ class WorkspaceRepository:
             if active_job is not None:
                 raise ValueError("选中的科目包含正在处理的试卷任务，完成或失败后才能删除")
 
-            assessment_ids = select(AssessmentModel.id).where(
+            job_ids = select(PaperJobModel.id).where(owned_jobs)
+            owned_assessments = AssessmentModel.paper_job_id.in_(job_ids) | (
                 AssessmentModel.subject_code.in_(subject_codes)
             )
+            assessment_ids = select(AssessmentModel.id).where(owned_assessments)
             session.execute(
                 delete(ReviewModel).where(ReviewModel.assessment_id.in_(assessment_ids))
             )
-            session.execute(
-                delete(AssessmentModel).where(AssessmentModel.subject_code.in_(subject_codes))
-            )
+            session.execute(delete(AssessmentModel).where(owned_assessments))
 
             session.execute(
                 delete(AssessmentRunModel).where(AssessmentRunModel.subject_id.in_(unique_ids))
             )
-            job_ids = select(PaperJobModel.id).where(owned_jobs)
             session.execute(
                 update(PaperJobModel)
                 .where(PaperJobModel.id.in_(job_ids))
                 .values(replacement_for_job_id=None)
             )
             session.execute(delete(PaperJobModel).where(owned_jobs))
+            # Paper units bind documents with RESTRICT; removing them (and, by cascade, their
+            # bindings) first lets the workspace's documents be deleted below.
+            session.execute(delete(PaperUnitModel).where(PaperUnitModel.subject_id.in_(unique_ids)))
 
-            document_ids = select(SourceDocumentModel.id).where(
-                (SourceDocumentModel.subject_id.in_(unique_ids))
-                | (SourceDocumentModel.subject_code.in_(subject_codes))
+            owned_documents = SourceDocumentModel.subject_id.in_(unique_ids) | (
+                SourceDocumentModel.subject_code.in_(subject_codes)
             )
+            document_ids = select(SourceDocumentModel.id).where(owned_documents)
             session.execute(
                 delete(QuestionDifficultyModel).where(
                     QuestionDifficultyModel.source_document_id.in_(document_ids)
                 )
             )
             session.execute(delete(RubricSetModel).where(RubricSetModel.subject_id.in_(unique_ids)))
+            # Difficulty evidence references documents with RESTRICT; reviews cascade from
+            # candidates and candidates from runs.
             session.execute(
-                delete(SourceDocumentModel).where(
-                    (SourceDocumentModel.subject_id.in_(unique_ids))
-                    | (SourceDocumentModel.subject_code.in_(subject_codes))
+                delete(DifficultyEvidenceCandidateModel).where(
+                    DifficultyEvidenceCandidateModel.subject_id.in_(unique_ids)
+                    | DifficultyEvidenceCandidateModel.source_document_id.in_(document_ids)
                 )
             )
+            session.execute(
+                delete(DifficultyEvidenceRunModel).where(
+                    DifficultyEvidenceRunModel.subject_id.in_(unique_ids)
+                    | DifficultyEvidenceRunModel.source_document_id.in_(document_ids)
+                    | DifficultyEvidenceRunModel.question_paper_document_id.in_(document_ids)
+                )
+            )
+            session.execute(delete(SourceDocumentModel).where(owned_documents))
 
             point_ids = select(KnowledgePointModel.id).where(
                 KnowledgePointModel.subject_code.in_(subject_codes)

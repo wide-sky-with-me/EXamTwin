@@ -11,11 +11,15 @@ from examtwin.platform.config import Settings
 from examtwin.platform.database.models import (
     AssessmentModel,
     Base,
+    DifficultyEvidenceRunModel,
+    KnowledgePointModel,
     PaperJobModel,
+    PaperUnitModel,
     SourceDocumentModel,
     SubjectModel,
 )
 from examtwin.subjects.public import subject_context
+from examtwin.subjects.workspace_repository import WorkspaceRepository
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -303,3 +307,67 @@ def test_job_deletion_rejects_unknown_ids_without_deleting_the_valid_ones() -> N
         jobs.delete_releasable((job_id, "missing-job"), "9660", terminal_statuses=("completed",))
     assert jobs.get(job_id) is not None
     assert jobs.delete_releasable((job_id,), "9660", terminal_statuses=("completed",)) == 1
+
+
+def _enforce_sqlite_foreign_keys(sessions: sessionmaker[Session]) -> None:
+    # The in-memory database lives on one pooled connection; enable enforcement on it so
+    # RESTRICT bindings are exercised like on PostgreSQL.
+    with sessions.kw["bind"].connect() as connection:
+        connection.exec_driver_sql("PRAGMA foreign_keys=ON")
+        assert connection.exec_driver_sql("PRAGMA foreign_keys").scalar() == 1
+
+
+def test_subject_with_papers_and_difficulty_evidence_can_be_deleted() -> None:
+    service, sessions, subject_id = _service()
+    _enforce_sqlite_foreign_keys(sessions)
+    _document(sessions, subject_id, "qp", "question_paper")
+    _document(sessions, subject_id, "er", "examiner_report")
+    created = service.create_unit(["qp"], display_name=None)
+    job_id = _completed_job(sessions, str(created["id"]))
+    now = datetime(2026, 8, 12, tzinfo=UTC)
+    with sessions.begin() as session:
+        session.add(
+            DifficultyEvidenceRunModel(
+                id="run-1",
+                subject_id=subject_id,
+                subject_code="9660",
+                source_document_id="er",
+                source_checksum="checksum-er",
+                question_paper_document_id="qp",
+                question_paper_checksum="checksum-qp",
+                question_catalog_json="[]",
+                question_catalog_hash="catalog",
+                pair_key="9660:2024:JUN:P1",
+                input_hash="input",
+                package_digest="package",
+                extractor_version="v1",
+                model_name="test",
+                prompt_digest="prompt",
+                status="completed",
+                error=None,
+                created_at=now,
+                updated_at=now,
+                completed_at=now,
+                published_at=None,
+            )
+        )
+        session.add(
+            KnowledgePointModel(
+                id="kp-1", subject_code="9660", code="1.1", features_json="{}", updated_at=now
+            )
+        )
+
+    # Documents are bound to the paper unit and the evidence run with RESTRICT; deletion must
+    # remove those first instead of failing on the foreign keys.
+    assert WorkspaceRepository(sessions).delete_subjects([subject_id]) == [subject_id]
+    with sessions() as session:
+        for model, key in (
+            (PaperUnitModel, str(created["id"])),
+            (PaperJobModel, job_id),
+            (SourceDocumentModel, "qp"),
+            (SourceDocumentModel, "er"),
+            (DifficultyEvidenceRunModel, "run-1"),
+            (KnowledgePointModel, "kp-1"),
+            (SubjectModel, subject_id),
+        ):
+            assert session.get(model, key) is None, model.__name__
