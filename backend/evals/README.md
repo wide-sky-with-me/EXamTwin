@@ -37,4 +37,4 @@ uv run python scripts/grade_strategy_submission.py --live --model gpt-6-astra \
 这是独立模型初评，未经过教师审核评分规则，不等同于正式数据库端到端评分或教师真值。
 失败和暂缓评分明确显示 incomplete，不将缺失的评分冒充最终整卷分。
 
-2026-09-28 执行记录见 `codestable/issues/052-o-模型升级与评分等级验证.md`。
+评测的取舍与局限见 `.agents/notes/implemented/testing/2026-09-28-frozen-grading-evals.md`。

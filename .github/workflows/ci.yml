@@ -18,6 +18,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          # Archived note seals are compared with the pre-change commit.
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           enable-cache: true
@@ -28,6 +31,10 @@ jobs:
       - run: uv run ruff format --check backend
       - run: uv run basedpyright
       - run: uv run python scripts/check_architecture.py
+      - run: uv run python scripts/check_docs.py
+      - run: uv run python scripts/agent_notes.py check
+        env:
+          AGENT_NOTE_ARCHIVE_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
       - run: uv run python scripts/export_openapi.py --check frontend/openapi.json
       - run: uv run pytest -m "not integration and not local_assets" -q
 

@@ -30,3 +30,9 @@ frontend/vite.config.js
 frontend/vite.config.d.ts
 .slim/deepwork/
 /demo-jev/
+# write-notes-like-deepseek ships demo assets and TS checkers; this repo keeps
+# SKILL.md/references/templates and checks notes with scripts/agent_notes.py.
+.agents/skills/write-notes-like-deepseek/*
+!.agents/skills/write-notes-like-deepseek/SKILL.md
+!.agents/skills/write-notes-like-deepseek/references/
+!.agents/skills/write-notes-like-deepseek/templates/
