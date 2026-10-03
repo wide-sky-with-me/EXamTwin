@@ -21,7 +21,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute(
-        "UPDATE subjects SET color = '#B45309' "
-        "WHERE subject_code = '9640' AND upper(color) = '#0F766E'"
-    )
+    # Irreversible data correction: #0F766E may also be a colour the user chose, and which rows
+    # held the old seed is not recorded, so rolling back leaves colours untouched.
+    pass
