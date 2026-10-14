@@ -32,6 +32,7 @@ jobs:
       - run: uv run basedpyright
       - run: uv run python scripts/check_architecture.py
       - run: uv run python scripts/check_docs.py
+      - run: uv run python scripts/build_wiki.py --check
       - run: uv run python scripts/agent_notes.py check
         env:
           AGENT_NOTE_ARCHIVE_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}

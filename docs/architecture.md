@@ -38,14 +38,15 @@ storage-gc ─────── 同一镜像 ───────────�
 | `contracts/` | 稳定 HTTP 与任务数据契约，不依赖运行时模块 | — |
 | `app/` | FastAPI/CLI 入口、HTTP 适配、唯一组合根 `app/composition.py` | — |
 
-依赖方向固定为 `subjects → knowledge → assessment → app`，`platform` 与 `contracts` 在底层且不反向
-依赖业务模块。跨模块只经 `<feature>.public`。`scripts/check_architecture.py` 在 CI 中拒绝反向依赖、
-绕过公共入口、业务模块直接引入 FastAPI、通用模块出现已安装科目代码字面量。
+依赖方向固定为 `subjects → knowledge → assessment → app`，`platform` 与 `contracts` 在底层。
+业务领域间只经上游 `<feature>.public`；`app` 适配与组合根可导入内部实现。边界由
+`scripts/check_architecture.py` 强制，源码定位见[代码组织](subsystems/code-organization.md)。
 
 ## 前端
 
 React + TypeScript + Vite 单页工作台，主导航只有“科目、试卷、复核”三个领域入口；作答与评分在
-具体试卷和作答记录的 URL 上下文内展开。见 [frontend-workbench](subsystems/frontend-workbench.md)。
+具体试卷和作答记录的 URL 上下文内展开。见[前端工作台](subsystems/frontend-workbench.md)；使用路径见
+[工作台使用](cookbook/workbench.md)。
 
 ## 数据所有权
 

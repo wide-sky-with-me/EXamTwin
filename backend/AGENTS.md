@@ -4,8 +4,8 @@ Python 3.11+，由 uv 锁定；包根 `backend/src/examtwin/`。模块职责见 
 
 ## 依赖与边界
 
-- 方向固定：`subjects → knowledge → assessment → app`；`platform`、`contracts` 不依赖业务模块。跨模块只经
-  `<feature>.public`。违反时 `scripts/check_architecture.py` 失败。
+- 方向固定：`subjects → knowledge → assessment → app`；`platform`、`contracts` 不依赖业务模块。业务领域间
+  只经上游 `<feature>.public`；`app` 适配与组合根可导入领域内部实现。`scripts/check_architecture.py` 强制边界。
 - domain 与 application 代码不导入 FastAPI、SQLAlchemy、Qdrant、boto3、LiteLLM；这些只出现在 adapter。
 - HTTP handler 只做协议转换与错误映射；依赖只在 `app/composition.py` 构造。
 - 通用模块不出现科目代码字面量；科目差异进 SubjectPack 或宿主 provider。

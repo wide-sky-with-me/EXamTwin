@@ -14,7 +14,8 @@ Status: implemented
 - 根目录 `AGENTS.md` 只放全仓常驻短规则，每条一到三行并给链接；`backend/`、`frontend/`、`subject-packs/`、
   `docs/`、`.agents/notes/` 各有专属 `AGENTS.md`，就近约束。
 - `docs/` 只写当前事实：`architecture.md` 导航，`subsystems/` 参考，`cookbook/` 操作，`postmortem/` 事故。
-  禁止变迁叙述；`docs/doc-budgets.json` 为每篇设字数上限。
+  禁止变迁叙述；`docs/doc-budgets.json` 为每篇设字数上限。Wiki 只作为派生视图，生成与发布的边界见
+  [单源 Wiki](2026-10-14-single-source-wiki.md)。
 - `.agents/notes/{proposed,implemented,rejected,archived}/{6 类}/` 记录非平凡改动的原因、被否方案与代价，
   遵循 `write-notes-like-deepseek` skill；没有全局索引。
 - 校验用 Python 实现并接入 CI：`scripts/agent_notes.py`（树、格式、归档封印）与 `scripts/check_docs.py`

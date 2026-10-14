@@ -11,11 +11,14 @@ Status: implemented
 
 - 顶层只有 `subjects`、`knowledge`、`assessment`、`platform`、`contracts`、`app`。依赖方向
   `subjects → knowledge → assessment → app`；`platform` 与 `contracts` 在底层，不依赖业务模块。
-- 跨模块只经 `<feature>.public`；domain/application 不依赖 FastAPI、SQLAlchemy、Qdrant、boto3、LiteLLM。
+- 业务领域间只经上游 `<feature>.public`；`app` 适配与组合根可导入内部实现。domain/application 不依赖
+  FastAPI、SQLAlchemy、Qdrant、boto3、LiteLLM，具体客户端和数据库访问属于 adapter。
 - Persistence adapter 归属所在业务模块；`platform` 只提供连接、Session 与客户端。
 - `app/composition.py` 是唯一组合根，只构造和连接依赖；HTTP handler 只做协议转换与错误映射。
 - 只在需要时创建 `domain.py`、`ports.py` 等文件，不预建空层；迁移不保留旧路径 re-export 或兼容 shim。
 - `scripts/check_architecture.py`（含相对导入解析）在 CI 中强制以上规则。
+- 同领域纯规则与运行编排的局部划分见[候选题规则](../simplification/2026-10-14-paper-question-candidate-rules.md)，
+  保留整卷服务与持久化入口，不扩展领域间公共接口。
 
 ## Alternatives considered
 

@@ -19,6 +19,13 @@ Status: implemented
 - Ant Design 6 承担通用控件；自定义 CSS 只用于领域内容布局。
 - 旧 URL 只做一次声明式重定向，不保留第二套页面实现。
 
+## Implementation bounds
+
+上述状态所有权条款是开发约束，不等同全库完成声明。导航和业务身份已落在路由；列表、筛选、草稿、任务
+快照和评分步骤仍有局部状态，外部答案导入仍保存科目级任务 ID，Query 取消与 Form store 未全面覆盖。
+当前实现归属见[前端工作台](../../../../docs/subsystems/frontend-workbench.md)，不把局部整理当作状态迁移。
+复核分组规则的独立归属见[分组决定](../simplification/2026-10-14-review-queue-grouping.md)。
+
 ## Alternatives considered
 
 - **保留五个平级模块** — 改动最小。重复发现上下文，错误配对风险高。

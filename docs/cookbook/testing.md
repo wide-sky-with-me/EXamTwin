@@ -21,6 +21,7 @@ uv run pytest -m "not integration and not local_assets" -q
 ```bash
 uv run python scripts/check_docs.py
 uv run python scripts/agent_notes.py check
+uv run python scripts/build_wiki.py --check
 ```
 
 ## 集成测试

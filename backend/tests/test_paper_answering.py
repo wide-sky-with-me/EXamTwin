@@ -7,14 +7,9 @@ import time
 from typing import Any
 
 import pytest
+from examtwin.assessment import paper_answering
 from examtwin.assessment.answering_agent.contracts import QuestionImage
-from examtwin.assessment.paper_answering import (
-    PaperAnswerService,
-    _align_primary_question_numbers_from_recovery,
-    _drop_covered_recovery_fragments,
-    _merge_split_questions,
-    _split_markdown_batches,
-)
+from examtwin.assessment.paper_answering import PaperAnswerService, _split_markdown_batches
 from examtwin.assessment.paper_parsing import (
     question_has_unresolved_source_placeholder,
     question_requires_visual_context,
@@ -23,10 +18,28 @@ from examtwin.assessment.paper_parsing import (
     upload_to_markdown,
     validate_question_source_structure,
 )
+from examtwin.assessment.paper_question_candidates import (
+    _align_primary_question_numbers_from_recovery,
+    _drop_covered_recovery_fragments,
+    _merge_split_questions,
+)
 from examtwin.assessment.paper_vision import format_physical_page_markdown
 from examtwin.contracts import AskResponse, Citation
 from examtwin.platform.config import Settings
 from examtwin.subjects.public import subject_context
+
+
+def test_candidate_rules_have_no_legacy_service_exports() -> None:
+    moved_names = {
+        "_QuestionCandidateConflict",
+        "_QuestionRepairGroup",
+        "_QuestionRepairPlan",
+        "_align_primary_question_numbers_from_recovery",
+        "_apply_question_repair_plan",
+        "_drop_covered_recovery_fragments",
+        "_merge_split_questions",
+    }
+    assert not moved_names.intersection(vars(paper_answering))
 
 
 def fake_catalog(_unit_code: str | None) -> list[dict[str, Any]]:
