@@ -18,6 +18,7 @@
 | 架构与代码定位 | [架构全景](docs/architecture.md)、[代码组织](docs/subsystems/code-organization.md) |
 | 测试与 Wiki 发布 | [测试矩阵](docs/cookbook/testing.md)、[Wiki 发布](docs/cookbook/wiki-publishing.md) |
 | 开发约束与设计依据 | [AGENTS.md](AGENTS.md)、[决策笔记](.agents/notes/) |
+| 许可与公开维护 | [LICENSE](LICENSE)、[仓库治理](docs/cookbook/repository-governance.md) |
 
 ## 技术栈
 

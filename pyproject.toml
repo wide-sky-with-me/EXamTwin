@@ -3,6 +3,8 @@ name = "examtwin"
 version = "0.1.0"
 description = "Multi-subject evidence-grounded RAG, paper answering, and marking workbench"
 readme = "README.md"
+license = "AGPL-3.0-only"
+license-files = ["LICENSE"]
 requires-python = ">=3.11,<3.14"
 dependencies = [
   "alembic>=1.16,<2",

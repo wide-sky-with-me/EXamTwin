@@ -27,6 +27,7 @@ ExamTwin 面向 OxfordAQA International AS/A-level 数学与经济，把考试�
 - [新增科目](cookbook/adding-a-subject.md)：声明能力、验证课纲与检索门禁。
 - [测试与检查](cookbook/testing.md)：隔离回归、契约、集成与视觉测试。
 - [Wiki 发布](cookbook/wiki-publishing.md)：从同一份文档生成首页、侧栏及参考页。
+- [仓库治理](cookbook/repository-governance.md)：代码许可、第三方与资料边界、密钥保护和主分支规则。
 
 ## 规则与设计依据
 

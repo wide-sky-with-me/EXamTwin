@@ -22,6 +22,8 @@ Status: implemented
   禁止覆盖源码目录和输出 symlink，遇到链接错误停止。
 - [发布手册](../../../../docs/cookbook/wiki-publishing.md) 区分 Wiki 设置、首次网页首页、私有功能资格与 Git
   仓库可用性。生成器完成不代表远端已发布；首次初始化不更改仓库可见性或账户付费计划。
+- [公开仓库保护与许可](2026-10-14-public-repository-governance.md)使用同一单源发布路径，保留本笔记的生成与
+  覆盖保护决定；许可和 GitHub 权限策略由该笔记及其当前手册维护。
 
 ## Alternatives considered
 
